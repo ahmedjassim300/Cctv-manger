@@ -502,8 +502,43 @@ FBAUTH.onAuthStateChanged(function(fbUser){
   if(!fbUser) return;
   // جلب بيانات المستخدم من قاعدة البيانات
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
-    const userData=snap.val();
-    if(!userData){ doLogout(); const e=$('lerr'); e.textContent='❌ حسابك غير مسجّل في النظام'; e.style.display='block'; return; }
+    let userData=snap.val();
+    if(!userData){
+      // إذا كان أول مستخدم (المدير) أضف بياناته تلقائياً
+      FBDB.ref('cctv/users').once('value').then(allSnap=>{
+        const allUsers = allSnap.val();
+        const isFirst = !allUsers || Object.keys(allUsers).length===0;
+        if(isFirst){
+          // أول مستخدم يسجل دخول يصبح مديراً تلقائياً
+          const newUser = {
+            uid: fbUser.uid,
+            email: fbUser.email,
+            name: fbUser.email.split('@')[0],
+            role: 'manager',
+            active: true,
+            perms: null,
+            createdAt: new Date().toLocaleString('ar-SA')
+          };
+          FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(()=>{
+            CU={...newUser};
+            $('lload').style.display='none';
+            $('lerr').style.display='none';
+            $('ls').style.display='none';
+            $('app').style.display='flex';
+            const av=$('sav');
+            av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#f85149';
+            $('snm').textContent=CU.name;
+            $('srl').textContent=ROLES[CU.role]; $('srl').style.color=RC[CU.role];
+            fbInitDB();
+            fbStartSync();
+          });
+        } else {
+          doLogout();
+          const e=$('lerr'); e.textContent='❌ حسابك غير مسجّل في النظام. تواصل مع المدير'; e.style.display='block';
+        }
+      });
+      return;
+    }
     if(!userData.active){ doLogout(); const e=$('lerr'); e.textContent='⛔ حسابك معطّل، تواصل مع المدير'; e.style.display='block'; return; }
     CU={...userData, uid:fbUser.uid, email:fbUser.email};
     $('lload').style.display='none';
@@ -530,12 +565,11 @@ FBAUTH.onAuthStateChanged(function(fbUser){
 function fbInitDB(){
   FBDB.ref('cctv/sites').once('value').then(snap=>{
     if(!snap.exists()){
-      // إنشاء المواقع الافتراضية
+      // إنشاء المواقع الافتراضية مع ترتيب رقمي
       const mainSite = 'المستودع المركزي';
-      const id1=gid(), id2=gid(), id3=gid();
-      fbSet('sites/'+id1, mainSite);
-      fbSet('sites/'+id2, 'مستودع البصرة');
-      fbSet('sites/'+id3, 'مستودع الموصل');
+      fbSet('sites/000_main', mainSite);
+      fbSet('sites/001_site', 'مستودع البصرة');
+      fbSet('sites/002_site', 'مستودع الموصل');
       fbSet('mainSite', mainSite);
       fbSet('inv/'+fbKey(mainSite)+'/___init',{___init:true});
       fbSet('inv/'+fbKey('مستودع البصرة')+'/___init',{___init:true});
@@ -561,18 +595,28 @@ function fbStartSync(){
     const data=snap.val()||{};
 
     // sites
-    // sites مخزنة كـ {id: name} أو array
+    // sites مخزنة كـ {key: name} — Firebase يرتبها أبجدياً بالـ key
+    const mainSiteName = data.mainSite || 'المستودع المركزي';
     if(data.sites){
       const raw = data.sites;
       if(Array.isArray(raw)){
         DB.sites = raw.filter(s=>typeof s==='string');
       } else {
-        DB.sites = Object.values(raw).filter(s=>typeof s==='string');
+        // ترتيب حسب الـ key لضمان الرئيسي أولاً (000_main يجي قبل أي رقم آخر)
+        const sorted = Object.entries(raw)
+          .sort((a,b)=>a[0].localeCompare(b[0]))
+          .map(([k,v])=>v)
+          .filter(s=>typeof s==='string');
+        DB.sites = sorted;
       }
     } else {
-      DB.sites = ['المستودع المركزي'];
+      DB.sites = [mainSiteName];
     }
-    if(!DB.sites.length) DB.sites = ['المستودع المركزي'];
+    // ضمان أن الرئيسي أول دائماً
+    if(!DB.sites.length) DB.sites = [mainSiteName];
+    if(DB.sites[0] !== mainSiteName){
+      DB.sites = [mainSiteName, ...DB.sites.filter(s=>s!==mainSiteName)];
+    }
     DB.mainSite = data.mainSite || DB.sites[0];
 
     // inventory
@@ -1674,10 +1718,10 @@ function addSite(){
   const n=val('nst');
   if(!n){ toast('أدخل الاسم','err'); return; }
   if(DB.sites.includes(n)){ toast('موجود مسبقاً','err'); return; }
-  const siteId = gid();
-  fbSet('sites/'+siteId, n);
+  // ترقيم تسلسلي لضمان الترتيب بعد الرئيسي
+  const siteNum = String(Date.now()).slice(-6);
+  fbSet('sites/'+siteNum+'_site', n);
   fbSet('inv/'+fbKey(n)+'/___init',{___init:true});
-  fbSet('mainSite', DB.mainSite||'المستودع المركزي');
   toast('تم الإضافة');
 }
 function renameSite(i){
