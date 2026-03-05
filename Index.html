@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
 <title>CCTV Manager</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CCTV Manager">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{--bg:#0d1117;--sf:#161b22;--br:#30363d;--tx:#e6edf3;--mt:#7d8590;--bl:#58a6ff;--gn:#3fb950;--rd:#f85149;--yl:#d29922;--pu:#bc8cff;}
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -443,6 +452,11 @@ function mft(l,fn,cl='btn-bl'){ return `<div class="mft"><button class="btn btn-
 function pushN(text,type='info'){
   fbPush('notifs',{text,type,time:ts(),read:false,_ts:Date.now()});
   buildNav();
+  // إشعار محلي
+  try{
+    const icons = {error:'🔴', warn:'🟡', info:'🔵'};
+    localNotif('CCTV Manager', text);
+  }catch(e){}
 }
 
 // ============================================
@@ -553,6 +567,8 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     fbInitDB();
     // بدء المزامنة الفورية
     fbStartSync();
+    // طلب إذن الإشعارات
+    setTimeout(requestNotifPermission, 2000);
   }).catch(err=>{
     doLogout();
     const e=$('lerr'); e.textContent='❌ خطأ: '+err.message; e.style.display='block';
@@ -2334,6 +2350,38 @@ function selDir(btn,dir){
   const inp=$('fdir'); if(inp) inp.value=dir;
   const prev=$('dir-preview'); if(prev) prev.textContent=getDirArrow(dir);
   const lbl=$('dir-label'); if(lbl) lbl.textContent=dir;
+}
+
+// ═══════════════════════════════════════════════════════
+//  PWA — Service Worker & Notifications
+// ═══════════════════════════════════════════════════════
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    console.log('✅ Service Worker registered');
+    window._swReg = reg;
+  }).catch(err=>console.warn('SW error:', err));
+}
+
+// طلب إذن الإشعارات بعد تسجيل الدخول
+function requestNotifPermission(){
+  if('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission().then(perm=>{
+      if(perm === 'granted') console.log('✅ Notifications granted');
+    });
+  }
+}
+
+// إرسال إشعار محلي
+function localNotif(title, body, icon){
+  if('Notification' in window && Notification.permission === 'granted'){
+    new Notification(title, {
+      body: body||'',
+      icon: icon||'icon-192.png',
+      badge: 'icon-192.png',
+      dir: 'rtl',
+      lang: 'ar'
+    });
+  }
 }
 </script>
 </body>

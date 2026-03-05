@@ -1,0 +1,39 @@
+{
+  "name": "CCTV Manager",
+  "short_name": "CCTV",
+  "description": "نظام إدارة كاميرات المراقبة",
+  "start_url": "./Index.html",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "orientation": "portrait-primary",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "utilities"],
+  "shortcuts": [
+    {
+      "name": "لوحة التحكم",
+      "url": "./Index.html#dashboard",
+      "description": "فتح لوحة التحكم"
+    },
+    {
+      "name": "الأعطال",
+      "url": "./Index.html#faults",
+      "description": "عرض الأعطال"
+    }
+  ]
+}
