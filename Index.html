@@ -603,11 +603,12 @@ function fbStartSync(){
         DB.sites = raw.filter(s=>typeof s==='string');
       } else {
         // ترتيب حسب الـ key لضمان الرئيسي أولاً (000_main يجي قبل أي رقم آخر)
-        const sorted = Object.entries(raw)
+        const sortedEntries = Object.entries(raw)
           .sort((a,b)=>a[0].localeCompare(b[0]))
-          .map(([k,v])=>v)
-          .filter(s=>typeof s==='string');
-        DB.sites = sorted;
+          .filter(([k,v])=>typeof v==='string');
+        DB.sites = sortedEntries.map(([k,v])=>v);
+        window._sitesKeys = {}; // {siteName: firebaseKey}
+        sortedEntries.forEach(([k,v])=>{ window._sitesKeys[v]=k; });
       }
     } else {
       DB.sites = [mainSiteName];
@@ -1740,7 +1741,10 @@ function renameSite(i){
 }
 function delSite(i){
   if(!confirm('حذف الموقع؟')) return;
-  fbDel('inv/'+fbKey(DB.sites[i]));
+  const siteName = DB.sites[i];
+  const siteKey = window._sitesKeys && window._sitesKeys[siteName];
+  if(siteKey) fbDel('sites/'+siteKey);
+  fbDel('inv/'+fbKey(siteName));
   toast('تم حذف المخزن','err');
 }
 
