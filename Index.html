@@ -360,8 +360,8 @@ let DB = {
     {id:'u5',username:'field2',pw:'field123',role:'field',     name:'صاعود: خالد القحطاني',active:true,perms:null},
     {id:'u6',username:'tech2', pw:'tech123', role:'technician',name:'فني: عبدالله السلمي',active:true,perms:null},
   ],
-  sites:['المستودع المركزي - بغداد','مستودع البصرة','مستودع الموصل'],
-  mainSite:'المستودع المركزي - بغداد',
+  sites:['المستودع المركزي','مستودع البصرة','مستودع الموصل'],
+  mainSite:'المستودع المركزي',
   inv:{},
   moves:[],
   faults:[],
@@ -406,7 +406,7 @@ function canUserSeeFieldSite(site) {
   if(!CU) return false;
   if(CU.role === 'manager') return true; // المدير يرى كل شيء
   if(!site.allowedUsers || site.allowedUsers.length === 0) return false; // إذا لم يحدد أحد، لا يراه أحد
-  return site.allowedUsers.includes(CU.id);
+  return site.allowedUsers.includes(CU.uid||CU.id);
 }
 
 // فلترة المواقع الميدانية حسب صلاحيات المستخدم
@@ -514,6 +514,8 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#58a6ff';
     $('snm').textContent=CU.name;
     $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#58a6ff';
+    // تهيئة قاعدة البيانات إذا كانت فارغة (أول دخول)
+    fbInitDB();
     // بدء المزامنة الفورية
     fbStartSync();
   }).catch(err=>{
@@ -523,6 +525,35 @@ FBAUTH.onAuthStateChanged(function(fbUser){
 });
 
 // ═══════════════════════════════════════════════════════
+//  FIREBASE INIT — تهيئة البيانات الأولية
+// ═══════════════════════════════════════════════════════
+function fbInitDB(){
+  FBDB.ref('cctv/sites').once('value').then(snap=>{
+    if(!snap.exists()){
+      // إنشاء المواقع الافتراضية
+      const mainSite = 'المستودع المركزي';
+      const id1=gid(), id2=gid(), id3=gid();
+      fbSet('sites/'+id1, mainSite);
+      fbSet('sites/'+id2, 'مستودع البصرة');
+      fbSet('sites/'+id3, 'مستودع الموصل');
+      fbSet('mainSite', mainSite);
+      fbSet('inv/'+fbKey(mainSite)+'/___init',{___init:true});
+      fbSet('inv/'+fbKey('مستودع البصرة')+'/___init',{___init:true});
+      fbSet('inv/'+fbKey('مستودع الموصل')+'/___init',{___init:true});
+    }
+  });
+  // تحديث uid في بيانات المستخدم إذا كان ناقصاً
+  if(CU && CU.uid){
+    FBDB.ref('cctv/users/'+CU.uid+'/uid').once('value').then(s=>{
+      if(!s.exists()) fbSet('users/'+CU.uid+'/uid', CU.uid);
+    });
+    FBDB.ref('cctv/users/'+CU.uid+'/email').once('value').then(s=>{
+      if(!s.exists() && CU.email) fbSet('users/'+CU.uid+'/email', CU.email);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 //  FIREBASE SYNC — مزامنة فورية مع قاعدة البيانات
 // ═══════════════════════════════════════════════════════
 function fbStartSync(){
@@ -530,7 +561,18 @@ function fbStartSync(){
     const data=snap.val()||{};
 
     // sites
-    DB.sites = data.sites ? (Array.isArray(data.sites)?data.sites:Object.values(data.sites)) : ['المستودع المركزي - بغداد'];
+    // sites مخزنة كـ {id: name} أو array
+    if(data.sites){
+      const raw = data.sites;
+      if(Array.isArray(raw)){
+        DB.sites = raw.filter(s=>typeof s==='string');
+      } else {
+        DB.sites = Object.values(raw).filter(s=>typeof s==='string');
+      }
+    } else {
+      DB.sites = ['المستودع المركزي'];
+    }
+    if(!DB.sites.length) DB.sites = ['المستودع المركزي'];
     DB.mainSite = data.mainSite || DB.sites[0];
 
     // inventory
@@ -540,7 +582,7 @@ function fbStartSync(){
       Object.entries(data.inv).forEach(([k,items])=>{
         const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
         if(!DB.inv[siteName]) DB.inv[siteName]=[];
-        Object.values(items).forEach(item=>DB.inv[siteName].push(item));
+        Object.values(items).forEach(item=>{ if(!item.___init) DB.inv[siteName].push(item); });
       });
     }
 
@@ -1315,7 +1357,7 @@ function pgUsers(){
         </div>
         ${u.id===CU.id?`<span style="font-size:11px;color:var(--bl);margin-right:auto">أنت</span>`:''}
       </div>
-      <div style="font-size:12px;color:var(--mt);margin-bottom:6px">👤 ${esc(u.username)}</div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:6px">📧 ${esc(u.email||u.username||'')}</div>
       ${u.perms?`<div style="font-size:11px;color:var(--pu);margin-bottom:8px">🔑 صلاحيات مخصصة</div>`:
         `<div style="font-size:11px;color:var(--mt);margin-bottom:8px">🔑 صلاحيات الدور الافتراضية</div>`}
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:5px">
@@ -1333,31 +1375,68 @@ function pgUsers(){
 function openAddUser(){ showUserForm(null,-1); }
 function openEditUser(i){ showUserForm(DB.users[i],i); }
 function showUserForm(u,idx){
-  const f=u||{name:'',username:'',pw:'',role:'technician'};
+  const f=u||{name:'',email:'',pw:'',role:'technician'};
   openModal(`${mhd(idx>=0?'تعديل المستخدم':'إضافة مستخدم جديد')}
-  <div class="field"><label>الاسم الكامل</label><input id="unm" value="${esc(f.name)}"></div>
-  <div class="field"><label>اسم المستخدم</label><input id="uusr" value="${esc(f.username)}"></div>
-  <div class="field"><label>كلمة المرور</label><input type="password" id="upw" value="${esc(f.pw)}"></div>
+  <div class="field"><label>الاسم الكامل *</label><input id="unm" value="${esc(f.name)}" placeholder="محمد أحمد"></div>
+  ${idx<0?`<div class="field"><label>البريد الإلكتروني *</label><input id="uusr" type="email" value="" placeholder="user@example.com"></div>
+  <div class="field"><label>كلمة المرور *</label><input type="password" id="upw" placeholder="6 أحرف على الأقل"></div>`
+  :`<div style="background:var(--bg);border-radius:7px;padding:9px 12px;font-size:13px;color:var(--mt);margin-bottom:12px">📧 ${esc(f.email||f.username||'')}</div>`}
   <div class="field"><label>الدور الوظيفي</label>
     <select id="urol">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}"${f.role===k?' selected':''}>${v}</option>`).join('')}</select>
   </div>
+  ${idx<0?`<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:7px;padding:9px 12px;font-size:12px;color:var(--bl);margin-bottom:12px">
+    ℹ️ سيتم إنشاء الحساب في Firebase Authentication تلقائياً
+  </div>`:''}
   ${mft('💾 حفظ',`saveUser(${idx})`)}`);
 }
-function saveUser(idx){
-  const name=val('unm'),usr=val('uusr'),pw=val('upw'),role=val('urol');
-  if(!name||!usr||!pw){ toast('جميع الحقول مطلوبة','err'); return; }
-  if(idx<0&&DB.users.find(u=>u.username===usr)){ toast('اسم المستخدم مستخدم مسبقاً','err'); return; }
+async function saveUser(idx){
+  const name=val('unm'), role=val('urol');
+  if(!name){ toast('أدخل الاسم','err'); return; }
+
   if(idx>=0){
-    const uid=DB.users[idx].uid||DB.users[idx].id;
-    fbUpdate('users/'+uid,{name,role});
-    toast('تم التحديث — كلمة المرور تُعدَّل من Firebase Console');
-  } else {
-    toast('لإضافة مستخدم جديد: أضفه في Firebase Auth ثم في قاعدة البيانات','warn');
+    // تعديل مستخدم موجود
+    const u=DB.users[idx];
+    const uid=u.uid||u.id;
+    await fbUpdate('users/'+uid,{name,role});
+    closeModal(); toast('تم التحديث');
+    return;
   }
-  closeModal();
+
+  // إضافة مستخدم جديد عبر Firebase Auth REST API
+  const email=val('uusr'), pw=val('upw');
+  if(!email||!pw){ toast('البريد وكلمة المرور مطلوبان','err'); return; }
+  if(pw.length<6){ toast('كلمة المرور 6 أحرف على الأقل','err'); return; }
+  if(DB.users.find(u=>u.email===email)){ toast('البريد مستخدم مسبقاً','err'); return; }
+
+  const btn=document.querySelector('.mft .btn-bl');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ جار الإنشاء...'; }
+
+  try{
+    // إنشاء المستخدم في Firebase Auth
+    const apiKey = firebaseConfig.apiKey;
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({email, password:pw, returnSecureToken:true})
+    });
+    const data = await res.json();
+    if(data.error){ toast('❌ '+data.error.message,'err'); if(btn){btn.disabled=false;btn.textContent='💾 حفظ';} return; }
+
+    const newUid = data.localId;
+    // حفظ بيانات المستخدم في Realtime Database
+    await fbSet('users/'+newUid,{
+      uid:newUid, name, email, role,
+      active:true, perms:null,
+      createdBy:CU.name, createdAt:ts()
+    });
+    closeModal(); toast('✅ تم إنشاء الحساب بنجاح');
+  } catch(e){
+    toast('❌ خطأ: '+e.message,'err');
+    if(btn){ btn.disabled=false; btn.textContent='💾 حفظ'; }
+  }
 }
 function toggleUser(i){
-  if(DB.users[i].id===CU.id){ toast('لا يمكن تعطيل حسابك','err'); return; }
+  if((DB.users[i].uid||DB.users[i].id)===CU.uid){ toast('لا يمكن تعطيل حسابك','err'); return; }
   const u=DB.users[i]; if(!u)return; fbUpdate('users/'+(u.uid||u.id),{active:!u.active});
 }
 
@@ -1595,7 +1674,11 @@ function addSite(){
   const n=val('nst');
   if(!n){ toast('أدخل الاسم','err'); return; }
   if(DB.sites.includes(n)){ toast('موجود مسبقاً','err'); return; }
-  fbPush('sites',n); fbSet('inv/'+fbKey(n),{'__init':true}); toast('تم الإضافة');
+  const siteId = gid();
+  fbSet('sites/'+siteId, n);
+  fbSet('inv/'+fbKey(n)+'/___init',{___init:true});
+  fbSet('mainSite', DB.mainSite||'المستودع المركزي');
+  toast('تم الإضافة');
 }
 function renameSite(i){
   const nv=prompt('الاسم الجديد:',DB.sites[i]);
@@ -1609,7 +1692,7 @@ function renameSite(i){
   // تحديث اسم الموقع في قائمة المواقع
   const siteId=Object.keys({}).find(k=>false); // سيُحدَّث عبر المزامنة
   if(ISITE===DB.sites[i]) ISITE=nv;
-  toast('تم التغيير — أعد تسمية الموقع في قائمة المواقع يدوياً في Firebase Console');
+  toast('تم التغيير');
 }
 function delSite(i){
   if(!confirm('حذف الموقع؟')) return;
