@@ -259,6 +259,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -277,6 +278,8 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const FBAUTH = firebase.auth();
 const FBDB   = firebase.database();
+let FBMSG = null;
+try { FBMSG = firebase.messaging(); } catch(e) { console.warn('FCM not supported:', e); }
 
 // ── مفتاح آمن للاستخدام في Firebase paths ──
 function fbKey(str){ return encodeURIComponent(str).replace(/\./g,'_dot_').replace(/\//g,'_sl_').replace(/#/g,'_h_').replace(/\[/g,'_lb_').replace(/\]/g,'_rb_').replace(/\?/g,'_q_'); }
@@ -2362,25 +2365,47 @@ if('serviceWorker' in navigator){
   }).catch(err=>console.warn('SW error:', err));
 }
 
-// طلب إذن الإشعارات بعد تسجيل الدخول
-function requestNotifPermission(){
-  if('Notification' in window && Notification.permission === 'default'){
-    Notification.requestPermission().then(perm=>{
-      if(perm === 'granted') console.log('✅ Notifications granted');
-    });
-  }
+// VAPID Key من Firebase Console → Project Settings → Cloud Messaging
+const VAPID_KEY = 'BPIzplWUWcc2B3O5bzDgIikkkB8JMvpR-K46qTFWYj8DOl4smrHcAjyeAfEMKOpGXgHrx7PeJq8-vNYnM-vw4Es';
+
+// طلب إذن الإشعارات وتسجيل FCM Token
+async function requestNotifPermission(){
+  if(!FBMSG) return;
+  try {
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted') return;
+    const token = await FBMSG.getToken({ vapidKey: VAPID_KEY });
+    if(token && CU){
+      // حفظ التوكن في Firebase مع بيانات المستخدم
+      await fbSet('users/'+CU.uid+'/fcmToken', token);
+      console.log('✅ FCM Token saved');
+    }
+  } catch(e) { console.warn('FCM token error:', e); }
+}
+
+// استقبال الإشعارات عندما التطبيق مفتوح
+if(FBMSG){
+  FBMSG.onMessage(payload=>{
+    const {title, body} = payload.notification||{};
+    localNotif(title||'CCTV Manager', body||'');
+  });
 }
 
 // إرسال إشعار محلي
-function localNotif(title, body, icon){
+function localNotif(title, body){
   if('Notification' in window && Notification.permission === 'granted'){
-    new Notification(title, {
-      body: body||'',
-      icon: icon||'icon-192.png',
-      badge: 'icon-192.png',
-      dir: 'rtl',
-      lang: 'ar'
-    });
+    if(window._swReg){
+      window._swReg.showNotification(title||'CCTV Manager', {
+        body: body||'',
+        icon: 'icon-192.png',
+        badge: 'icon-192.png',
+        dir: 'rtl',
+        lang: 'ar',
+        vibrate: [200,100,200]
+      });
+    } else {
+      new Notification(title||'CCTV Manager', {body:body||'', icon:'icon-192.png', dir:'rtl'});
+    }
   }
 }
 </script>
