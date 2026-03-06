@@ -458,13 +458,46 @@ function mft(l,fn,cl='btn-bl'){ return `<div class="mft"><button class="btn btn-
 // ============================================
 //  NOTIFICATIONS
 // ============================================
+// إشعار عام لكل المستخدمين
 function pushN(text,type='info'){
   fbPush('notifs',{text,type,time:ts(),read:false,_ts:Date.now()});
   buildNav();
-  // إشعار محلي (عند فتح التطبيق)
   try{ localNotif('CCTV Manager', text); }catch(e){}
-  // إشعار في الخلفية عبر Cloudflare Worker
   try{ sendPushNotif('CCTV Manager', text, type); }catch(e){}
+}
+
+// إشعار مرتبط بموقع ميداني — يُرسل فقط لمن لديه صلاحية
+function pushFieldN(text, fieldSiteId, type='info'){
+  const site = DB.fieldSites.find(s=>s.id===fieldSiteId);
+  const allowedUsers = site?.allowedUsers || [];
+  
+  // دائماً يصل للمدير
+  // يصل للمستخدم فقط إذا كان في allowedUsers
+  fbPush('notifs',{
+    text, type, time:ts(), read:false, _ts:Date.now(),
+    fieldSiteId,  // ← مهم للفلترة عند العرض
+    allowedUsers: allowedUsers.length ? allowedUsers : ['all']
+  });
+  buildNav();
+  
+  // إشعار محلي — فقط إذا كان المستخدم الحالي مديراً أو في القائمة
+  const myUid = CU.uid||CU.id;
+  const canSee = CU.role==='manager' || allowedUsers.includes(myUid);
+  if(canSee){
+    try{ localNotif('CCTV Manager', text); }catch(e){}
+  }
+  
+  // إرسال Push للأجهزة عبر Cloudflare مع قائمة المسموح لهم
+  try{
+    fetch(CF_WORKER+'/notify', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title:'CCTV Manager', message:text, type,
+        allowedUsers: allowedUsers.length ? allowedUsers : null // null = أرسل للكل
+      })
+    }).catch(()=>{});
+  }catch(e){}
 }
 
 // ============================================
@@ -687,7 +720,12 @@ function fbStartSync(){
 //  NAV
 // ============================================
 function buildNav(){
-  const unread=DB.notifs.filter(n=>!n.read).length;
+  const _myUid=CU?.uid||CU?.id;
+  const unread=DB.notifs.filter(n=>{
+    if(!CU||CU.role==='manager') return !n.read;
+    if(!n.allowedUsers||n.allowedUsers.includes('all')) return !n.read;
+    return n.allowedUsers.includes(_myUid)&&!n.read;
+  }).length;
   const NAV=[
     {id:'dashboard', label:'لوحة التحكم',      icon:'📊', perm:null},
     {id:'inventory', label:'المخزن',             icon:'🏪', perm:'inv'},
@@ -719,7 +757,12 @@ function go(page){
 function pgDash(){
   const ai=Object.values(DB.inv).flat();
   const af=DB.faults.filter(f=>f.status!=='resolved');
-  const unread=DB.notifs.filter(n=>!n.read).length;
+  const _myUid=CU?.uid||CU?.id;
+  const unread=DB.notifs.filter(n=>{
+    if(!CU||CU.role==='manager') return !n.read;
+    if(!n.allowedUsers||n.allowedUsers.includes('all')) return !n.read;
+    return n.allowedUsers.includes(_myUid)&&!n.read;
+  }).length;
   const role=CU.role;
 
   let statsH='';
@@ -1345,9 +1388,18 @@ function saveFault(){
     return;
   }
   
-  fbPush('faults',{location:loc,pointId:pt,camSN:val('fsn'),reason:rsn,
-    desc:val('fdsc'),priority:val('fpri'),by:CU.name,date:ts(),status:'open',log:[]});
-  pushN('🔴 عطل جديد في '+loc+' — النقطة: '+pt,'error');
+  // إيجاد الموقع الميداني المرتبط
+  const relatedSite = DB.fieldSites.find(s=>s.name===loc);
+  const faultId = await fbPush('faults',{
+    location:loc,pointId:pt,camSN:val('fsn'),reason:rsn,
+    desc:val('fdsc'),priority:val('fpri'),by:CU.name,date:ts(),status:'open',log:[],
+    fieldSiteId: relatedSite?.id||null
+  });
+  if(relatedSite){
+    pushFieldN('🔴 عطل جديد في '+loc+' — النقطة: '+pt, relatedSite.id, 'error');
+  } else {
+    pushN('🔴 عطل جديد في '+loc+' — النقطة: '+pt,'error');
+  }
   closeModal(); toast('تم إرسال البلاغ');
 }
 
@@ -1357,7 +1409,11 @@ function updFaultStatus(f, ri, status){
   const upd={status,log};
   if(status==='resolved') upd.resolvedAt=ts();
   fbUpdate('faults/'+f.id, upd);
-  pushN((st?.ico||'')+' عطل '+f.location+'/'+f.pointId+': '+(st?.l||status),'info');
+  if(f.fieldSiteId){
+    pushFieldN((st?.ico||'')+' عطل '+f.location+'/'+f.pointId+': '+(st?.l||status), f.fieldSiteId, 'info');
+  } else {
+    pushN((st?.ico||'')+' عطل '+f.location+'/'+f.pointId+': '+(st?.l||status),'info');
+  }
   toast('تم تحديث حالة العطل');
 }
 
@@ -1369,7 +1425,14 @@ function doUpdFault(ri, status){
 //  NOTIFICATIONS
 // ============================================
 function pgNotifs(){
-  const unread=DB.notifs.filter(n=>!n.read).length;
+  // فلترة الإشعارات حسب الصلاحيات
+  const myUid = CU.uid||CU.id;
+  const visibleNotifs = DB.notifs.filter(n=>{
+    if(CU.role==='manager') return true; // المدير يرى كل شيء
+    if(!n.allowedUsers || n.allowedUsers.includes('all')) return true; // إشعار عام
+    return n.allowedUsers.includes(myUid); // فقط من في القائمة
+  });
+  const unread=visibleNotifs.filter(n=>!n.read).length;
   $('page').innerHTML=`
   <div class="ph">
     <div><div class="pt">🔔 الإشعارات</div>${unread?`<div class="ps">${unread} غير مقروءة</div>`:''}</div>
@@ -2368,7 +2431,7 @@ function saveFieldCam(fsId,ci){
     addedBy:CU.name, addedAt:(ci>=0&&fs.cameras[ci]?.addedAt)||ts()
   };
   fbSet('fieldSites/'+fsId+'/cameras/'+cam.id, cam);
-  pushN('📷 '+(ci>=0?'تعديل':'إضافة')+' كاميرا: '+nm+' ← '+fs.name);
+  pushFieldN('📷 '+(ci>=0?'تعديل':'إضافة')+' كاميرا: '+nm+' ← '+fs.name, fsId);
   closeModal(); toast(ci>=0?'تم التعديل':'تم الإضافة');
 }
 
