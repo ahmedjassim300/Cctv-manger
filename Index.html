@@ -243,7 +243,10 @@ tr:hover td{background:rgba(255,255,255,.025);}
         <div class="sb-ur" id="srl"></div>
       </div>
     </div>
-    <div class="sb-bot"><button class="btn btn-rd btn-sm" onclick="doLogout()">🚪</button></div>
+    <div class="sb-bot">
+      <button class="btn btn-sm" style="background:#58a6ff22;border:1px solid #58a6ff44;color:var(--bl);margin-bottom:6px" onclick="requestNotifPermission()" title="تفعيل الإشعارات">🔔</button>
+      <button class="btn btn-rd btn-sm" onclick="doLogout()">🚪</button>
+    </div>
   </div>
   <div id="main"><div id="page"></div></div>
 </div>
@@ -2381,17 +2384,24 @@ function sendPushNotif(title, message, type){
 
 // طلب إذن الإشعارات وتسجيل FCM Token
 async function requestNotifPermission(){
-  if(!FBMSG) return;
+  if(!FBMSG){ toast('FCM غير متاح في هذا المتصفح','warn'); return; }
   try {
     const perm = await Notification.requestPermission();
-    if(perm !== 'granted') return;
+    if(perm !== 'granted'){ toast('الإشعارات غير مسموحة','warn'); return; }
+    toast('⏳ جار تفعيل الإشعارات...','warn');
     const token = await FBMSG.getToken({ vapidKey: VAPID_KEY });
     if(token && CU){
-      // حفظ التوكن في Firebase مع بيانات المستخدم
       await fbSet('users/'+CU.uid+'/fcmToken', token);
-      console.log('✅ FCM Token saved');
+      toast('✅ الإشعارات مفعّلة');
+      console.log('✅ FCM Token:', token);
+    } else {
+      toast('❌ فشل الحصول على التوكن','err');
+      console.warn('No token or CU:', token, CU);
     }
-  } catch(e) { console.warn('FCM token error:', e); }
+  } catch(e) {
+    toast('❌ خطأ: '+e.message,'err');
+    console.error('FCM error:', e);
+  }
 }
 
 // استقبال الإشعارات عندما التطبيق مفتوح
