@@ -16,8 +16,8 @@
 <style>
 :root{--bg:#0d1117;--sf:#161b22;--br:#30363d;--tx:#e6edf3;--mt:#7d8590;--bl:#58a6ff;--gn:#3fb950;--rd:#f85149;--yl:#d29922;--pu:#bc8cff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;font-size:14px;}
-body { overflow-x: hidden; }
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;font-size:17px;}
+body { overflow-x: hidden; font-size: 15px; }
 ::-webkit-scrollbar{width:5px;height:5px;}::-webkit-scrollbar-track{background:var(--bg);}::-webkit-scrollbar-thumb{background:var(--br);border-radius:3px;}
 
 #app{ display: none; flex-direction: column; height: 100vh; max-height: 100vh; overflow: hidden; }
@@ -44,8 +44,8 @@ body { overflow-x: hidden; }
 
 .sb-user { flex-shrink: 0; }
 .sb-ui { display: flex; align-items: center; gap: 8px; background: var(--bg); padding: 4px 8px; border-radius: 20px; }
-.av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#fff;flex-shrink:0;}
-.sb-un{font-size:12px;font-weight:600; white-space: nowrap;}
+.av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:#fff;flex-shrink:0;}
+.sb-un{font-size:15px;font-weight:600; white-space: nowrap;}
 .sb-ur{font-size:10px; display: none;}
 
 .sb-nav {
@@ -62,7 +62,7 @@ body { overflow-x: hidden; }
     color: var(--mt);
     padding: 8px 10px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 16px;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -71,7 +71,7 @@ body { overflow-x: hidden; }
 }
 .nb:hover { background: rgba(255,255,255,.04); color: var(--tx); }
 .nb.act { color: var(--bl); border-bottom-color: var(--bl); background: rgba(88,166,255,.08); }
-.nb.main { font-size: 14px; font-weight: 600; }
+.nb.main { font-size: 17px; font-weight: 600; }
 .nb .ic { font-size: 16px; }
 .nav-group-label { display:none; }
 
@@ -97,7 +97,7 @@ body { overflow-x: hidden; }
 .dash-tile:hover { background: rgba(88,166,255,.08); border-color: var(--bl); }
 .dash-tile.act { background: rgba(88,166,255,.14); border-color: var(--bl); }
 .dash-tile .t-ic { font-size: 36px; }
-.dash-tile .t-lb { font-size: 14px; color: var(--tx); font-weight: 600; line-height: 1.3; }
+.dash-tile .t-lb { font-size: 16px; color: var(--tx); font-weight: 600; line-height: 1.3; }
 .dash-tile .t-badge { position: absolute; top: 10px; left: 10px; font-size: 11px; background: var(--rd); color: #fff; border-radius: 10px; padding: 2px 7px; font-weight: 700; }
 
 /* ===== Light Theme ===== */
@@ -121,17 +121,17 @@ body.light {
 @media (max-width: 768px) {
     #page { padding: 12px; }
     #sidebar { padding: 4px 8px; gap: 5px; }
-    .sb-brand .logo { font-size: 14px; }
+    .sb-brand .logo { font-size: 16px; }
     .sb-ui { padding: 2px 6px; }
     .av { width: 24px; height: 24px; font-size: 11px; }
     .sb-un { font-size: 11px; max-width: 70px; overflow: hidden; text-overflow: ellipsis; }
-    .nb { padding: 6px 6px; font-size: 12px; gap: 4px; }
-    .nb .ic { font-size: 14px; }
+    .nb { padding: 7px 8px; font-size: 16px; gap: 4px; }
+    .nb .ic { font-size: 16px; }
     .sb-bot .btn { padding: 4px 8px; font-size: 11px; }
     .cg { grid-template-columns: 1fr 1fr; gap: 8px; }
     .sc { padding: 12px; gap: 10px; }
     .si { width: 40px; height: 40px; font-size: 20px; }
-    .sn { font-size: 22px; }
+    .sn { font-size: 24px; }
     .tw { overflow-x: auto; }
     table { min-width: 600px; }
     .fg { grid-template-columns: 1fr; }
@@ -151,17 +151,17 @@ body.light {
 .lbox{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:36px;width:390px; max-width: 95%;}
 .llogo{text-align:center;margin-bottom:28px;}
 .llogo .ico{font-size:48px;}
-.llogo h1{font-size:22px;color:var(--bl);margin-top:10px;}
-.llogo p{color:var(--mt);font-size:13px;margin-top:4px;}
+.llogo h1{font-size:24px;color:var(--bl);margin-top:10px;}
+.llogo p{color:var(--mt);font-size:15px;margin-top:4px;}
 .field{margin-bottom:14px;}
-.field label{display:block;font-size:12px;color:var(--mt);margin-bottom:5px;font-weight:600;}
-.field input,.field select,.field textarea{width:100%;background:var(--bg);border:1px solid var(--br);border-radius:7px;padding:9px 12px;color:var(--tx);font-size:14px;outline:none;direction:rtl;font-family:inherit;}
+.field label{display:block;font-size:16px;color:var(--mt);margin-bottom:5px;font-weight:600;}
+.field input,.field select,.field textarea{width:100%;background:var(--bg);border:1px solid var(--br);border-radius:7px;padding:10px 12px;color:var(--tx);font-size:17px;outline:none;direction:rtl;font-family:inherit;}
 .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--bl);}
 .field textarea{resize:vertical;min-height:70px;}
 .ckf{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
 .ckf input[type=checkbox]{width:16px;height:16px;flex-shrink:0;cursor:pointer;}
-.ckf label{font-size:13px;color:var(--tx);cursor:pointer;}
-.btn{border:none;border-radius:7px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:filter .15s;}
+.ckf label{font-size:15px;color:var(--tx);cursor:pointer;}
+.btn{border:none;border-radius:7px;padding:9px 16px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit;transition:filter .15s;}
 .btn:hover{filter:brightness(1.15);}.btn:active{filter:brightness(.9);}
 .btn-bl{background:var(--bl);color:#000;}.btn-gn{background:var(--gn);color:#000;}
 .btn-rd{background:#f8514922;border:1px solid #f8514944;color:var(--rd);}
@@ -169,14 +169,14 @@ body.light {
 .btn-yl{background:#d2992222;border:1px solid #d2992244;color:var(--yl);}
 .btn-pu{background:#bc8cff22;border:1px solid #bc8cff44;color:var(--pu);}
 .btn-or{background:#ff7b0022;border:1px solid #ff7b0044;color:#ff7b00;}
-.btn-sm{padding:5px 10px;font-size:12px;}.btn-fw{width:100%;padding:11px;font-size:15px;}
-.ebox{background:#f8514918;border:1px solid #f8514944;border-radius:7px;padding:9px 12px;color:var(--rd);font-size:13px;text-align:center;margin-bottom:10px;}
+.btn-sm{padding:7px 12px;font-size:16px;}.btn-fw{width:100%;padding:11px;font-size:15px;}
+.ebox{background:#f8514918;border:1px solid #f8514944;border-radius:7px;padding:9px 12px;color:var(--rd);font-size:15px;text-align:center;margin-bottom:10px;}
 .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;}
-.pt{font-size:19px;font-weight:700;}.ps{font-size:12px;color:var(--mt);margin-top:3px;}
+.pt{font-size:24px;font-weight:700;}.ps{font-size:16px;color:var(--mt);margin-top:3px;}
 .cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px;}
 .sc{background:var(--sf);border:1px solid var(--br);border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px;}
 .si{font-size:24px;width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.sn{font-size:28px;font-weight:800;line-height:1;}.sl{font-size:12px;color:var(--mt);margin-top:3px;}
+.sn{font-size:32px;font-weight:800;line-height:1;}.sl{font-size:16px;color:var(--mt);margin-top:3px;}
 .tw{background:var(--sf);border:1px solid var(--br);border-radius:10px;overflow-x:auto;}
 table{width:100%;border-collapse:collapse;}
 th{padding:10px 13px;text-align:right;font-size:12px;color:var(--mt);font-weight:600;background:var(--bg);white-space:nowrap;}
@@ -186,23 +186,23 @@ tr:hover td{background:rgba(255,255,255,.025);}
 .erow td{text-align:center;padding:40px;color:var(--mt);}
 .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;}
 .panel{background:var(--sf);border:1px solid var(--br);border-radius:10px;padding:18px;margin-bottom:12px;}
-.ptitle{font-size:13px;font-weight:700;color:var(--mt);margin-bottom:14px;}
+.ptitle{font-size:15px;font-weight:700;color:var(--mt);margin-bottom:14px;}
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--br);}
 .tb{padding:6px 14px;border-radius:20px;border:none;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .12s;}
 .tb.act{background:var(--bl);color:#000;}.tb:not(.act){background:var(--br);color:var(--mt);}
 .fr{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px;}
-.fr input,.fr select{flex:1;min-width:130px;background:var(--bg);border:1px solid var(--br);border-radius:7px;padding:8px 11px;color:var(--tx);font-size:13px;outline:none;direction:rtl;font-family:inherit;}
+.fr input,.fr select{flex:1;min-width:130px;background:var(--bg);border:1px solid var(--br);border-radius:7px;padding:8px 11px;color:var(--tx);font-size:15px;outline:none;direction:rtl;font-family:inherit;}
 .fr input:focus,.fr select:focus{border-color:var(--bl);}
 .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:200;padding:16px;}
 .modal-ov.open{display:flex;}
 .mbx{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:24px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;}
 .mhd{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
 .mhd h3{font-size:16px;font-weight:700;}
-.xb{background:none;border:none;color:var(--mt);font-size:22px;cursor:pointer;line-height:1;padding:0;}
+.xb{background:none;border:none;color:var(--mt);font-size:24px;cursor:pointer;line-height:1;padding:0;}
 .mft{display:flex;gap:9px;justify-content:flex-end;margin-top:20px;}
 .fg{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .fg .s2{grid-column:1/-1;}
-#toast{position:fixed;bottom:24px;left:24px;background:var(--gn);color:#000;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;z-index:9999;display:none;box-shadow:0 4px 16px rgba(0,0,0,.4);}
+#toast{position:fixed;bottom:24px;left:24px;background:var(--gn);color:#000;padding:10px 18px;border-radius:8px;font-size:15px;font-weight:700;z-index:9999;display:none;box-shadow:0 4px 16px rgba(0,0,0,.4);}
 .sec{font-size:12px;font-weight:700;color:var(--mt);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--br);}
 .dac{display:flex;justify-content:space-between;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;}
 .dac:hover{background:rgba(255,255,255,.05);}
@@ -215,7 +215,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 .ucards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
 .uc{background:var(--sf);border:1px solid var(--br);border-radius:10px;padding:16px;border-top-width:3px;}
 .pg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;}
-.pi{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:7px;font-size:13px;}
+.pi{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:7px;font-size:15px;}
 .pi input[type=checkbox]{width:15px;height:15px;cursor:pointer;flex-shrink:0;}
 .imp-area{border:2px dashed var(--br);border-radius:10px;padding:28px;text-align:center;cursor:pointer;transition:border-color .2s;}
 .imp-area:hover{border-color:var(--bl);}
@@ -266,7 +266,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
     <div class="field"><label>البريد الإلكتروني</label><input id="lu" type="email" placeholder="user@example.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <div class="field"><label>كلمة المرور</label><input id="lp" type="password" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="btn btn-bl btn-fw" id="login-btn" onclick="doLogin()">تسجيل الدخول</button>
-    <div id="lload" style="display:none;text-align:center;margin-top:12px;color:var(--mt);font-size:13px">⏳ جار التحقق...</div>
+    <div id="lload" style="display:none;text-align:center;margin-top:12px;color:var(--mt);font-size:15px">⏳ جار التحقق...</div>
   </div>
 </div>
 
@@ -285,7 +285,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
       </div>
     </div>
     <div class="sb-bot">
-      <span id="online-ind" title="متصل" style="font-size:14px;cursor:default">🟢</span>
+      <span id="online-ind" title="متصل" style="font-size:16px;cursor:default">🟢</span>
       <button onclick="openQRScanner()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px 8px" title="مسح QR">📸</button>
       <button id="theme-btn" onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px 8px" title="تغيير المظهر">🌙</button>
       <button class="btn btn-sm" style="background:#58a6ff22;border:1px solid #58a6ff44;color:var(--bl);margin-bottom:6px" onclick="requestNotifPermission()" title="تفعيل الإشعارات">🔔</button>
@@ -967,7 +967,7 @@ function pgDash(){
     bottomH+=`<div class="panel"><div class="ptitle">⚠️ آخر الأعطال النشطة</div>
       ${af.length===0?'<div style="color:var(--mt);text-align:center;padding:20px">✅ لا أعطال نشطة</div>':
         af.slice(0,5).map(f=>`<div class="ri">
-          <div><div style="font-size:13px;font-weight:600">📍 ${esc(f.location)} — ${esc(f.pointId)}</div>
+          <div><div style="font-size:15px;font-weight:600">📍 ${esc(f.location)} — ${esc(f.pointId)}</div>
           <div style="font-size:11px;color:var(--mt)">${esc(f.reason)}</div></div>
           ${badge(f.status)}</div>`).join('')}
     </div>`;
@@ -976,7 +976,7 @@ function pgDash(){
     bottomH+=`<div class="panel"><div class="ptitle">🔄 آخر حركات المخزن</div>
       ${DB.moves.length===0?'<div style="color:var(--mt);text-align:center;padding:20px">لا حركات</div>':
         [...DB.moves].reverse().slice(0,5).map(m=>`<div class="ri">
-          <div><div style="font-size:13px;font-weight:600">${esc(m.name)}</div>
+          <div><div style="font-size:15px;font-weight:600">${esc(m.name)}</div>
           <div style="font-size:11px;color:var(--mt)">${esc(m.from)} → ${esc(m.to)}</div></div>
           <span style="font-size:11px;font-weight:700;color:${m.dir==='out'?'var(--rd)':'var(--gn)'}">${m.dir==='out'?'↑ صرف':'↓ إيداع'}</span>
         </div>`).join('')}
@@ -1006,7 +1006,7 @@ function pgDash(){
         <button class="btn btn-sm btn-rd" onclick="go('urgent')">عرض الكل</button>
       </div>
       ${DB.faults.filter(f=>f.status==='open'&&f.priority==='high').slice(0,3).map(f=>`
-      <div style="font-size:13px;padding:6px 0;border-bottom:1px solid #f8514922">
+      <div style="font-size:15px;padding:6px 0;border-bottom:1px solid #f8514922">
         📍 ${esc(f.location)} — ${esc(f.pointId)}: ${esc(f.reason)}
       </div>`).join('')}
     </div>`:''}
@@ -1114,7 +1114,7 @@ function pgInv(){
     }).join('')}
   </div>
 
-  ${isMain?`<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:9px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--bl)">
+  ${isMain?`<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:9px;padding:10px 14px;margin-bottom:14px;font-size:15px;color:var(--bl)">
     🏭 المستودع الرئيسي يعرض <b>جميع المواد في كل المستودعات</b>. يمكن الترحيل بين المستودعات من تبويب أي مستودع فرعي.
   </div>`:''}
 
@@ -1270,7 +1270,7 @@ function openTransfer(){
   const avail=(DB.inv[src]||[]).filter(i=>i.status==='warehouse');
   if(!avail.length){ toast('لا مواد متاحة للترحيل','warn'); return; }
   openModal(`${mhd('🔁 ترحيل للمستودع الرئيسي')}
-  <div style="background:var(--bg);border-radius:8px;padding:11px;margin-bottom:14px;font-size:13px">
+  <div style="background:var(--bg);border-radius:8px;padding:11px;margin-bottom:14px;font-size:15px">
     من: <b style="color:var(--yl)">${esc(src)}</b> → <b style="color:var(--bl)">${esc(DB.mainSite)}</b>
     <span style="color:var(--mt);font-size:12px;margin-right:8px">(${avail.length} مادة متاحة)</span>
   </div>
@@ -1459,7 +1459,7 @@ function pgTypes(){
     <div class="ptitle">الأنواع المخصصة</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px">
       ${cust.map(([k,v])=>`<span class="tch">${v.icon} ${v.label}
-        <button onclick="delType('${k}')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:14px;padding:0;margin-right:3px">×</button>
+        <button onclick="delType('${k}')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:16px;padding:0;margin-right:3px">×</button>
       </span>`).join('')}
     </div>
   </div>`:''}`;
@@ -1532,8 +1532,8 @@ function pgFaults(){
             <div style="font-size:15px;font-weight:700;margin-bottom:4px">
               📍 ${esc(f.location)} — نقطة: <span style="color:var(--bl)">${esc(f.pointId)}</span>
             </div>
-            ${f.camSN?`<div style="font-size:13px;color:var(--mt);margin-bottom:3px">🔢 ${esc(f.camSN)}</div>`:''}
-            <div style="font-size:13px;color:var(--mt);margin-bottom:5px">السبب: ${esc(f.reason)}</div>
+            ${f.camSN?`<div style="font-size:15px;color:var(--mt);margin-bottom:3px">🔢 ${esc(f.camSN)}</div>`:''}
+            <div style="font-size:15px;color:var(--mt);margin-bottom:5px">السبب: ${esc(f.reason)}</div>
             ${f.desc?`<div style="font-size:12px;color:var(--mt);margin-bottom:5px">${esc(f.desc)}</div>`:''}
             <div style="font-size:11px;color:#555">أُبلغ بواسطة ${esc(f.by)} — ${esc(f.date)}</div>
             ${f.resolvedAt?`<div style="font-size:11px;color:var(--gn);margin-top:2px">✅ ${esc(f.resolvedAt)}</div>`:''}
@@ -1695,7 +1695,7 @@ function pgUsers(){
       <div style="display:flex;gap:11px;align-items:center;margin-bottom:12px">
         <div class="av" style="background:${RC[u.role]}33;border:2px solid ${RC[u.role]};color:${RC[u.role]};font-size:18px">${u.name[0]}</div>
         <div>
-          <div style="font-weight:700;font-size:14px">${esc(u.name)}</div>
+          <div style="font-weight:700;font-size:16px">${esc(u.name)}</div>
           <div style="font-size:12px;color:${RC[u.role]};font-weight:600">${ROLES[u.role]}</div>
         </div>
         ${u.id===CU.id?`<span style="font-size:11px;color:var(--bl);margin-right:auto">أنت</span>`:''}
@@ -1728,7 +1728,7 @@ function showUserForm(u,idx){
   <div class="field"><label>الاسم الكامل *</label><input id="unm" value="${esc(f.name)}" placeholder="محمد أحمد"></div>
   ${idx<0?`<div class="field"><label>البريد الإلكتروني *</label><input id="uusr" type="email" value="" placeholder="user@example.com"></div>
   <div class="field"><label>كلمة المرور *</label><input type="password" id="upw" placeholder="6 أحرف على الأقل"></div>`
-  :`<div style="background:var(--bg);border-radius:7px;padding:9px 12px;font-size:13px;color:var(--mt);margin-bottom:12px">📧 ${esc(f.email||f.username||'')}</div>`}
+  :`<div style="background:var(--bg);border-radius:7px;padding:9px 12px;font-size:15px;color:var(--mt);margin-bottom:12px">📧 ${esc(f.email||f.username||'')}</div>`}
   <div class="field"><label>الدور الوظيفي</label>
     <select id="urol">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}"${f.role===k?' selected':''}>${v}</option>`).join('')}</select>
   </div>
@@ -1826,7 +1826,7 @@ function openPerms(i){
   const cur=u.perms||DEF_PERMS[u.role]||{};
   const locked=['faults','notifs'];
   openModal(`${mhd('🔑 صلاحيات: '+u.name+' ('+ROLES[u.role]+')')}
-  <div style="font-size:13px;color:var(--mt);margin-bottom:14px">
+  <div style="font-size:15px;color:var(--mt);margin-bottom:14px">
     الصلاحيات الافتراضية للدور <b style="color:var(--tx)">${ROLES[u.role]}</b>. يمكنك تخصيصها لهذا المستخدم بشكل مستقل.
   </div>
   <div class="pg">
@@ -1888,8 +1888,8 @@ function pgInvoices(){
           ${inv.imported?`<span class="badge" style="background:var(--pu)22;color:var(--pu);margin-right:6px">📥 مستورد</span>`:''}
         </div>
         <div style="color:var(--mt);margin-bottom:3px">🏭 ${esc(inv.supplier)}</div>
-        ${inv.site?`<div style="font-size:13px;color:var(--mt)">📍 ${esc(inv.site)}</div>`:''}
-        ${inv.items?`<div style="font-size:13px;color:var(--mt);margin-top:3px;white-space:pre-line">📦 ${esc(inv.items)}</div>`:''}
+        ${inv.site?`<div style="font-size:15px;color:var(--mt)">📍 ${esc(inv.site)}</div>`:''}
+        ${inv.items?`<div style="font-size:15px;color:var(--mt);margin-top:3px;white-space:pre-line">📦 ${esc(inv.items)}</div>`:''}
         ${inv.notes?`<div style="font-size:12px;color:var(--mt)">📝 ${esc(inv.notes)}</div>`:''}
         <div style="font-size:11px;color:#555;margin-top:8px">أُضيف: ${esc(inv.addedAt)}</div>
       </div>
@@ -1926,7 +1926,7 @@ function saveInv(){
 function openImportInv(){
   window._impData=null;
   openModal(`${mhd('📥 استيراد فاتورة')}
-  <div style="font-size:13px;color:var(--mt);margin-bottom:14px">
+  <div style="font-size:15px;color:var(--mt);margin-bottom:14px">
     يمكنك رفع ملف <b style="color:var(--tx)">JSON</b> أو <b style="color:var(--tx)">CSV</b> أو إدخال البيانات يدوياً.
   </div>
   <div class="imp-area" onclick="$('impf').click()" id="imparea">
@@ -2024,7 +2024,7 @@ function pgSites(){
   $('page').innerHTML=`
   <div class="ph"><div class="pt">📍 المواقع والمخازن (${DB.sites.length})</div></div>
   <div class="panel" style="max-width:520px">
-    <div style="background:var(--bg);border-radius:7px;padding:11px;margin-bottom:16px;font-size:13px;color:var(--mt)">
+    <div style="background:var(--bg);border-radius:7px;padding:11px;margin-bottom:16px;font-size:15px;color:var(--mt)">
       💡 كل موقع له مخزن مستقل. الأصناف تنتقل عبر الصرف من صفحة المخزن.
     </div>
     <div style="display:flex;gap:9px;margin-bottom:18px">
@@ -2136,7 +2136,7 @@ function pgFieldMap(){
     ?`<div class="panel" style="text-align:center;padding:60px;color:var(--mt)">
         <div style="font-size:48px;margin-bottom:14px">🗺️</div>
         <div style="font-size:16px;font-weight:700;margin-bottom:8px">لا توجد مواقع ميدانية متاحة لك</div>
-        <div style="font-size:13px">إذا كنت مديراً، يمكنك إضافة مواقع جديدة وتحديد من يراها</div>
+        <div style="font-size:15px">إذا كنت مديراً، يمكنك إضافة مواقع جديدة وتحديد من يراها</div>
         ${p('fieldmap') && CU.role === 'manager' ? `<button class="btn btn-bl" style="margin-top:20px" onclick="openAddFieldSite()">+ إضافة أول موقع</button>` : ''}
       </div>`
     :`
@@ -2146,7 +2146,7 @@ function pgFieldMap(){
         <input id="ipSearchInput" placeholder="أدخل عنوان IP (مثال: 192.168.1.100)" style="flex:2;min-width:200px;background:var(--sf);border:1px solid var(--br);border-radius:7px;padding:9px 12px;color:var(--tx);">
         <button class="btn btn-bl" onclick="searchCamByIP()" style="flex:1">🔍 بحث</button>
       </div>
-      <div id="ipSearchResult" style="margin-top:10px;font-size:13px;min-height:30px"></div>
+      <div id="ipSearchResult" style="margin-top:10px;font-size:15px;min-height:30px"></div>
     </div>
     
     <div class="tabs">
@@ -2228,8 +2228,8 @@ function renderSearchResult() {
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div>
         <div style="font-weight:700;font-size:16px;margin-bottom:5px">📷 ${esc(cam.name || cam.serial || 'كاميرا')}</div>
-        <div style="font-size:13px;color:var(--mt)">📍 ${esc(site.name)}</div>
-        <div style="font-size:13px;color:var(--pu);margin-top:3px">🌐 ${esc(cam.ip)}</div>
+        <div style="font-size:15px;color:var(--mt)">📍 ${esc(site.name)}</div>
+        <div style="font-size:15px;color:var(--pu);margin-top:3px">🌐 ${esc(cam.ip)}</div>
         ${cam.camType ? `<div style="font-size:12px;color:var(--mt)">📹 ${esc(cam.camType)}</div>` : ''}
       </div>
       <div>
@@ -2247,7 +2247,7 @@ function switchMapLayer(layer){
 }
 function openCustomMapImg(){
   openModal(`${mhd('🖼️ رفع صورة خريطة مخصصة')}
-  <div style="font-size:13px;color:var(--mt);margin-bottom:14px">
+  <div style="font-size:15px;color:var(--mt);margin-bottom:14px">
     ارفع صورة خريطة (PNG/JPG) وسيتم استخدامها كطبقة للخريطة مع إمكانية تحديد الإحداثيات.
   </div>
   <div class="imp-area" onclick="$('mapimgf').click()" id="mapimgarea">
@@ -2296,7 +2296,7 @@ function renderAllFieldSites(sites) {
             <button class="btn btn-sm btn-rd" onclick="event.stopPropagation();delFieldSite('${fs.id}')">🗑️ حذف</button>
           </div>` : ''}
         </div>
-        <div style="display:flex;gap:16px;font-size:13px">
+        <div style="display:flex;gap:16px;font-size:15px">
           <span>📷 <b>${fs.cameras.length}</b> كاميرا</span>
           <span style="color:${withGPS===fs.cameras.length?'var(--gn)':'var(--yl)'}">📍 ${withGPS}/${fs.cameras.length} GPS</span>
         </div>
@@ -2319,7 +2319,7 @@ function openSitePermissions(siteId) {
   if(!site) return;
   const allUsers = DB.users.filter(u => u.active && (u.uid||u.id) !== (CU.uid||CU.id));
   openModal(`${mhd('👥 صلاحيات الموقع: ' + esc(site.name))}
-  <div style="font-size:13px;color:var(--mt);margin-bottom:14px">اختر المستخدمين الذين يمكنهم رؤية هذا الموقع والتبليغ عن أعطاله.</div>
+  <div style="font-size:15px;color:var(--mt);margin-bottom:14px">اختر المستخدمين الذين يمكنهم رؤية هذا الموقع والتبليغ عن أعطاله.</div>
   ${allUsers.length===0
     ? `<div style="text-align:center;padding:20px;color:var(--mt)">لا يوجد مستخدمين نشطين آخرين</div>`
     : `<div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
@@ -2329,7 +2329,7 @@ function openSitePermissions(siteId) {
         return `<div style="display:flex;align-items:center;gap:10px;background:var(--sf);border-radius:8px;padding:10px 12px">
           <input type="checkbox" id="usr_${uid}" ${isChecked?'checked':''} style="width:18px;height:18px;cursor:pointer">
           <label for="usr_${uid}" style="cursor:pointer;flex:1">
-            <div style="font-weight:600;font-size:13px">${esc(user.name)}</div>
+            <div style="font-weight:600;font-size:15px">${esc(user.name)}</div>
             <div style="font-size:11px;color:${RC[user.role]}">${ROLES[user.role]}</div>
             <div style="font-size:11px;color:var(--mt)">📧 ${esc(user.email||'')}</div>
           </label>
@@ -2372,7 +2372,7 @@ function renderFieldSiteDetail(fs){
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div>
         <div style="font-weight:700;font-size:17px">📍 ${esc(fs.name)}</div>
-        ${fs.desc?`<div style="font-size:13px;color:var(--mt);margin-top:4px">${esc(fs.desc)}</div>`:''}
+        ${fs.desc?`<div style="font-size:15px;color:var(--mt);margin-top:4px">${esc(fs.desc)}</div>`:''}
         ${CU.role === 'manager' && allowedUsers.length > 0 ? 
           `<div style="font-size:12px;color:var(--mt);margin-top:8px">
             <span style="color:var(--gn)">👥 متاح لـ:</span> ${esc(allowedUsersNames)}
@@ -2402,7 +2402,7 @@ function renderFieldSiteDetail(fs){
           onmouseenter="this.style.borderColor='var(--bl)'" onmouseleave="this.style.borderColor='var(--br)'">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
             <div style="flex:1">
-              <div style="font-weight:700;font-size:14px;margin-bottom:3px">📷 ${esc(c.name||c.serial||'كاميرا')}</div>
+              <div style="font-weight:700;font-size:16px;margin-bottom:3px">📷 ${esc(c.name||c.serial||'كاميرا')}</div>
               ${c.camType?`<div style="font-size:12px;color:var(--mt)">${esc(c.camType)}${c.res?' | '+esc(c.res):''}</div>`:''}
               ${c.installDesc?`<div style="font-size:12px;color:var(--mt);margin-top:3px">📌 ${esc(c.installDesc)}</div>`:''}
               ${c.dir?`<div style="font-size:12px;color:var(--bl);margin-top:3px">🧭 ${esc(c.dir)}</div>`:''}
@@ -2490,7 +2490,7 @@ function initFieldMap(){
     const marker=L.marker([lat,lng],{icon}).addTo(_map);
 
     const popup=`<div style="min-width:230px;direction:rtl;font-family:inherit">
-      <div style="font-weight:800;font-size:14px;color:${stColor};margin-bottom:6px">
+      <div style="font-weight:800;font-size:16px;color:${stColor};margin-bottom:6px">
         📷 ${esc(c.name||c.serial||'كاميرا')}
       </div>
       <div style="font-size:12px;color:#7d8590;margin-bottom:8px">📍 ${esc(c._fsName)}</div>
@@ -2735,9 +2735,9 @@ function doSearch(q){
   el.innerHTML=`<div style="color:var(--mt);font-size:12px;margin-bottom:12px">${res.length} نتيجة</div>`+
     res.map(r=>`
     <div class="panel" style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
-      <div style="font-size:22px">${r.icon}</div>
+      <div style="font-size:24px">${r.icon}</div>
       <div style="flex:1">
-        <div style="font-weight:600;font-size:13px">${esc(r.title)}</div>
+        <div style="font-weight:600;font-size:15px">${esc(r.title)}</div>
         <div style="font-size:12px;color:var(--mt)">${esc(r.sub)}</div>
       </div>
       <span style="font-size:11px;background:var(--bg);padding:3px 8px;border-radius:5px;color:var(--mt)">${esc(r.badge||'')}</span>
@@ -2761,7 +2761,7 @@ function pgUrgent(){
 
   ${urgent.length?`
   <div style="padding:0 16px;margin-bottom:8px">
-    <div style="color:var(--rd);font-weight:700;font-size:13px;margin-bottom:8px">🔴 عاجلة (${urgent.length})</div>
+    <div style="color:var(--rd);font-weight:700;font-size:15px;margin-bottom:8px">🔴 عاجلة (${urgent.length})</div>
     ${urgent.map((f,i)=>`
     <div class="panel" style="border-right:3px solid var(--rd);margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
@@ -2782,7 +2782,7 @@ function pgUrgent(){
 
   ${inprog.length?`
   <div style="padding:0 16px">
-    <div style="color:var(--yl);font-weight:700;font-size:13px;margin-bottom:8px">🔧 قيد المعالجة (${inprog.length})</div>
+    <div style="color:var(--yl);font-weight:700;font-size:15px;margin-bottom:8px">🔧 قيد المعالجة (${inprog.length})</div>
     ${inprog.map((f,i)=>`
     <div class="panel" style="border-right:3px solid var(--yl);margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -2809,10 +2809,10 @@ function openFaultComments(faultId){
     ${comments.length?comments.map(c=>`
     <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="font-weight:600;font-size:13px;color:var(--bl)">👤 ${esc(c.by)}</span>
+        <span style="font-weight:600;font-size:15px;color:var(--bl)">👤 ${esc(c.by)}</span>
         <span style="font-size:11px;color:var(--mt)">${esc(c.time)}</span>
       </div>
-      <div style="font-size:13px">${esc(c.text)}</div>
+      <div style="font-size:15px">${esc(c.text)}</div>
     </div>`).join('')
     :'<div style="text-align:center;color:var(--mt);padding:20px">لا تعليقات بعد</div>'}
   </div>
@@ -2851,7 +2851,7 @@ function pgActLog(){
       <div style="width:8px;height:8px;border-radius:50%;background:${ACT_COLORS[a.action]||'var(--mt)'};margin-top:5px;flex-shrink:0"></div>
       <div style="flex:1">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-weight:600;font-size:13px;color:${ACT_COLORS[a.action]||'var(--tx)'}">${esc(a.action)}</span>
+          <span style="font-weight:600;font-size:15px;color:${ACT_COLORS[a.action]||'var(--tx)'}">${esc(a.action)}</span>
           <span style="font-size:11px;color:var(--mt)">${esc(a.time)}</span>
         </div>
         <div style="font-size:12px;color:var(--mt)">${esc(a.details)}</div>
@@ -2910,7 +2910,7 @@ function pgReports(){
 
   <!-- SLA بارز -->
   <div style="margin:0 16px 16px;background:linear-gradient(135deg,#1f2d3d,#162032);border:1px solid #58a6ff44;border-radius:14px;padding:20px;text-align:center">
-    <div style="font-size:13px;color:var(--mt);margin-bottom:6px">⏱️ متوسط وقت حل الأعطال (SLA)</div>
+    <div style="font-size:15px;color:var(--mt);margin-bottom:6px">⏱️ متوسط وقت حل الأعطال (SLA)</div>
     <div style="font-size:36px;font-weight:700;color:${avgSLA>24?'var(--rd)':avgSLA>8?'var(--yl)':'var(--gn)'}">${avgSLA} <span style="font-size:16px;color:var(--mt)">ساعة</span></div>
     <div style="font-size:12px;color:var(--mt);margin-top:4px">بناءً على ${resolvedWithTime.length} عطل محلول</div>
   </div>
@@ -2921,7 +2921,7 @@ function pgReports(){
     <div class="cg" style="grid-template-columns:repeat(4,1fr);gap:8px">
       ${[['الإجمالي',totalFaults,'var(--bl)'],['مفتوحة',openF,'var(--rd)'],['محلولة',resolvedF,'var(--gn)'],['عاجلة',highF,'var(--yl)']].map(([l,v,c])=>`
       <div style="background:var(--sf);border-radius:10px;padding:12px;text-align:center;border:1px solid var(--br)">
-        <div style="font-size:22px;font-weight:700;color:${c}">${v}</div>
+        <div style="font-size:24px;font-weight:700;color:${c}">${v}</div>
         <div style="font-size:11px;color:var(--mt)">${l}</div>
       </div>`).join('')}
     </div>
@@ -2933,9 +2933,9 @@ function pgReports(){
     <div style="font-weight:700;margin-bottom:10px;color:var(--bl)">📍 أكثر المواقع أعطالاً</div>
     ${topLocs.map(([loc,cnt])=>`
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <div style="flex:1;font-size:13px">${esc(loc)}</div>
+      <div style="flex:1;font-size:15px">${esc(loc)}</div>
       <div style="background:var(--rd);height:8px;border-radius:4px;width:${Math.round(cnt/topLocs[0][1]*120)}px"></div>
-      <div style="font-size:13px;font-weight:700;color:var(--rd);min-width:20px">${cnt}</div>
+      <div style="font-size:15px;font-weight:700;color:var(--rd);min-width:20px">${cnt}</div>
     </div>`).join('')}
   </div>`:''}
 
@@ -2945,9 +2945,9 @@ function pgReports(){
     <div style="font-weight:700;margin-bottom:10px;color:var(--bl)">🔧 أكثر أسباب الأعطال</div>
     ${topReasons.map(([r,cnt])=>`
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <div style="flex:1;font-size:13px">${esc(r)}</div>
+      <div style="flex:1;font-size:15px">${esc(r)}</div>
       <div style="background:var(--yl);height:8px;border-radius:4px;width:${Math.round(cnt/topReasons[0][1]*120)}px"></div>
-      <div style="font-size:13px;font-weight:700;color:var(--yl);min-width:20px">${cnt}</div>
+      <div style="font-size:15px;font-weight:700;color:var(--yl);min-width:20px">${cnt}</div>
     </div>`).join('')}
   </div>`:''}
 
@@ -2957,7 +2957,7 @@ function pgReports(){
     <div class="cg" style="grid-template-columns:repeat(3,1fr);gap:8px">
       ${[['إجمالي',totalItems,'var(--bl)'],['منصوبة',deployedItems,'var(--gn)'],['في المخزن',warehouseItems,'var(--mt)']].map(([l,v,c])=>`
       <div style="background:var(--sf);border-radius:10px;padding:12px;text-align:center;border:1px solid var(--br)">
-        <div style="font-size:22px;font-weight:700;color:${c}">${v}</div>
+        <div style="font-size:24px;font-weight:700;color:${c}">${v}</div>
         <div style="font-size:11px;color:var(--mt)">${l}</div>
       </div>`).join('')}
     </div>
@@ -2969,7 +2969,7 @@ function pgReports(){
     <div class="cg" style="grid-template-columns:repeat(2,1fr);gap:8px">
       ${[['إجمالي الكاميرات',totalCams,'var(--bl)'],['المواقع',DB.fieldSites.length,'var(--pu)']].map(([l,v,c])=>`
       <div style="background:var(--sf);border-radius:10px;padding:12px;text-align:center;border:1px solid var(--br)">
-        <div style="font-size:22px;font-weight:700;color:${c}">${v}</div>
+        <div style="font-size:24px;font-weight:700;color:${c}">${v}</div>
         <div style="font-size:11px;color:var(--mt)">${l}</div>
       </div>`).join('')}
     </div>
@@ -3055,7 +3055,7 @@ function pgMaintain(){
     <div style="color:var(--mt);font-weight:700;margin-bottom:8px">✅ منجزة (${done.length})</div>
     ${done.slice(0,5).map(t=>`
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--br);opacity:.6">
-      <div><div style="font-size:13px;text-decoration:line-through">${esc(t.title)}</div>
+      <div><div style="font-size:15px;text-decoration:line-through">${esc(t.title)}</div>
       <div style="font-size:11px;color:var(--mt)">${esc(t.location)} — ${t.doneAt||t.dueDate}</div></div>
       <button class="btn btn-sm btn-rd" onclick="delMaintain('${t.id}')">🗑</button>
     </div>`).join('')}
@@ -3197,7 +3197,7 @@ function openFaultPhotos(faultId){
   ${p('updFault')||p('faults')?`
   <div style="border:2px dashed var(--br);border-radius:10px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-inp').click()">
     <div style="font-size:24px">📷</div>
-    <div style="font-size:13px;color:var(--mt)">اضغط لرفع صورة</div>
+    <div style="font-size:15px;color:var(--mt)">اضغط لرفع صورة</div>
     <input id="photo-inp" type="file" accept="image/*" style="display:none" onchange="uploadFaultPhoto('${faultId}',this)">
   </div>`:''}
   <div class="mft" style="margin-top:12px">
@@ -3260,7 +3260,7 @@ function pgBarcode(){
       ${allItems.map(it=>`
       <div class="panel" style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
         <div style="flex:1">
-          <div style="font-weight:600;font-size:13px">${esc(it.name)}</div>
+          <div style="font-weight:600;font-size:15px">${esc(it.name)}</div>
           <div style="font-size:11px;color:var(--mt)">${esc(it.serial||'بدون سيريال')} — ${esc(it.currentSite||'')}</div>
         </div>
         <button class="btn btn-sm btn-bl" onclick="showItemQR(${JSON.stringify(it).split('"').join('&quot;')})">📱 QR</button>
@@ -3277,7 +3277,7 @@ function filterBarcodes(q){
   document.getElementById('barcode-list').innerHTML=allItems.map(it=>`
   <div class="panel" style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
     <div style="flex:1">
-      <div style="font-weight:600;font-size:13px">${esc(it.name)}</div>
+      <div style="font-weight:600;font-size:15px">${esc(it.name)}</div>
       <div style="font-size:11px;color:var(--mt)">${esc(it.serial||'بدون سيريال')} — ${esc(it.currentSite||'')}</div>
     </div>
     <button class="btn btn-sm btn-bl" onclick="showItemQR(${JSON.stringify(it).split('"').join('&quot;')})">📱 QR</button>
@@ -3565,7 +3565,7 @@ function showGPSForceDialog(reason){
     <div style="background:var(--sf);border-radius:18px;padding:28px;max-width:320px;width:100%;text-align:center">
       <div style="font-size:48px;margin-bottom:12px">📍</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:8px">تفعيل GPS مطلوب</div>
-      <div style="font-size:13px;color:var(--mt);margin-bottom:6px">${reason||'يجب تفعيل خدمة الموقع للمتابعة'}</div>
+      <div style="font-size:15px;color:var(--mt);margin-bottom:6px">${reason||'يجب تفعيل خدمة الموقع للمتابعة'}</div>
       <div style="font-size:12px;color:var(--mt);margin-bottom:20px;background:var(--bg);padding:10px;border-radius:8px">
         كفني ميداني، يجب تفعيل GPS لتتبع موقعك أثناء العمل
       </div>
@@ -3660,7 +3660,7 @@ function openQRScanner(){
       <video id="qr-video" style="width:100%;max-width:300px;border-radius:12px;background:#000" autoplay playsinline></video>
       <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:150px;height:150px;border:2px solid var(--bl);border-radius:8px;pointer-events:none"></div>
     </div>
-    <div id="qr-status" style="font-size:13px;color:var(--mt);margin-bottom:12px">جار تشغيل الكاميرا...</div>
+    <div id="qr-status" style="font-size:15px;color:var(--mt);margin-bottom:12px">جار تشغيل الكاميرا...</div>
     <div class="mft">
       <button class="btn btn-rd" onclick="stopQRScanner()">إيقاف</button>
     </div>
@@ -3731,7 +3731,7 @@ function handleQRResult(data){
       if(cam&&fs){
         toast('✅ تم التعرف على الكاميرا: '+cam.name);
         openModal(`${mhd('📷 '+esc(cam.name))}
-        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:15px">
           <div class="panel"><b>الموقع:</b> ${esc(fs.name)}</div>
           <div class="panel"><b>السيريال:</b> ${esc(cam.serial||'—')}</div>
           <div class="panel"><b>النوع:</b> ${esc(cam.camType||'—')}</div>
@@ -3749,7 +3749,7 @@ function handleQRResult(data){
     } else if(obj.type === 'CCTV_ITEM'){
       toast('✅ تم التعرف على الجهاز: '+obj.name);
       openModal(`${mhd('📦 '+esc(obj.name))}
-      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:15px">
         <div class="panel"><b>السيريال:</b> ${esc(obj.serial||'—')}</div>
         <div class="panel"><b>النوع:</b> ${esc(obj.type2||'—')}</div>
         <div class="panel"><b>الموقع:</b> ${esc(obj.site||'—')}</div>
@@ -4127,7 +4127,7 @@ function pgChat(){
     <div style="text-align:center;color:var(--mt);padding:20px">⏳ جار التحميل...</div>
   </div>
   <div style="position:sticky;bottom:0;background:var(--bg);padding:12px 16px;border-top:1px solid var(--br);display:flex;gap:8px">
-    <input id="chat-inp" style="flex:1;padding:10px 14px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:14px" 
+    <input id="chat-inp" style="flex:1;padding:10px 14px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:16px" 
       placeholder="اكتب رسالة..." onkeydown="if(event.key==='Enter')sendChat()">
     <button class="btn btn-bl" style="border-radius:50%;width:42px;height:42px;padding:0;font-size:18px" onclick="sendChat()">↑</button>
   </div>`;
@@ -4143,7 +4143,7 @@ function pgChat(){
       const isMe = m.uid === myUid;
       return `<div style="display:flex;flex-direction:column;align-items:${isMe?'flex-end':'flex-start'}">
         <div style="max-width:75%;background:${isMe?'var(--bl)':'var(--sf)'};color:${isMe?'#fff':'var(--tx)'};
-          padding:10px 14px;border-radius:${isMe?'16px 16px 4px 16px':'16px 16px 16px 4px'};font-size:14px">
+          padding:10px 14px;border-radius:${isMe?'16px 16px 4px 16px':'16px 16px 16px 4px'};font-size:16px">
           ${!isMe?`<div style="font-size:11px;color:${isMe?'#ffffffaa':'var(--bl)'};margin-bottom:4px;font-weight:600">${esc(m.name)}</div>`:''}
           ${esc(m.text)}
         </div>
@@ -4201,7 +4201,7 @@ function renderDocsList(docs){
   <div class="panel" style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
     <div style="font-size:28px">${icons[d.category]||'📎'}</div>
     <div style="flex:1">
-      <div style="font-weight:600;font-size:13px">${esc(d.name)}</div>
+      <div style="font-weight:600;font-size:15px">${esc(d.name)}</div>
       <div style="font-size:11px;color:var(--mt)">${esc(d.category)} — ${esc(d.site||'عام')} — ${esc(d.date)}</div>
       ${d.notes?`<div style="font-size:11px;color:var(--mt)">${esc(d.notes)}</div>`:''}
     </div>
