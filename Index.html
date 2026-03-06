@@ -520,8 +520,9 @@ function badge(s){
 function doLogin(){
   const email = val('lu'), pw = $('lp').value;
   if(!email||!pw){ const e=$('lerr'); e.textContent='أدخل البريد وكلمة المرور'; e.style.display='block'; return; }
-  $('login-btn').disabled=true;
-  $('lload').style.display='block';
+  const btn=$('login-btn');
+  btn.disabled=true;
+  btn.textContent='⏳ جار التحقق...';
   $('lerr').style.display='none';
   FBAUTH.signInWithEmailAndPassword(email,pw).catch(err=>{
     const msgs={
@@ -535,8 +536,9 @@ function doLogin(){
     const e=$('lerr');
     e.textContent=msgs[err.code]||('❌ '+err.message);
     e.style.display='block';
-    $('login-btn').disabled=false;
-    $('lload').style.display='none';
+    const b=$('login-btn');
+    b.disabled=false;
+    b.textContent='تسجيل الدخول';
   });
 }
 
@@ -555,11 +557,8 @@ function doLogout(){
 // ── onAuthStateChanged: بعد تسجيل الدخول بنجاح ──
 FBAUTH.onAuthStateChanged(function(fbUser){
   if(!fbUser){
-    // إعادة تفعيل زر الدخول إذا لم يكن هناك مستخدم
     const btn=$('login-btn');
-    if(btn) btn.disabled=false;
-    const ll=$('lload');
-    if(ll) ll.style.display='none';
+    if(btn){ btn.disabled=false; btn.textContent='تسجيل الدخول'; }
     return;
   }
   // جلب بيانات المستخدم من قاعدة البيانات
