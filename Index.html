@@ -544,15 +544,19 @@ function doLogin(){
 }
 
 function doLogout(){
-  // إيقاف المستمعين
   try{ FBDB.ref('cctv').off(); }catch(e){}
   CU=null; PAGE='';
-  FBAUTH.signOut();
-  $('app').style.display='none';
-  $('ls').style.display='flex';
-  $('lu').value=''; $('lp').value='';
-  $('login-btn').disabled=false;
-  $('lload').style.display='none';
+  _loginAttempted = false;
+  FBAUTH.signOut().then(()=>{
+    $('app').style.display='none';
+    $('ls').style.display='flex';
+    $('lu').value=''; $('lp').value='';
+    const btn=$('login-btn');
+    btn.disabled=false;
+    btn.textContent='تسجيل الدخول';
+    $('lload').style.display='none';
+    $('lerr').style.display='none';
+  });
 }
 
 // ── onAuthStateChanged: بعد تسجيل الدخول بنجاح ──
