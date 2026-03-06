@@ -476,7 +476,7 @@ function pushFieldN(text, fieldSiteId, type='info'){
   fbPush('notifs',{
     text, type, time:ts(), read:false, _ts:Date.now(),
     fieldSiteId,  // ← مهم للفلترة عند العرض
-    allowedUsers: allowedUsers.length ? allowedUsers : ['all']
+    allowedUsers: allowedUsers.length ? allowedUsers : ['manager_only']
   });
   buildNav();
   
@@ -713,7 +713,9 @@ function fbStartSync(){
     const myUid = CU?.uid||CU?.id;
     DB.notifs = allNotifs.filter(n=>{
       if(!CU || CU.role==='manager') return true; // المدير يرى الكل
-      if(!n.allowedUsers || n.allowedUsers.includes('all')) return true; // إشعار عام
+      if(!n.allowedUsers) return true; // إشعار عام قديم
+      if(n.allowedUsers.includes('all')) return true; // إشعار عام
+      if(n.allowedUsers.includes('manager_only')) return false; // للمدير فقط
       return n.allowedUsers.includes(myUid); // فقط المسموح لهم
     });
     DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
