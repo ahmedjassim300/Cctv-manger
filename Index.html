@@ -544,10 +544,12 @@ function doLogin(){
 }
 
 function doLogout(){
+  _isLoggingOut = true;
+  _loginAttempted = false;
   try{ FBDB.ref('cctv').off(); }catch(e){}
   CU=null; PAGE='';
-  _loginAttempted = false;
   FBAUTH.signOut().then(()=>{
+    _isLoggingOut = false;
     $('app').style.display='none';
     $('ls').style.display='flex';
     $('lu').value=''; $('lp').value='';
@@ -561,16 +563,14 @@ function doLogout(){
 
 // ── onAuthStateChanged: بعد تسجيل الدخول بنجاح ──
 let _loginAttempted = false;
+let _isLoggingOut = false;
 FBAUTH.onAuthStateChanged(function(fbUser){
+  if(_isLoggingOut) return; // تجاهل أي حدث أثناء تسجيل الخروج
   if(!fbUser){
     const btn=$('login-btn');
     if(btn){ btn.disabled=false; btn.textContent='تسجيل الدخول'; }
     _loginAttempted = false;
     return;
-  }
-  // إذا لم يضغط المستخدم زر الدخول (جلسة محفوظة) — أكمل مباشرة بدون تعطيل
-  if(!_loginAttempted){
-    $('lload').style.display='none';
   }
   // جلب بيانات المستخدم من قاعدة البيانات
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
