@@ -708,7 +708,14 @@ function fbStartSync(){
     // collections
     DB.moves       = data.moves       ? Object.values(data.moves).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.faults      = data.faults      ? Object.values(data.faults) : [];
-    DB.notifs      = data.notifs      ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    // فلترة الإشعارات حسب صلاحيات المستخدم
+    const allNotifs = data.notifs ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    const myUid = CU?.uid||CU?.id;
+    DB.notifs = allNotifs.filter(n=>{
+      if(!CU || CU.role==='manager') return true; // المدير يرى الكل
+      if(!n.allowedUsers || n.allowedUsers.includes('all')) return true; // إشعار عام
+      return n.allowedUsers.includes(myUid); // فقط المسموح لهم
+    });
     DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
     DB.customTypes = data.customTypes || {};
     DB.fieldSites  = data.fieldSites
@@ -737,12 +744,7 @@ function fbStartSync(){
 //  NAV
 // ============================================
 function buildNav(){
-  const _myUid=CU?.uid||CU?.id;
-  const unread=DB.notifs.filter(n=>{
-    if(!CU||CU.role==='manager') return !n.read;
-    if(!n.allowedUsers||n.allowedUsers.includes('all')) return !n.read;
-    return n.allowedUsers.includes(_myUid)&&!n.read;
-  }).length;
+  const unread=DB.notifs.filter(n=>!n.read).length;
   const NAV=[
     {id:'dashboard', label:'لوحة التحكم',      icon:'📊', perm:null},
     {id:'inventory', label:'المخزن',             icon:'🏪', perm:'inv'},
@@ -774,12 +776,7 @@ function go(page){
 function pgDash(){
   const ai=Object.values(DB.inv).flat();
   const af=DB.faults.filter(f=>f.status!=='resolved');
-  const _myUid=CU?.uid||CU?.id;
-  const unread=DB.notifs.filter(n=>{
-    if(!CU||CU.role==='manager') return !n.read;
-    if(!n.allowedUsers||n.allowedUsers.includes('all')) return !n.read;
-    return n.allowedUsers.includes(_myUid)&&!n.read;
-  }).length;
+  const unread=DB.notifs.filter(n=>!n.read).length;
   const role=CU.role;
 
   let statsH='';
@@ -1442,14 +1439,7 @@ function doUpdFault(ri, status){
 //  NOTIFICATIONS
 // ============================================
 function pgNotifs(){
-  // فلترة الإشعارات حسب الصلاحيات
-  const myUid = CU.uid||CU.id;
-  const visibleNotifs = DB.notifs.filter(n=>{
-    if(CU.role==='manager') return true; // المدير يرى كل شيء
-    if(!n.allowedUsers || n.allowedUsers.includes('all')) return true; // إشعار عام
-    return n.allowedUsers.includes(myUid); // فقط من في القائمة
-  });
-  const unread=visibleNotifs.filter(n=>!n.read).length;
+  const unread=DB.notifs.filter(n=>!n.read).length;
   $('page').innerHTML=`
   <div class="ph">
     <div><div class="pt">🔔 الإشعارات</div>${unread?`<div class="ps">${unread} غير مقروءة</div>`:''}</div>
