@@ -263,6 +263,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -789,6 +790,7 @@ function buildNav(){
     {id:'actlog',    label:'سجل النشاط',           icon:'📋', perm:'users'},
     {id:'reports',   label:'التقارير',             icon:'📊', perm:'faults'},
     {id:'maintain',  label:'جدول الصيانة',         icon:'🗓️', perm:'faults'},
+    {id:'barcode',   label:'باركود المخزن',         icon:'📦', perm:'inv'},
   ].filter(x=>x.perm===null ? true : p(x.perm));
 
   $('snav').innerHTML=NAV.map(x=>
@@ -801,7 +803,7 @@ function go(page){
   PAGE=page; buildNav(); $('page').innerHTML='';
   ({dashboard:pgDash,inventory:pgInv,movements:pgMoves,faults:pgFaults,
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
-    search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain})[page]?.();
+    search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode})[page]?.();
 }
 
 // ============================================
@@ -1402,6 +1404,7 @@ function pgFaults(){
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;min-width:160px">
             <button class="btn btn-sm" style="background:#bc8cff22;color:var(--pu);border:1px solid #bc8cff44" onclick="openFaultComments('${f.id}')">💬 تعليقات ${f.comments?.length?'('+f.comments.length+')':''}</button>
+            <button class="btn btn-sm" style="background:#58a6ff22;color:var(--bl);border:1px solid #58a6ff44" onclick="openFaultPhotos('${f.id}')">📸 صور ${f.photos?.length?'('+f.photos.length+')':''}</button>
             ${st.k!=='resolved'&&p('updFault')?`
             <div style="font-size:11px;color:var(--mt);margin-bottom:2px;text-align:center">تحديث الحالة:</div>
             ${FAULT_ST.filter(x=>x.k!==f.status&&x.k!=='open').map(x=>`
@@ -1980,6 +1983,7 @@ function pgFieldMap(){
       </div>
     </div>
     ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
+    <button class="btn btn-gy" onclick="exportMapReport()">⬇️ تصدير</button>
   </div>
 
   ${visibleSites.length===0
@@ -2968,6 +2972,204 @@ function delMaintain(id){
   if(!confirm('حذف المهمة؟')) return;
   fbDel('maintain/'+id);
   toast('تم الحذف','err');
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  📱 QR Code للكاميرات والمخزن
+// ═══════════════════════════════════════════════════════
+function showQR(data, title){
+  openModal(`${mhd('📱 QR Code — '+esc(title))}
+  <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:10px">
+    <div id="qr-box" style="background:#fff;padding:16px;border-radius:12px"></div>
+    <div style="font-size:12px;color:var(--mt);text-align:center;max-width:220px;word-break:break-all">${esc(data)}</div>
+    <button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل</button>
+  </div>`);
+  setTimeout(()=>{
+    const box = document.getElementById('qr-box');
+    if(box && typeof QRCode !== 'undefined'){
+      box.innerHTML = '';
+      new QRCode(box, {text: data, width:200, height:200, colorDark:'#000', colorLight:'#fff'});
+    }
+  }, 100);
+}
+
+function downloadQR(title){
+  const canvas = document.querySelector('#qr-box canvas');
+  if(!canvas){ toast('QR غير جاهز','err'); return; }
+  const a = document.createElement('a');
+  a.download = 'QR_'+title+'.png';
+  a.href = canvas.toDataURL();
+  a.click();
+  toast('تم تحميل QR Code');
+}
+
+function showCamQR(fsId, camId){
+  const fs = DB.fieldSites.find(x=>x.id===fsId);
+  const cam = fs?.cameras.find(x=>x.id===camId);
+  if(!cam) return;
+  const data = JSON.stringify({
+    type:'CCTV_CAM',
+    id: cam.id,
+    name: cam.name,
+    serial: cam.serial||'',
+    site: fs.name,
+    model: cam.model||'',
+    ip: cam.ip||''
+  });
+  showQR(data, cam.name);
+}
+
+function showItemQR(item){
+  const data = JSON.stringify({
+    type:'CCTV_ITEM',
+    id: item.id||item.serial,
+    name: item.name,
+    serial: item.serial||'',
+    type2: item.type||'',
+    site: item.currentSite||''
+  });
+  showQR(data, item.name);
+}
+
+// ═══════════════════════════════════════════════════════
+//  📸 رفع صور للأعطال (Base64)
+// ═══════════════════════════════════════════════════════
+function openFaultPhotos(faultId){
+  const f = DB.faults.find(x=>x.id===faultId);
+  if(!f) return;
+  const photos = f.photos||[];
+  openModal(`${mhd('📸 صور العطل: '+esc(f.location)+' — '+esc(f.pointId))}
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;max-height:250px;overflow-y:auto">
+    ${photos.map((ph,i)=>`
+    <div style="position:relative">
+      <img src="${ph.url}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--br)" onclick="viewPhoto('${ph.url}')">
+      ${p('updFault')?`<button onclick="delFaultPhoto('${faultId}',${i})" style="position:absolute;top:2px;right:2px;background:#f8514999;border:none;border-radius:50%;width:20px;height:20px;color:#fff;cursor:pointer;font-size:11px">✕</button>`:''}
+    </div>`).join('')}
+    ${!photos.length?'<div style="color:var(--mt);padding:20px;text-align:center;width:100%">لا صور بعد</div>':''}
+  </div>
+  ${p('updFault')||p('faults')?`
+  <div style="border:2px dashed var(--br);border-radius:10px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-inp').click()">
+    <div style="font-size:24px">📷</div>
+    <div style="font-size:13px;color:var(--mt)">اضغط لرفع صورة</div>
+    <input id="photo-inp" type="file" accept="image/*" style="display:none" onchange="uploadFaultPhoto('${faultId}',this)">
+  </div>`:''}
+  <div class="mft" style="margin-top:12px">
+    <button class="btn btn-gy" onclick="closeModal()">إغلاق</button>
+  </div>`);
+}
+
+function uploadFaultPhoto(faultId, input){
+  const file = input.files[0];
+  if(!file) return;
+  if(file.size > 500*1024){ toast('الصورة كبيرة جداً (الحد 500KB)','err'); return; }
+  toast('⏳ جار الرفع...');
+  const reader = new FileReader();
+  reader.onload = e=>{
+    const url = e.target.result;
+    const f = DB.faults.find(x=>x.id===faultId);
+    const photos = [...(f?.photos||[]), {url, by:CU.name, time:ts()}];
+    fbUpdate('faults/'+faultId, {photos});
+    logAct('رفع صورة عطل', f?.location+'/'+f?.pointId);
+    closeModal();
+    toast('✅ تم رفع الصورة');
+  };
+  reader.readAsDataURL(file);
+}
+
+function delFaultPhoto(faultId, idx){
+  if(!confirm('حذف الصورة؟')) return;
+  const f = DB.faults.find(x=>x.id===faultId);
+  const photos = (f?.photos||[]).filter((_,i)=>i!==idx);
+  fbUpdate('faults/'+faultId, {photos});
+  closeModal();
+  toast('تم الحذف','err');
+}
+
+function viewPhoto(url){
+  openModal(`<div style="text-align:center">
+    <img src="${url}" style="max-width:100%;max-height:70vh;border-radius:8px">
+    <div class="mft" style="margin-top:12px">
+      <button class="btn btn-gy" onclick="closeModal()">إغلاق</button>
+    </div>
+  </div>`);
+}
+
+// ═══════════════════════════════════════════════════════
+//  📦 باركود المخزن
+// ═══════════════════════════════════════════════════════
+function pgBarcode(){
+  const allItems = [];
+  DB.sites.forEach(s=>{ (DB.inv[s]||[]).forEach(it=>allItems.push(it)); });
+
+  $('page').innerHTML=`
+  <div class="ph">
+    <div class="pt">📦 باركود المخزن</div>
+    <button class="btn btn-bl" onclick="printAllBarcodes()">🖨️ طباعة الكل</button>
+  </div>
+  <div style="padding:0 16px">
+    <input style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:16px"
+      placeholder="بحث..." oninput="filterBarcodes(this.value)">
+    <div id="barcode-list">
+      ${allItems.map(it=>`
+      <div class="panel" style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:13px">${esc(it.name)}</div>
+          <div style="font-size:11px;color:var(--mt)">${esc(it.serial||'بدون سيريال')} — ${esc(it.currentSite||'')}</div>
+        </div>
+        <button class="btn btn-sm btn-bl" onclick="showItemQR(${JSON.stringify(it).split('"').join('&quot;')})">📱 QR</button>
+      </div>`).join('')}
+      ${!allItems.length?'<div style="text-align:center;padding:40px;color:var(--mt)">المخزن فارغ</div>':''}
+    </div>
+  </div>`;
+}
+
+function filterBarcodes(q){
+  q=q.toLowerCase();
+  const allItems=[];
+  DB.sites.forEach(s=>{ (DB.inv[s]||[]).forEach(it=>{ if(!q||it.name?.toLowerCase().includes(q)||it.serial?.toLowerCase().includes(q)) allItems.push(it); }); });
+  document.getElementById('barcode-list').innerHTML=allItems.map(it=>`
+  <div class="panel" style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+    <div style="flex:1">
+      <div style="font-weight:600;font-size:13px">${esc(it.name)}</div>
+      <div style="font-size:11px;color:var(--mt)">${esc(it.serial||'بدون سيريال')} — ${esc(it.currentSite||'')}</div>
+    </div>
+    <button class="btn btn-sm btn-bl" onclick="showItemQR(${JSON.stringify(it).split('"').join('&quot;')})">📱 QR</button>
+  </div>`).join('') || '<div style="text-align:center;padding:40px;color:var(--mt)">لا نتائج</div>';
+}
+
+function printAllBarcodes(){
+  toast('جار التجهيز للطباعة...','warn');
+  // فتح نافذة طباعة
+  setTimeout(()=>window.print(), 500);
+}
+
+// ═══════════════════════════════════════════════════════
+//  🗺️ تصدير خريطة الكاميرات PDF (نص)
+// ═══════════════════════════════════════════════════════
+function exportMapReport(){
+  const lines = [];
+  lines.push('تقرير المواقع الميدانية والكاميرات');
+  lines.push('تاريخ التقرير: '+new Date().toLocaleDateString('ar-SA'));
+  lines.push('='.repeat(50));
+  lines.push('');
+  DB.fieldSites.forEach(fs=>{
+    lines.push('📍 '+fs.name+(fs.desc?' — '+fs.desc:''));
+    lines.push('   عدد الكاميرات: '+fs.cameras.length);
+    fs.cameras.forEach(c=>{
+      lines.push('   📷 '+c.name+' | '+(c.serial||'-')+' | '+(c.status||'-')+' | IP: '+(c.ip||'-'));
+      if(c.lat&&c.lng) lines.push('      GPS: '+c.lat+', '+c.lng);
+    });
+    lines.push('');
+  });
+  const blob = new Blob([lines.join('
+')], {type:'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'تقرير_المواقع_'+new Date().toISOString().split('T')[0]+'.txt';
+  a.click();
+  toast('تم تصدير التقرير');
+  logAct('تصدير تقرير المواقع','');
 }
 
 // ═══════════════════════════════════════════════════════
