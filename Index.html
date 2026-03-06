@@ -58,24 +58,22 @@ body { overflow-x: hidden; }
 .nb {
     background: none;
     border: none;
-    border-radius: 8px;
+    border-bottom: 2px solid transparent;
     color: var(--mt);
-    padding: 9px 12px;
+    padding: 8px 10px;
     cursor: pointer;
     font-size: 13px;
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    width: 100%;
-    text-align: right;
+    gap: 6px;
+    white-space: nowrap;
     transition: all .12s;
 }
-.nb:hover { background: rgba(255,255,255,.05); color: var(--tx); }
-.nb.act { color: var(--bl); background: rgba(88,166,255,.12); font-weight:600; }
-.nb .ic { font-size: 15px; }
-.nb.main { font-size: 14px; font-weight: 600; padding: 11px 12px; }
-.nb.main .ic { font-size: 17px; }
-.nav-group-label { font-size: 10px; color: var(--mt); padding: 10px 12px 3px; opacity:.7; letter-spacing:.5px; }
+.nb:hover { background: rgba(255,255,255,.04); color: var(--tx); }
+.nb.act { color: var(--bl); border-bottom-color: var(--bl); background: rgba(88,166,255,.08); }
+.nb.main { font-size: 14px; font-weight: 600; }
+.nb .ic { font-size: 16px; }
+.nav-group-label { display:none; }
 
 .sb-bot { flex-shrink: 0; }
 .sb-bot .btn { padding: 6px 12px; font-size: 12px; }
@@ -816,11 +814,9 @@ function buildNav(){
   NAV_GROUPS.forEach(g=>{
     const visible = g.items.filter(x=>x.perm===null ? true : p(x.perm));
     if(!visible.length) return;
-    if(g.group) navHTML += `<div class="nav-group-label">${g.group}</div>`;
-    else navHTML += `<div style="height:4px"></div>`;
+    if(g.group) navHTML += `<span style="color:var(--br);margin:0 2px">|</span>`;
     navHTML += visible.map(x=>`<button class="nb${PAGE===x.id?' act':''}${!g.group?' main':''}" onclick="go('${x.id}')">`+
       `<span class="ic">${x.icon}</span>${x.label}</button>`).join('');
-    if(g.group) navHTML += `<div style="height:4px"></div>`;
   });
 
   $('snav').innerHTML=navHTML;
