@@ -295,6 +295,11 @@ tr:hover td{background:rgba(255,255,255,.025);}
   <div id="main"><div id="page"></div></div>
 </div>
 
+<!-- ويدجت سريع عائم -->
+<div id="quick-fab" style="position:fixed;bottom:24px;left:24px;z-index:1000;display:none">
+  <button onclick="showQuickFault()" style="width:56px;height:56px;border-radius:50%;background:var(--rd);border:none;color:#fff;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(248,81,73,.5);display:flex;align-items:center;justify-content:center" title="بلاغ عطل سريع">⚡</button>
+</div>
+
 <div id="modal" class="modal-ov" onclick="if(event.target===this)closeModal()">
   <div class="mbx" id="mbx"></div>
 </div>
@@ -610,6 +615,8 @@ function doLogout(){
   _isLoggingOut = true;
   _loginAttempted = false;
   stopGPSTracking();
+  const fab = document.getElementById('quick-fab');
+  if(fab) fab.style.display='none';
   // تحديث حالة الفني كـ offline
   if(CU&&(CU.role==='field'||CU.role==='technician')){
     try{ fbUpdate('techLocations/'+(CU.uid||CU.id),{online:false}); }catch(e){}
@@ -697,6 +704,9 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     fbInitDB();
     // بدء المزامنة الفورية
     fbStartSync();
+    // إظهار زر الويدجت العائم
+    const fab = document.getElementById('quick-fab');
+    if(fab) fab.style.display='block';
     // طلب إذن الإشعارات
     setTimeout(requestNotifPermission, 2000);
     // إجبار GPS للفنيين الميدانيين
@@ -895,7 +905,7 @@ function go(page){
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
     search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
     performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-    branding:()=>openBrandSettings()})[page]?.();
+    branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs})[page]?.();
 }
 
 // ============================================
@@ -1026,6 +1036,8 @@ function pgDash(){
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',   perm:'users'},
+        {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
+        {id:'docs',       ic:'📁', lb:'المستندات',         perm:null},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
       return tiles.map(t=>`
@@ -4039,6 +4051,236 @@ function loadLocalDB(){
     toast('📴 عرض بيانات محفوظة — غير متصل','warn');
     if(PAGE) go(PAGE);
   }catch(e){}
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  📱 ويدجت سريع لإضافة عطل
+// ═══════════════════════════════════════════════════════
+function showQuickFault(){
+  const sites = getVisibleFieldSites();
+  if(!sites.length){ toast('لا مواقع متاحة لك','warn'); return; }
+  openModal(`${mhd('⚡ بلاغ عطل سريع')}
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="field"><label>الموقع *</label>
+      <select id="qf-loc">
+        ${sites.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>النقطة *</label>
+      <input id="qf-pt" placeholder="مثال: كاميرا 3 مدخل رئيسي">
+    </div>
+    <div class="field"><label>السبب *</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${['صورة غير واضحة','انقطاع الصورة','كاميرا لا تعمل','خطأ في الزاوية','مشكلة كهربائية','أخرى'].map(r=>
+          `<button type="button" class="btn btn-sm btn-gy" onclick="this.classList.toggle('act');document.getElementById('qf-rsn').value=this.textContent" style="font-size:12px">${r}</button>`
+        ).join('')}
+      </div>
+      <input id="qf-rsn" placeholder="أو اكتب السبب...">
+    </div>
+    <div class="field"><label>الأولوية</label>
+      <div style="display:flex;gap:8px">
+        <button type="button" id="qf-low" class="btn btn-gy act" onclick="setQFPri('low')" style="flex:1">🟡 عادي</button>
+        <button type="button" id="qf-high" class="btn btn-gy" onclick="setQFPri('high')" style="flex:1">🔴 عاجل</button>
+      </div>
+    </div>
+  </div>
+  <div class="mft" style="margin-top:14px">
+    <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+    <button class="btn btn-rd" onclick="submitQuickFault()">⚡ إرسال الآن</button>
+  </div>`);
+}
+
+let _qfPri = 'low';
+function setQFPri(p){
+  _qfPri = p;
+  document.getElementById('qf-low').classList.toggle('act', p==='low');
+  document.getElementById('qf-high').classList.toggle('act', p==='high');
+}
+
+function submitQuickFault(){
+  const loc = val('qf-loc'), pt = val('qf-pt'), rsn = val('qf-rsn');
+  if(!loc||!pt||!rsn){ toast('يرجى تعبئة الحقول المطلوبة','err'); return; }
+  const relatedSite = DB.fieldSites.find(s=>s.name===loc);
+  fbPush('faults',{
+    location:loc, pointId:pt, reason:rsn, priority:_qfPri,
+    by:CU.name, date:ts(), status:'open', log:[],
+    fieldSiteId: relatedSite?.id||null, _ts:Date.now()
+  });
+  if(relatedSite) pushFieldN((_qfPri==='high'?'🔴':'🟡')+' عطل في '+loc+' — '+pt, relatedSite.id, 'error');
+  else pushN((_qfPri==='high'?'🔴':'🟡')+' عطل في '+loc+' — '+pt, 'error');
+  logAct('بلاغ عطل سريع', loc+' — '+pt);
+  closeModal();
+  toast('✅ تم إرسال البلاغ');
+  _qfPri = 'low';
+}
+
+// ═══════════════════════════════════════════════════════
+//  💬 الدردشة الداخلية
+// ═══════════════════════════════════════════════════════
+let _chatListener = null;
+
+function pgChat(){
+  $('page').innerHTML=`
+  <div class="ph"><div class="pt">💬 دردشة الفريق</div></div>
+  <div id="chat-msgs" style="padding:0 16px 80px;display:flex;flex-direction:column;gap:8px;min-height:300px">
+    <div style="text-align:center;color:var(--mt);padding:20px">⏳ جار التحميل...</div>
+  </div>
+  <div style="position:sticky;bottom:0;background:var(--bg);padding:12px 16px;border-top:1px solid var(--br);display:flex;gap:8px">
+    <input id="chat-inp" style="flex:1;padding:10px 14px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:14px" 
+      placeholder="اكتب رسالة..." onkeydown="if(event.key==='Enter')sendChat()">
+    <button class="btn btn-bl" style="border-radius:50%;width:42px;height:42px;padding:0;font-size:18px" onclick="sendChat()">↑</button>
+  </div>`;
+
+  // استماع للرسائل
+  if(_chatListener) FBDB.ref('cctv/chat').off('value', _chatListener);
+  _chatListener = FBDB.ref('cctv/chat').limitToLast(50).on('value', snap=>{
+    const msgs = snap.val() ? Object.values(snap.val()).sort((a,b)=>(a._ts||0)-(b._ts||0)) : [];
+    const el = document.getElementById('chat-msgs');
+    if(!el) return;
+    const myUid = CU.uid||CU.id;
+    el.innerHTML = msgs.length ? msgs.map(m=>{
+      const isMe = m.uid === myUid;
+      return `<div style="display:flex;flex-direction:column;align-items:${isMe?'flex-end':'flex-start'}">
+        <div style="max-width:75%;background:${isMe?'var(--bl)':'var(--sf)'};color:${isMe?'#fff':'var(--tx)'};
+          padding:10px 14px;border-radius:${isMe?'16px 16px 4px 16px':'16px 16px 16px 4px'};font-size:14px">
+          ${!isMe?`<div style="font-size:11px;color:${isMe?'#ffffffaa':'var(--bl)'};margin-bottom:4px;font-weight:600">${esc(m.name)}</div>`:''}
+          ${esc(m.text)}
+        </div>
+        <div style="font-size:10px;color:var(--mt);margin-top:2px;padding:0 4px">${esc(m.time)}</div>
+      </div>`;
+    }).join('') : '<div style="text-align:center;color:var(--mt);padding:40px">لا رسائل بعد — ابدأ المحادثة!</div>';
+    // scroll للأسفل
+    el.scrollTop = el.scrollHeight;
+  });
+}
+
+function sendChat(){
+  const txt = val('chat-inp');
+  if(!txt?.trim()) return;
+  fbPush('chat',{
+    uid: CU.uid||CU.id,
+    name: CU.name,
+    role: CU.role,
+    text: txt.trim(),
+    time: ts(),
+    _ts: Date.now()
+  });
+  document.getElementById('chat-inp').value='';
+}
+
+// ═══════════════════════════════════════════════════════
+//  📁 إدارة المستندات والعقود
+// ═══════════════════════════════════════════════════════
+function pgDocs(){
+  FBDB.ref('cctv/docs').once('value').then(snap=>{
+    const docs = snap.val() ? Object.values(snap.val()).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    $('page').innerHTML=`
+    <div class="ph">
+      <div class="pt">📁 المستندات والعقود</div>
+      ${p('inv')||CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddDoc()">+ رفع مستند</button>`:''}
+    </div>
+    <div style="padding:0 16px">
+      ${docs.length?`
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
+        ${['الكل','عقد','تقرير','تصريح','صورة','أخرى'].map(t=>
+          `<button class="btn btn-sm btn-gy" onclick="filterDocs('${t}',this)">${t}</button>`
+        ).join('')}
+      </div>
+      <div id="docs-list">
+        ${renderDocsList(docs)}
+      </div>`
+      :'<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">📁</div><div style="margin-top:12px">لا مستندات بعد</div></div>'}
+    </div>`;
+  });
+}
+
+function renderDocsList(docs){
+  const icons = {عقد:'📄',تقرير:'📊',تصريح:'📋',صورة:'🖼️',أخرى:'📎'};
+  return docs.map(d=>`
+  <div class="panel" style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
+    <div style="font-size:28px">${icons[d.category]||'📎'}</div>
+    <div style="flex:1">
+      <div style="font-weight:600;font-size:13px">${esc(d.name)}</div>
+      <div style="font-size:11px;color:var(--mt)">${esc(d.category)} — ${esc(d.site||'عام')} — ${esc(d.date)}</div>
+      ${d.notes?`<div style="font-size:11px;color:var(--mt)">${esc(d.notes)}</div>`:''}
+    </div>
+    <div style="display:flex;gap:5px">
+      <a href="${d.url}" download="${esc(d.name)}" class="btn btn-sm btn-bl">⬇️</a>
+      ${CU.role==='manager'?`<button class="btn btn-sm btn-rd" onclick="delDoc('${d.id}')">🗑</button>`:''}
+    </div>
+  </div>`).join('');
+}
+
+function filterDocs(type, btn){
+  document.querySelectorAll('.ph ~ div .btn-gy').forEach(b=>b.classList.remove('act'));
+  btn.classList.add('act');
+  FBDB.ref('cctv/docs').once('value').then(snap=>{
+    let docs = snap.val() ? Object.values(snap.val()).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    if(type!=='الكل') docs = docs.filter(d=>d.category===type);
+    const el = document.getElementById('docs-list');
+    if(el) el.innerHTML = docs.length ? renderDocsList(docs) : '<div style="text-align:center;padding:30px;color:var(--mt)">لا مستندات</div>';
+  });
+}
+
+function openAddDoc(){
+  openModal(`${mhd('📁 رفع مستند')}
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="field"><label>اسم المستند *</label><input id="dc-name" placeholder="عقد صيانة 2025"></div>
+    <div class="field"><label>النوع</label>
+      <select id="dc-cat">
+        ${['عقد','تقرير','تصريح','صورة','أخرى'].map(t=>`<option>${t}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>الموقع المرتبط</label>
+      <select id="dc-site">
+        <option value="">عام</option>
+        ${DB.fieldSites.map(fs=>`<option value="${esc(fs.name)}">${esc(fs.name)}</option>`).join('')}
+        ${DB.sites.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>الملف *</label>
+      <input type="file" id="dc-file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="color:var(--tx)">
+    </div>
+    <div class="field"><label>ملاحظات</label><input id="dc-notes" placeholder="وصف مختصر..."></div>
+  </div>
+  <div class="mft" style="margin-top:14px">
+    <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+    <button class="btn btn-bl" onclick="uploadDoc()">⬆️ رفع</button>
+  </div>`);
+}
+
+function uploadDoc(){
+  const name = val('dc-name');
+  const file = document.getElementById('dc-file')?.files[0];
+  if(!name||!file){ toast('الاسم والملف مطلوبان','err'); return; }
+  if(file.size > 2*1024*1024){ toast('الملف كبير جداً (الحد 2MB)','err'); return; }
+  toast('⏳ جار الرفع...');
+  const reader = new FileReader();
+  reader.onload = e=>{
+    const id = gid();
+    const doc = {
+      id, name, url: e.target.result,
+      category: val('dc-cat'),
+      site: val('dc-site'),
+      notes: val('dc-notes'),
+      by: CU.name, date: ts(), _ts: Date.now(),
+      fileType: file.type, fileSize: Math.round(file.size/1024)+'KB'
+    };
+    fbSet('docs/'+id, doc);
+    logAct('رفع مستند', name+' — '+doc.category);
+    closeModal();
+    toast('✅ تم رفع المستند');
+    pgDocs();
+  };
+  reader.readAsDataURL(file);
+}
+
+function delDoc(id){
+  if(!confirm('حذف المستند نهائياً؟')) return;
+  fbDel('docs/'+id);
+  toast('تم الحذف','err');
+  pgDocs();
 }
 
 // ═══════════════════════════════════════════════════════
