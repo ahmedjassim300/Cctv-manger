@@ -805,7 +805,7 @@ function fbStartSync(){
     }
 
     if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
-    try{ buildNav(); }catch(e){}
+    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); }catch(e){}
     if(!PAGE) { try{ go('dashboard'); }catch(e){} }
     else { try{ go(PAGE); }catch(e){} }
   }, err=>{
@@ -869,7 +869,8 @@ function go(page){
   PAGE=page; buildNav(); $('page').innerHTML='';
   ({dashboard:pgDash,inventory:pgInv,movements:pgMoves,faults:pgFaults,
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
-    search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode})[page]?.();
+    search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
+    performance:pgPerformance,backup:()=>openBackupManager()})[page]?.();
 }
 
 // ============================================
@@ -995,6 +996,8 @@ function pgDash(){
         {id:'users',     ic:'👥', lb:'المستخدمون',     perm:'users'},
         {id:'barcode',   ic:'📱', lb:'باركود',          perm:'inv'},
         {id:'actlog',    ic:'📋', lb:'سجل النشاط',     perm:'users'},
+        {id:'performance',ic:'🏆', lb:'أداء الفنيين',   perm:'users'},
+        {id:'backup',     ic:'🔐', lb:'احتياطي',         perm:'users'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
       return tiles.map(t=>`
@@ -3272,6 +3275,186 @@ function exportMapReport(){
   a.click();
   toast('تم تصدير التقرير');
   logAct('تصدير تقرير المواقع','');
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  🔄 تحديث تلقائي للصفحة عند تغيير البيانات
+// ═══════════════════════════════════════════════════════
+let _lastDataHash = '';
+function getDataHash(){
+  return JSON.stringify({
+    faults: DB.faults.length,
+    notifs: DB.notifs.length,
+    moves: DB.moves.length,
+    maintain: (DB.maintain||[]).length,
+    faultsOpen: DB.faults.filter(f=>f.status==='open').length
+  });
+}
+function checkAutoRefresh(){
+  const hash = getDataHash();
+  if(_lastDataHash && _lastDataHash !== hash){
+    // البيانات تغيرت — أعد تحميل الصفحة الحالية
+    if(PAGE) go(PAGE);
+  }
+  _lastDataHash = hash;
+}
+
+// ═══════════════════════════════════════════════════════
+//  🔐 نسخة احتياطية تلقائية
+// ═══════════════════════════════════════════════════════
+function doBackup(){
+  const backup = {
+    date: new Date().toISOString(),
+    version: '1.0',
+    data: {
+      faults:    DB.faults,
+      moves:     DB.moves,
+      invoices:  DB.invoices,
+      fieldSites:DB.fieldSites,
+      maintain:  DB.maintain||[],
+      sites:     DB.sites,
+      inv:       DB.inv,
+    }
+  };
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'CCTV_Backup_'+new Date().toISOString().split('T')[0]+'.json';
+  a.click();
+  toast('✅ تم تصدير النسخة الاحتياطية');
+  logAct('نسخة احتياطية', new Date().toLocaleDateString('ar-SA'));
+}
+
+function restoreBackup(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const backup = JSON.parse(e.target.result);
+      if(!backup.data){ toast('ملف غير صحيح','err'); return; }
+      if(!confirm('⚠️ هذا سيستبدل البيانات الحالية. هل أنت متأكد؟')) return;
+      // استعادة البيانات
+      const d = backup.data;
+      if(d.faults)    d.faults.forEach(f=>fbSet('faults/'+f.id,f));
+      if(d.moves)     d.moves.forEach(m=>fbSet('moves/'+m.id,m));
+      if(d.invoices)  d.invoices.forEach(i=>fbSet('invoices/'+i.id,i));
+      if(d.fieldSites) d.fieldSites.forEach(fs=>fbSet('fieldSites/'+fs.id,fs));
+      if(d.maintain)  d.maintain.forEach(t=>fbSet('maintain/'+t.id,t));
+      toast('✅ تم استعادة النسخة الاحتياطية');
+      logAct('استعادة نسخة احتياطية', backup.date);
+      setTimeout(()=>go(PAGE),2000);
+    }catch(e){ toast('خطأ في قراءة الملف','err'); }
+  };
+  reader.readAsText(file);
+}
+
+function openBackupManager(){
+  openModal(`${mhd('🔐 النسخ الاحتياطية')}
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="panel" style="text-align:center">
+      <div style="font-size:32px;margin-bottom:8px">⬇️</div>
+      <div style="font-weight:600;margin-bottom:4px">تصدير نسخة احتياطية</div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:12px">يصدر كل البيانات كملف JSON</div>
+      <button class="btn btn-bl btn-fw" onclick="doBackup()">📥 تصدير الآن</button>
+    </div>
+    <div class="panel" style="text-align:center">
+      <div style="font-size:32px;margin-bottom:8px">⬆️</div>
+      <div style="font-weight:600;margin-bottom:4px">استعادة نسخة احتياطية</div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:12px">استيراد ملف JSON من نسخة سابقة</div>
+      <button class="btn btn-gy btn-fw" onclick="document.getElementById('restore-inp').click()">📤 استعادة</button>
+      <input id="restore-inp" type="file" accept=".json" style="display:none" onchange="restoreBackup(this)">
+    </div>
+  </div>
+  <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
+}
+
+// نسخة احتياطية تلقائية كل 24 ساعة في localStorage
+function autoBackupCheck(){
+  const last = localStorage.getItem('lastAutoBackup');
+  const now = Date.now();
+  if(!last || now - parseInt(last) > 24*60*60*1000){
+    localStorage.setItem('lastAutoBackup', now.toString());
+    // حفظ نسخة مصغرة في localStorage
+    const mini = {date:new Date().toISOString(), faultsCount:DB.faults.length, movesCount:DB.moves.length};
+    localStorage.setItem('lastBackupMeta', JSON.stringify(mini));
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  🏆 لوحة أداء الفنيين
+// ═══════════════════════════════════════════════════════
+function pgPerformance(){
+  if(CU.role !== 'manager'){ $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ للمدير فقط</div>'; return; }
+
+  // حساب إحصائيات كل فني
+  const stats = {};
+  DB.users.filter(u=>u.role==='technician'||u.role==='engineer'||u.role==='field').forEach(u=>{
+    stats[u.name] = { name:u.name, role:u.role, resolved:0, inprog:0, comments:0, avgTime:0, times:[] };
+  });
+
+  DB.faults.forEach(f=>{
+    // من أغلق العطل
+    if(f.log){
+      f.log.forEach(l=>{
+        if(l.label==='تم الحل'||l.label==='محلول'){
+          if(stats[l.by]) stats[l.by].resolved++;
+        }
+      });
+    }
+    if(f.status==='inprogress' && stats[f.by]) stats[f.by].inprog++;
+    // وقت الحل
+    if(f.status==='resolved' && f._ts && f._tsResolved && stats[f.by]){
+      const h = (f._tsResolved - f._ts)/(1000*60*60);
+      stats[f.by].times.push(h);
+    }
+    // التعليقات
+    (f.comments||[]).forEach(c=>{ if(stats[c.by]) stats[c.by].comments++; });
+  });
+
+  // حساب متوسط وقت الحل
+  Object.values(stats).forEach(s=>{
+    s.avgTime = s.times.length ? (s.times.reduce((a,b)=>a+b,0)/s.times.length).toFixed(1) : '-';
+  });
+
+  const sorted = Object.values(stats).sort((a,b)=>b.resolved-a.resolved);
+  const medals = ['🥇','🥈','🥉'];
+
+  $('page').innerHTML=`
+  <div class="ph"><div class="pt">🏆 لوحة أداء الفنيين</div></div>
+  <div style="padding:0 16px">
+    ${!sorted.length?`<div style="text-align:center;padding:60px;color:var(--mt)">لا فنيين مسجلين</div>`:''}
+    ${sorted.map((s,i)=>`
+    <div class="panel" style="margin-bottom:12px;${i<3?'border-right:3px solid '+(i===0?'#f1c40f':i===1?'#bdc3c7':'#cd6133'):''}">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div style="font-size:28px">${medals[i]||'👤'}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:15px">${esc(s.name)}</div>
+          <div style="font-size:12px;color:${RC[s.role]||'var(--mt)'};">${ROLES[s.role]||s.role}</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:24px;font-weight:700;color:var(--gn)">${s.resolved}</div>
+          <div style="font-size:11px;color:var(--mt)">محلول</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
+        <div style="background:var(--bg);border-radius:8px;padding:8px">
+          <div style="font-size:16px;font-weight:700;color:var(--yl)">${s.inprog}</div>
+          <div style="font-size:10px;color:var(--mt)">قيد التنفيذ</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:8px">
+          <div style="font-size:16px;font-weight:700;color:var(--bl)">${s.comments}</div>
+          <div style="font-size:10px;color:var(--mt)">تعليق</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:8px">
+          <div style="font-size:16px;font-weight:700;color:var(--pu)">${s.avgTime}h</div>
+          <div style="font-size:10px;color:var(--mt)">متوسط الحل</div>
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════════
