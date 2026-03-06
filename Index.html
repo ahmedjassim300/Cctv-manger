@@ -2832,7 +2832,7 @@ function exportReportCSV(){
   const csv=rows.map(r=>r.map(v=>'"'+(v||'').split('"').join('""')+'"').join(',')).join('\n');
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='تقرير_الأعطال_'+new Date().toLocaleDateString('ar-SA').replace(/\/g,'-')+'.csv';
+  a.download='تقرير_الأعطال_'+new Date().toISOString().split('T')[0]+'.csv';
   a.click();
   toast('تم تصدير التقرير');
   logAct('تصدير تقرير CSV','الأعطال');
