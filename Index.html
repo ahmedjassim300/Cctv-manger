@@ -285,6 +285,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
       </div>
     </div>
     <div class="sb-bot">
+      <button onclick="openQRScanner()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px 8px" title="مسح QR">📸</button>
       <button id="theme-btn" onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px 8px" title="تغيير المظهر">🌙</button>
       <button class="btn btn-sm" style="background:#58a6ff22;border:1px solid #58a6ff44;color:var(--bl);margin-bottom:6px" onclick="requestNotifPermission()" title="تفعيل الإشعارات">🔔</button>
       <button class="btn btn-rd btn-sm" onclick="doLogout()">🚪</button>
@@ -306,6 +307,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 
 <script>
@@ -887,7 +889,7 @@ function go(page){
   ({dashboard:pgDash,inventory:pgInv,movements:pgMoves,faults:pgFaults,
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
     search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
-    performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap})[page]?.();
+    performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers})[page]?.();
 }
 
 // ============================================
@@ -1016,6 +1018,7 @@ function pgDash(){
         {id:'performance',ic:'🏆', lb:'أداء الفنيين',   perm:'users'},
         {id:'backup',     ic:'🔐', lb:'احتياطي',         perm:'users'},
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
+        {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
       return tiles.map(t=>`
@@ -3622,6 +3625,250 @@ function pgTechMap(){
         </a>
       </div>`;
     }).join('');
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  📸 مسح QR بالكاميرا
+// ═══════════════════════════════════════════════════════
+let _qrScanner = null;
+
+function openQRScanner(){
+  openModal(`${mhd('📸 مسح QR Code')}
+  <div style="text-align:center">
+    <div style="position:relative;margin-bottom:12px">
+      <video id="qr-video" style="width:100%;max-width:300px;border-radius:12px;background:#000" autoplay playsinline></video>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:150px;height:150px;border:2px solid var(--bl);border-radius:8px;pointer-events:none"></div>
+    </div>
+    <div id="qr-status" style="font-size:13px;color:var(--mt);margin-bottom:12px">جار تشغيل الكاميرا...</div>
+    <div class="mft">
+      <button class="btn btn-rd" onclick="stopQRScanner()">إيقاف</button>
+    </div>
+  </div>`);
+  setTimeout(startQRScanner, 300);
+}
+
+function startQRScanner(){
+  const video = document.getElementById('qr-video');
+  if(!video) return;
+
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+  .then(stream=>{
+    video.srcObject = stream;
+    _qrScanner = stream;
+    scanQRFrame(video);
+  })
+  .catch(err=>{
+    const el = document.getElementById('qr-status');
+    if(el) el.textContent = '❌ لا يمكن الوصول للكاميرا';
+  });
+}
+
+function scanQRFrame(video){
+  if(!document.getElementById('qr-video')) return; // Modal مغلق
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  function tick(){
+    if(!document.getElementById('qr-video')){ stopQRScanner(); return; }
+    if(video.readyState === video.HAVE_ENOUGH_DATA){
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      try{
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        // استخدام jsQR إذا متاح
+        if(typeof jsQR !== 'undefined'){
+          const code = jsQR(imageData.data, imageData.width, imageData.height);
+          if(code){
+            stopQRScanner();
+            handleQRResult(code.data);
+            return;
+          }
+        }
+      }catch(e){}
+    }
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stopQRScanner(){
+  if(_qrScanner){
+    _qrScanner.getTracks().forEach(t=>t.stop());
+    _qrScanner = null;
+  }
+  closeModal();
+}
+
+function handleQRResult(data){
+  try{
+    const obj = JSON.parse(data);
+    if(obj.type === 'CCTV_CAM'){
+      // فتح بيانات الكاميرا
+      const fs = DB.fieldSites.find(s=>s.name===obj.site);
+      const cam = fs?.cameras.find(c=>c.id===obj.id||c.serial===obj.serial);
+      if(cam&&fs){
+        toast('✅ تم التعرف على الكاميرا: '+cam.name);
+        openModal(`${mhd('📷 '+esc(cam.name))}
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+          <div class="panel"><b>الموقع:</b> ${esc(fs.name)}</div>
+          <div class="panel"><b>السيريال:</b> ${esc(cam.serial||'—')}</div>
+          <div class="panel"><b>النوع:</b> ${esc(cam.camType||'—')}</div>
+          <div class="panel"><b>IP:</b> ${esc(cam.ip||'—')}</div>
+          <div class="panel"><b>الحالة:</b> ${esc(cam.status||'—')}</div>
+          ${cam.lat&&cam.lng?`<a href="https://maps.google.com/?q=${cam.lat},${cam.lng}" target="_blank" class="btn btn-bl">🗺️ الموقع</a>`:''}
+        </div>
+        <div class="mft" style="margin-top:12px">
+          <button class="btn btn-gy" onclick="closeModal()">إغلاق</button>
+          <button class="btn btn-rd" onclick="closeModal();openAddFault()">⚠️ إبلاغ عطل</button>
+        </div>`);
+      } else {
+        toast('⚠️ الكاميرا غير موجودة في النظام','warn');
+      }
+    } else if(obj.type === 'CCTV_ITEM'){
+      toast('✅ تم التعرف على الجهاز: '+obj.name);
+      openModal(`${mhd('📦 '+esc(obj.name))}
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <div class="panel"><b>السيريال:</b> ${esc(obj.serial||'—')}</div>
+        <div class="panel"><b>النوع:</b> ${esc(obj.type2||'—')}</div>
+        <div class="panel"><b>الموقع:</b> ${esc(obj.site||'—')}</div>
+      </div>
+      <div class="mft" style="margin-top:12px">
+        <button class="btn btn-gy" onclick="closeModal()">إغلاق</button>
+      </div>`);
+    } else {
+      toast('QR: '+data.substring(0,50),'warn');
+    }
+  } catch(e){
+    // QR نصي عادي
+    toast('📋 QR: '+data.substring(0,60));
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  📝 نموذج تسليم واستلام رسمي
+// ═══════════════════════════════════════════════════════
+function openHandoverForm(type){
+  // type: 'delivery' تسليم | 'receipt' استلام
+  const isDelivery = type === 'delivery';
+  openModal(`${mhd(isDelivery?'📤 نموذج تسليم':'📥 نموذج استلام')}
+  <div class="fg" style="display:flex;flex-direction:column;gap:10px">
+    <div class="field"><label>رقم النموذج</label>
+      <input id="ho-num" value="HO-${Date.now().toString().slice(-6)}" readonly style="opacity:.7">
+    </div>
+    <div class="field"><label>${isDelivery?'المسلَّم إليه':'المسلِّم'} *</label>
+      <select id="ho-person">
+        ${DB.users.filter(u=>u.active).map(u=>`<option value="${esc(u.name)}">${esc(u.name)} — ${ROLES[u.role]||u.role}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>الموقع *</label>
+      <select id="ho-site">
+        ${DB.fieldSites.map(fs=>`<option value="${esc(fs.name)}">${esc(fs.name)}</option>`).join('')}
+        ${DB.sites.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>البنود (كل بند في سطر) *</label>
+      <textarea id="ho-items" rows="4" placeholder="كاميرا dome&#10;كابل 10م&#10;مثبت جداري"></textarea>
+    </div>
+    <div class="field"><label>ملاحظات</label>
+      <textarea id="ho-notes" rows="2" placeholder="أي ملاحظات..."></textarea>
+    </div>
+  </div>
+  <div class="mft" style="margin-top:14px">
+    <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+    <button class="btn btn-bl" onclick="saveHandover('${type}')">💾 حفظ وطباعة</button>
+  </div>`);
+}
+
+function saveHandover(type){
+  const num   = val('ho-num');
+  const person= val('ho-person');
+  const site  = val('ho-site');
+  const items = val('ho-items');
+  const notes = val('ho-notes');
+  if(!items.trim()){ toast('أدخل البنود','err'); return; }
+
+  const isDelivery = type==='delivery';
+  const handover = {
+    id: gid(), num, type, person, site, items, notes,
+    by: CU.name, date: ts(), _ts: Date.now()
+  };
+
+  fbSet('handovers/'+handover.id, handover);
+  logAct((isDelivery?'تسليم':'استلام')+' رسمي', person+' — '+site);
+  closeModal();
+
+  // طباعة النموذج
+  printHandover(handover);
+  toast('✅ تم الحفظ والطباعة');
+}
+
+function printHandover(h){
+  const isDelivery = h.type==='delivery';
+  const win = window.open('','_blank','width=600,height=700');
+  win.document.write(`
+  <!DOCTYPE html><html dir="rtl"><head>
+  <meta charset="utf-8">
+  <title>نموذج ${isDelivery?'تسليم':'استلام'}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:30px;color:#000;direction:rtl}
+    h2{text-align:center;border-bottom:2px solid #000;padding-bottom:10px}
+    .row{display:flex;gap:20px;margin-bottom:10px}
+    .field{flex:1;border-bottom:1px solid #ccc;padding:5px 0}
+    .label{font-size:11px;color:#666}
+    .items{border:1px solid #ccc;padding:12px;min-height:100px;margin:10px 0;border-radius:4px;white-space:pre-line}
+    .sigs{display:flex;gap:40px;margin-top:40px}
+    .sig{flex:1;text-align:center;border-top:1px solid #000;padding-top:8px;font-size:12px}
+    @media print{body{padding:15px}}
+  </style>
+  </head><body>
+  <h2>📋 نموذج ${isDelivery?'تسليم':'استلام'} — CCTV Manager</h2>
+  <div class="row">
+    <div class="field"><div class="label">رقم النموذج</div><b>${h.num}</b></div>
+    <div class="field"><div class="label">التاريخ</div>${h.date}</div>
+  </div>
+  <div class="row">
+    <div class="field"><div class="label">المُعِد</div>${h.by}</div>
+    <div class="field"><div class="label">${isDelivery?'المسلَّم إليه':'المسلِّم'}</div>${h.person}</div>
+  </div>
+  <div class="field"><div class="label">الموقع</div>${h.site}</div>
+  <div class="label" style="margin-top:12px">البنود:</div>
+  <div class="items">${h.items}</div>
+  ${h.notes?`<div class="field"><div class="label">ملاحظات</div>${h.notes}</div>`:''}
+  <div class="sigs">
+    <div class="sig">توقيع المُسلِّم<br><br>${h.by}</div>
+    <div class="sig">توقيع المُستلِم<br><br>${h.person}</div>
+  </div>
+  <script>window.onload=()=>{window.print();}<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+function pgHandovers(){
+  FBDB.ref('cctv/handovers').once('value').then(snap=>{
+    const list = snap.val() ? Object.values(snap.val()).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    $('page').innerHTML=`
+    <div class="ph">
+      <div class="pt">📝 التسليم والاستلام</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-bl" onclick="openHandoverForm('delivery')">📤 تسليم</button>
+        <button class="btn btn-gy" onclick="openHandoverForm('receipt')">📥 استلام</button>
+      </div>
+    </div>
+    <div style="padding:0 16px">
+      ${list.length?list.map(h=>`
+      <div class="panel" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:600">${h.type==='delivery'?'📤 تسليم':'📥 استلام'} — ${esc(h.num)}</div>
+          <div style="font-size:12px;color:var(--mt)">${esc(h.person)} — ${esc(h.site)}</div>
+          <div style="font-size:11px;color:var(--mt)">${esc(h.by)} | ${esc(h.date)}</div>
+        </div>
+        <button class="btn btn-sm btn-bl" onclick="printHandover(${JSON.stringify(h).split('"').join('&quot;')})">🖨️</button>
+      </div>`).join('')
+      :'<div style="text-align:center;padding:40px;color:var(--mt)">لا نماذج بعد</div>'}
+    </div>`;
   });
 }
 
