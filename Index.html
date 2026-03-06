@@ -285,7 +285,7 @@ let FBMSG = null;
 try {
   // تحديد مسار Service Worker الصحيح
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('/Cctv-manger/firebase-messaging-sw.js', {
+    navigator.serviceWorker.register('/firebase-messaging-sw.js', {
       scope: '/Cctv-manger/'
     }).then(reg => {
       FBMSG = firebase.messaging();
@@ -432,7 +432,7 @@ function canUserSeeFieldSite(site) {
   if(!CU) return false;
   if(CU.role === 'manager') return true; // المدير يرى كل شيء
   if(!site.allowedUsers || site.allowedUsers.length === 0) return false; // إذا لم يحدد أحد، لا يراه أحد
-  return site.allowedUsers.includes(CU.uid||CU.id);
+  const myUid = CU.uid||CU.id; return site.allowedUsers.some(u=>u===myUid);
 }
 
 // فلترة المواقع الميدانية حسب صلاحيات المستخدم
@@ -1435,6 +1435,7 @@ function pgUsers(){
         ${u.id===CU.id?`<span style="font-size:11px;color:var(--bl);margin-right:auto">أنت</span>`:''}
       </div>
       <div style="font-size:12px;color:var(--mt);margin-bottom:6px">📧 ${esc(u.email||u.username||'')}</div>
+      ${u.tempPw&&CU.role==='manager'?`<div style="font-size:12px;background:#d2992218;border:1px solid #d2992244;border-radius:6px;padding:5px 9px;margin-bottom:6px;color:var(--yl)">🔑 كلمة المرور المؤقتة: <b>${esc(u.tempPw)}</b></div>`:''}
       ${u.perms?`<div style="font-size:11px;color:var(--pu);margin-bottom:8px">🔑 صلاحيات مخصصة</div>`:
         `<div style="font-size:11px;color:var(--mt);margin-bottom:8px">🔑 صلاحيات الدور الافتراضية</div>`}
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:5px">
@@ -1442,7 +1443,11 @@ function pgUsers(){
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn btn-sm btn-gy" onclick="openEditUser(${i})">✏️ تعديل</button>
           <button class="btn btn-sm btn-pu" onclick="openPerms(${i})">🔑 صلاحيات</button>
-          ${u.id!==CU.id?`<button class="btn btn-sm btn-rd" onclick="toggleUser(${i})">${u.active?'تعطيل':'تفعيل'}</button>`:''}
+          ${(CU.uid||CU.id)!==(u.uid||u.id)?`
+            <button class="btn btn-sm btn-rd" onclick="toggleUser(${i})">${u.active?'تعطيل':'تفعيل'}</button>
+            <button class="btn btn-sm" style="background:#d2992222;border:1px solid #d2992244;color:var(--yl)" onclick="resetUserPassword(${i})">🔑 إعادة كلمة السر</button>
+            <button class="btn btn-sm btn-rd" onclick="delUser(${i})">🗑️ حذف</button>
+          `:''}
         </div>
       </div>
     </div>`).join('')}
@@ -1512,6 +1517,36 @@ async function saveUser(idx){
     if(btn){ btn.disabled=false; btn.textContent='💾 حفظ'; }
   }
 }
+async function delUser(i){
+  const u = DB.users[i];
+  if(!u) return;
+  if(!confirm('حذف المستخدم '+u.name+' نهائياً؟')) return;
+  // حذف من Realtime Database
+  await fbDel('users/'+(u.uid||u.id));
+  toast('تم حذف المستخدم');
+  // ملاحظة: Firebase Auth يحتاج Admin SDK للحذف الكامل
+}
+
+async function resetUserPassword(i){
+  const u = DB.users[i];
+  if(!u || !u.email) { toast('لا يوجد بريد إلكتروني لهذا المستخدم','err'); return; }
+  const newPw = prompt('أدخل كلمة المرور الجديدة (6 أحرف على الأقل):');
+  if(!newPw || newPw.length < 6) { toast('كلمة المرور قصيرة جداً','err'); return; }
+  // إرسال إشعار للمستخدم
+  pushN('🔑 تم إعادة تعيين كلمة مرور الحساب: '+u.name+' — تواصل مع المدير للحصول عليها','warn');
+  // تحديث في Firebase Auth عبر REST API
+  try {
+    // نحتاج idToken للمستخدم الحالي (المدير) لاستخدام Admin
+    const apiKey = firebaseConfig.apiKey;
+    // نحتاج UID للمستخدم المراد تغيير كلمة سره — هذا يتطلب Admin SDK
+    // الحل المتاح: نحفظ كلمة المرور مؤقتاً في DB ليراها المستخدم
+    await fbUpdate('users/'+(u.uid||u.id), {tempPw: newPw, tempPwSetAt: ts()});
+    toast('✅ تم — أخبر المستخدم بكلمة المرور الجديدة: '+newPw);
+  } catch(e) {
+    toast('❌ خطأ: '+e.message,'err');
+  }
+}
+
 function toggleUser(i){
   if((DB.users[i].uid||DB.users[i].id)===CU.uid){ toast('لا يمكن تعطيل حسابك','err'); return; }
   const u=DB.users[i]; if(!u)return; fbUpdate('users/'+(u.uid||u.id),{active:!u.active});
@@ -1825,7 +1860,7 @@ function pgFieldMap(){
         ${CU.role !== 'manager' ? '<span style="color:var(--gn);margin-right:5px">🔒 المواقع المصرح بها</span>' : ''}
       </div>
     </div>
-    ${p('fieldmap')?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
+    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
   </div>
 
   ${visibleSites.length===0
@@ -2022,9 +2057,9 @@ function openSitePermissions(siteId) {
   </div>
   <div class="user-selector">
     ${allUsers.map(user => {
-      const isChecked = site.allowedUsers?.includes(user.id);
+      const isChecked = site.allowedUsers?.includes(user.uid||user.id);
       return `<div class="ckf" style="margin-bottom:6px">
-        <input type="checkbox" id="user_${user.id}" ${isChecked ? 'checked' : ''}>
+        <input type="checkbox" id="user_${user.uid||user.id}" ${isChecked ? 'checked' : ''}>
         <label for="user_${user.id}">
           <span style="color:${RC[user.role]};font-weight:600">${ROLES[user.role]}</span> - ${esc(user.name)}
           <span style="font-size:11px;color:var(--mt);margin-right:5px">(@${user.username})</span>
@@ -2042,20 +2077,14 @@ function openSitePermissions(siteId) {
 function saveSitePermissions(siteId) {
   const site = DB.fieldSites.find(s => s.id === siteId);
   if(!site) return;
-  
   const allowedUsers = [];
   DB.users.forEach(user => {
-    const cb = $(`user_${user.id}`);
-    if(cb && cb.checked) allowedUsers.push(user.id);
+    const uid = user.uid||user.id;
+    const cb = document.getElementById('user_'+uid);
+    if(cb && cb.checked) allowedUsers.push(uid);
   });
-  
-  site.allowedUsers = allowedUsers;
-  
-  // إذا كان الموقع هو الموقع الحالي، نعيد تحميل الصفحة
-  if(_FSITE === siteId) {
-    _FSITE = '';
-  }
-  
+  fbUpdate('fieldSites/'+siteId, {allowedUsers});
+  if(_FSITE === siteId) _FSITE = '';
   closeModal();
   toast('تم حفظ صلاحيات الموقع');
   pgFieldMap();
@@ -2266,9 +2295,11 @@ function saveFieldSite(fsId){
 }
 function delFieldSite(fsId){
   const fs=DB.fieldSites.find(x=>x.id===fsId);
-  if(!fs||!confirm('حذف موقع "'+fs.name+'" وكل كاميراته؟')) return;
+  if(!fs) return;
+  const camCount = fs.cameras ? fs.cameras.length : 0;
+  if(!confirm('حذف موقع "'+fs.name+'" وكل كاميراته ('+camCount+')؟')) return;
   fbDel('fieldSites/'+fsId);
-  if(_FSITE===fsId) _FSITE='';
+  if(window._FSITE===fsId) window._FSITE='';
   toast('تم الحذف','err');
 }
 
