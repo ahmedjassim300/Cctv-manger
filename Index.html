@@ -520,6 +520,7 @@ function badge(s){
 function doLogin(){
   const email = val('lu'), pw = $('lp').value;
   if(!email||!pw){ const e=$('lerr'); e.textContent='أدخل البريد وكلمة المرور'; e.style.display='block'; return; }
+  _loginAttempted = true;
   const btn=$('login-btn');
   btn.disabled=true;
   btn.textContent='⏳ جار التحقق...';
@@ -555,11 +556,17 @@ function doLogout(){
 }
 
 // ── onAuthStateChanged: بعد تسجيل الدخول بنجاح ──
+let _loginAttempted = false;
 FBAUTH.onAuthStateChanged(function(fbUser){
   if(!fbUser){
     const btn=$('login-btn');
     if(btn){ btn.disabled=false; btn.textContent='تسجيل الدخول'; }
+    _loginAttempted = false;
     return;
+  }
+  // إذا لم يضغط المستخدم زر الدخول (جلسة محفوظة) — أكمل مباشرة بدون تعطيل
+  if(!_loginAttempted){
+    $('lload').style.display='none';
   }
   // جلب بيانات المستخدم من قاعدة البيانات
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
