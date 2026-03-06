@@ -306,6 +306,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -605,6 +606,11 @@ function doLogin(){
 function doLogout(){
   _isLoggingOut = true;
   _loginAttempted = false;
+  stopGPSTracking();
+  // تحديث حالة الفني كـ offline
+  if(CU&&(CU.role==='field'||CU.role==='technician')){
+    try{ fbUpdate('techLocations/'+(CU.uid||CU.id),{online:false}); }catch(e){}
+  }
   try{ FBDB.ref('cctv').off(); }catch(e){}
   CU=null; PAGE='';
   FBAUTH.signOut().then(()=>{
@@ -689,6 +695,17 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     fbStartSync();
     // طلب إذن الإشعارات
     setTimeout(requestNotifPermission, 2000);
+    // إجبار GPS للفنيين الميدانيين
+    if(CU.role==='field'||CU.role==='technician'){
+      setTimeout(()=>{
+        if(!navigator.geolocation){ showGPSForceDialog('GPS غير مدعوم'); return; }
+        navigator.geolocation.getCurrentPosition(
+          pos=>{ updateTechLocation(pos); startGPSTracking(); toast('📍 GPS مفعّل'); },
+          err=>showGPSForceDialog(null),
+          {enableHighAccuracy:true,timeout:8000}
+        );
+      }, 1500);
+    }
     // تحقق من الصيانة المتأخرة
     setTimeout(()=>{
       const today=new Date();
@@ -870,7 +887,7 @@ function go(page){
   ({dashboard:pgDash,inventory:pgInv,movements:pgMoves,faults:pgFaults,
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
     search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
-    performance:pgPerformance,backup:()=>openBackupManager()})[page]?.();
+    performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap})[page]?.();
 }
 
 // ============================================
@@ -998,6 +1015,7 @@ function pgDash(){
         {id:'actlog',    ic:'📋', lb:'سجل النشاط',     perm:'users'},
         {id:'performance',ic:'🏆', lb:'أداء الفنيين',   perm:'users'},
         {id:'backup',     ic:'🔐', lb:'احتياطي',         perm:'users'},
+        {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
       return tiles.map(t=>`
@@ -3455,6 +3473,156 @@ function pgPerformance(){
       </div>
     </div>`).join('')}
   </div>`;
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  🗺️ تتبع موقع الفني الميداني GPS
+// ═══════════════════════════════════════════════════════
+let _gpsWatcher = null;
+
+function startGPSTracking(){
+  if(!navigator.geolocation){ toast('GPS غير مدعوم في هذا الجهاز','err'); return; }
+
+  // طلب الموقع فوراً
+  navigator.geolocation.getCurrentPosition(
+    pos => updateTechLocation(pos),
+    err => handleGPSError(err),
+    {enableHighAccuracy:true, timeout:10000}
+  );
+
+  // تتبع مستمر كل 30 ثانية
+  _gpsWatcher = navigator.geolocation.watchPosition(
+    pos => updateTechLocation(pos),
+    err => handleGPSError(err),
+    {enableHighAccuracy:true, maximumAge:30000, timeout:15000}
+  );
+}
+
+function stopGPSTracking(){
+  if(_gpsWatcher !== null){
+    navigator.geolocation.clearWatch(_gpsWatcher);
+    _gpsWatcher = null;
+  }
+}
+
+function updateTechLocation(pos){
+  const uid = CU.uid||CU.id;
+  fbSet('techLocations/'+uid, {
+    uid, name:CU.name, role:CU.role,
+    lat: pos.coords.latitude,
+    lng: pos.coords.longitude,
+    accuracy: Math.round(pos.coords.accuracy),
+    updatedAt: ts(),
+    _ts: Date.now(),
+    online: true
+  });
+}
+
+function handleGPSError(err){
+  const msgs = {1:'تم رفض الإذن — يرجى السماح بالموقع',2:'الموقع غير متاح',3:'انتهت مهلة GPS'};
+  // إذا فني — أجبره على التفعيل
+  if(CU.role==='field'||CU.role==='technician'){
+    showGPSForceDialog(msgs[err.code]||'خطأ في GPS');
+  }
+}
+
+function showGPSForceDialog(reason){
+  // لا يمكن إغلاق هذا الحوار بدون تفعيل GPS
+  const existing = document.getElementById('gps-force-dialog');
+  if(existing) return;
+
+  const div = document.createElement('div');
+  div.id = 'gps-force-dialog';
+  div.style.cssText = `
+    position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,.85);z-index:9999;
+    display:flex;align-items:center;justify-content:center;padding:20px
+  `;
+  div.innerHTML = `
+    <div style="background:var(--sf);border-radius:18px;padding:28px;max-width:320px;width:100%;text-align:center">
+      <div style="font-size:48px;margin-bottom:12px">📍</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">تفعيل GPS مطلوب</div>
+      <div style="font-size:13px;color:var(--mt);margin-bottom:6px">${reason||'يجب تفعيل خدمة الموقع للمتابعة'}</div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:20px;background:var(--bg);padding:10px;border-radius:8px">
+        كفني ميداني، يجب تفعيل GPS لتتبع موقعك أثناء العمل
+      </div>
+      <button onclick="retryGPS()" class="btn btn-bl btn-fw" style="margin-bottom:8px;padding:14px;font-size:15px">
+        📍 تفعيل GPS الآن
+      </button>
+      <button onclick="doLogout()" class="btn btn-rd btn-fw" style="padding:14px;font-size:15px">
+        🚪 تسجيل الخروج
+      </button>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+function retryGPS(){
+  const dialog = document.getElementById('gps-force-dialog');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      updateTechLocation(pos);
+      if(dialog) dialog.remove();
+      startGPSTracking();
+      toast('✅ GPS مفعّل');
+    },
+    err => handleGPSError(err),
+    {enableHighAccuracy:true, timeout:10000}
+  );
+}
+
+function dismissGPSDialog(){
+  const d = document.getElementById('gps-force-dialog');
+  if(d) d.remove();
+}
+
+// صفحة مواقع الفنيين للمدير
+function pgTechMap(){
+  if(CU.role !== 'manager'){ $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ للمدير فقط</div>'; return; }
+
+  $('page').innerHTML=`
+  <div class="ph"><div class="pt">🗺️ مواقع الفنيين</div>
+    <button class="btn btn-sm btn-gy" onclick="pgTechMap()">🔄 تحديث</button>
+  </div>
+  <div id="tech-locations" style="padding:0 16px">
+    <div style="text-align:center;color:var(--mt);padding:20px">⏳ جار التحميل...</div>
+  </div>`;
+
+  // جلب مواقع الفنيين من Firebase
+  FBDB.ref('cctv/techLocations').once('value').then(snap=>{
+    const locs = snap.val();
+    const el = document.getElementById('tech-locations');
+    if(!locs||!Object.keys(locs).length){
+      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--mt)">لا فنيين نشطين الآن</div>';
+      return;
+    }
+    const now = Date.now();
+    el.innerHTML = Object.values(locs).map(loc=>{
+      const mins = Math.round((now - (loc._ts||0))/(1000*60));
+      const isRecent = mins < 10;
+      return `
+      <div class="panel" style="margin-bottom:10px;border-right:3px solid ${isRecent?'var(--gn)':'var(--mt)'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div>
+            <div style="font-weight:700">${esc(loc.name)}</div>
+            <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
+          </div>
+          <span style="font-size:11px;background:${isRecent?'#3fb95022':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
+            ${isRecent?'🟢 نشط':'⚫ منذ '+mins+' د'}
+          </span>
+        </div>
+        <div style="font-size:12px;color:var(--mt);margin-bottom:8px">
+          📍 ${loc.lat?.toFixed(5)}, ${loc.lng?.toFixed(5)}
+          ${loc.accuracy?` | دقة: ${loc.accuracy}م`:''}
+        </div>
+        <div style="font-size:11px;color:var(--mt);margin-bottom:8px">🕐 آخر تحديث: ${esc(loc.updatedAt||'')}</div>
+        <a href="https://maps.google.com/?q=${loc.lat},${loc.lng}" target="_blank" class="btn btn-sm btn-bl">
+          🗺️ فتح في الخريطة
+        </a>
+      </div>`;
+    }).join('');
+  });
 }
 
 // ═══════════════════════════════════════════════════════
