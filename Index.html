@@ -282,7 +282,18 @@ firebase.initializeApp(firebaseConfig);
 const FBAUTH = firebase.auth();
 const FBDB   = firebase.database();
 let FBMSG = null;
-try { FBMSG = firebase.messaging(); } catch(e) { console.warn('FCM not supported:', e); }
+try {
+  // تحديد مسار Service Worker الصحيح
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/Cctv-manger/firebase-messaging-sw.js', {
+      scope: '/Cctv-manger/'
+    }).then(reg => {
+      FBMSG = firebase.messaging();
+      firebase.messaging().useServiceWorker(reg);
+      console.log('✅ FCM SW registered');
+    }).catch(e => console.warn('FCM SW error:', e));
+  }
+} catch(e) { console.warn('FCM not supported:', e); }
 
 // ── مفتاح آمن للاستخدام في Firebase paths ──
 function fbKey(str){ return encodeURIComponent(str).replace(/\./g,'_dot_').replace(/\//g,'_sl_').replace(/#/g,'_h_').replace(/\[/g,'_lb_').replace(/\]/g,'_rb_').replace(/\?/g,'_q_'); }
