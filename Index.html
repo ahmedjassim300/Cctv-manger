@@ -1407,7 +1407,7 @@ function saveFault(){
   
   // إيجاد الموقع الميداني المرتبط
   const relatedSite = DB.fieldSites.find(s=>s.name===loc);
-  const faultId = await fbPush('faults',{
+  fbPush('faults',{
     location:loc,pointId:pt,camSN:val('fsn'),reason:rsn,
     desc:val('fdsc'),priority:val('fpri'),by:CU.name,date:ts(),status:'open',log:[],
     fieldSiteId: relatedSite?.id||null
@@ -1594,7 +1594,7 @@ async function delUser(i){
   if(!u) return;
   if(!confirm('حذف المستخدم '+u.name+' نهائياً؟')) return;
   // حذف من Realtime Database
-  await fbDel('users/'+(u.uid||u.id));
+  fbDel('users/'+(u.uid||u.id));
   toast('تم حذف المستخدم');
   // ملاحظة: Firebase Auth يحتاج Admin SDK للحذف الكامل
 }
@@ -1612,7 +1612,7 @@ async function resetUserPassword(i){
     const apiKey = firebaseConfig.apiKey;
     // نحتاج UID للمستخدم المراد تغيير كلمة سره — هذا يتطلب Admin SDK
     // الحل المتاح: نحفظ كلمة المرور مؤقتاً في DB ليراها المستخدم
-    await fbUpdate('users/'+(u.uid||u.id), {tempPw: newPw, tempPwSetAt: ts()});
+    fbUpdate('users/'+(u.uid||u.id), {tempPw: newPw, tempPwSetAt: ts()});
     toast('✅ تم — أخبر المستخدم بكلمة المرور الجديدة: '+newPw);
   } catch(e) {
     toast('❌ خطأ: '+e.message,'err');
