@@ -283,16 +283,8 @@ const FBAUTH = firebase.auth();
 const FBDB   = firebase.database();
 let FBMSG = null;
 try {
-  // تحديد مسار Service Worker الصحيح
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-      scope: '/Cctv-manger/'
-    }).then(reg => {
-      FBMSG = firebase.messaging();
-      firebase.messaging().useServiceWorker(reg);
-      console.log('✅ FCM SW registered');
-    }).catch(e => console.warn('FCM SW error:', e));
-  }
+  FBMSG = firebase.messaging();
+  console.log('✅ FCM initialized');
 } catch(e) { console.warn('FCM not supported:', e); }
 
 // ── مفتاح آمن للاستخدام في Firebase paths ──
