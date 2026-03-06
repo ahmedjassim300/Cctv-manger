@@ -455,11 +455,10 @@ function mft(l,fn,cl='btn-bl'){ return `<div class="mft"><button class="btn btn-
 function pushN(text,type='info'){
   fbPush('notifs',{text,type,time:ts(),read:false,_ts:Date.now()});
   buildNav();
-  // إشعار محلي
-  try{
-    const icons = {error:'🔴', warn:'🟡', info:'🔵'};
-    localNotif('CCTV Manager', text);
-  }catch(e){}
+  // إشعار محلي (عند فتح التطبيق)
+  try{ localNotif('CCTV Manager', text); }catch(e){}
+  // إشعار في الخلفية عبر Cloudflare Worker
+  try{ sendPushNotif('CCTV Manager', text, type); }catch(e){}
 }
 
 // ============================================
@@ -2367,6 +2366,18 @@ if('serviceWorker' in navigator){
 
 // VAPID Key من Firebase Console → Project Settings → Cloud Messaging
 const VAPID_KEY = 'BPIzplWUWcc2B3O5bzDgIikkkB8JMvpR-K46qTFWYj8DOl4smrHcAjyeAfEMKOpGXgHrx7PeJq8-vNYnM-vw4Es';
+
+// Cloudflare Worker URL لإرسال الإشعارات في الخلفية
+const CF_WORKER = 'https://cctv-notifications.ahmedjassim300.workers.dev';
+
+// إرسال إشعار عبر Cloudflare Worker
+function sendPushNotif(title, message, type){
+  fetch(CF_WORKER+'/notify', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({title, message, type})
+  }).catch(()=>{});
+}
 
 // طلب إذن الإشعارات وتسجيل FCM Token
 async function requestNotifPermission(){
