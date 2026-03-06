@@ -285,6 +285,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
       </div>
     </div>
     <div class="sb-bot">
+      <span id="online-ind" title="متصل" style="font-size:14px;cursor:default">🟢</span>
       <button onclick="openQRScanner()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px 8px" title="مسح QR">📸</button>
       <button id="theme-btn" onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;font-size:18px;padding:4px 8px" title="تغيير المظهر">🌙</button>
       <button class="btn btn-sm" style="background:#58a6ff22;border:1px solid #58a6ff44;color:var(--bl);margin-bottom:6px" onclick="requestNotifPermission()" title="تفعيل الإشعارات">🔔</button>
@@ -633,6 +634,7 @@ let _loginAttempted = false;
 let _isLoggingOut = false;
 // تحميل الثيم عند البدء
 loadTheme();
+loadBranding();
 
 FBAUTH.onAuthStateChanged(function(fbUser){
   if(_isLoggingOut) return; // تجاهل أي حدث أثناء تسجيل الخروج
@@ -754,6 +756,9 @@ function fbInitDB(){
 //  FIREBASE SYNC — مزامنة فورية مع قاعدة البيانات
 // ═══════════════════════════════════════════════════════
 function fbStartSync(){
+  // إذا offline — حمّل البيانات المحلية
+  if(!navigator.onLine){ loadLocalDB(); }
+
   FBDB.ref('cctv').on('value', snap=>{
     const data=snap.val()||{};
 
@@ -824,7 +829,7 @@ function fbStartSync(){
     }
 
     if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
-    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); }catch(e){}
+    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); cacheLocalDB(data); }catch(e){}
     if(!PAGE) { try{ go('dashboard'); }catch(e){} }
     else { try{ go(PAGE); }catch(e){} }
   }, err=>{
@@ -889,7 +894,8 @@ function go(page){
   ({dashboard:pgDash,inventory:pgInv,movements:pgMoves,faults:pgFaults,
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
     search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
-    performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers})[page]?.();
+    performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
+    branding:()=>openBrandSettings()})[page]?.();
 }
 
 // ============================================
@@ -1019,6 +1025,7 @@ function pgDash(){
         {id:'backup',     ic:'🔐', lb:'احتياطي',         perm:'users'},
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
+        {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',   perm:'users'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
       return tiles.map(t=>`
@@ -3870,6 +3877,168 @@ function pgHandovers(){
       :'<div style="text-align:center;padding:40px;color:var(--mt)">لا نماذج بعد</div>'}
     </div>`;
   });
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  🎨 تخصيص الشركة (Brand Settings)
+// ═══════════════════════════════════════════════════════
+function loadBranding(){
+  try{
+    const b = JSON.parse(localStorage.getItem('cctv_brand')||'{}');
+    if(b.name){ document.querySelectorAll('.brand-name').forEach(el=>el.textContent=b.name); }
+    if(b.logo){ document.querySelectorAll('.brand-logo').forEach(el=>el.textContent=b.logo); }
+    if(b.color){
+      document.documentElement.style.setProperty('--bl', b.color);
+      document.documentElement.style.setProperty('--acc', b.color);
+    }
+    if(b.bgColor){ document.documentElement.style.setProperty('--bg', b.bgColor); }
+  }catch(e){}
+}
+
+function openBrandSettings(){
+  const b = JSON.parse(localStorage.getItem('cctv_brand')||'{}');
+  openModal(`${mhd('🎨 تخصيص الشركة')}
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="field">
+      <label>اسم الشركة / النظام</label>
+      <input id="br-name" value="${esc(b.name||'CCTV Manager')}" placeholder="اسم شركتك">
+    </div>
+    <div class="field">
+      <label>أيقونة / إيموجي الشعار</label>
+      <input id="br-logo" value="${esc(b.logo||'📹')}" placeholder="📹" maxlength="4" style="font-size:24px;text-align:center">
+    </div>
+    <div class="field">
+      <label>اللون الرئيسي</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="br-color" type="color" value="${b.color||'#58a6ff'}" style="width:50px;height:40px;border:none;background:none;cursor:pointer">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${['#58a6ff','#3fb950','#f85149','#d29922','#bc8cff','#ff7b72','#39d353','#0969da'].map(c=>
+            `<div onclick="document.getElementById('br-color').value='${c}'" 
+              style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${b.color===c?'#fff':'transparent'}"></div>`
+          ).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="text-align:center" id="br-preview">
+      <div style="font-size:32px" id="pr-logo">${b.logo||'📹'}</div>
+      <div style="font-weight:700;font-size:16px" id="pr-name">${b.name||'CCTV Manager'}</div>
+    </div>
+  </div>
+  <div class="mft" style="margin-top:14px">
+    <button class="btn btn-rd" onclick="resetBranding()">↩️ إعادة تعيين</button>
+    <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+    <button class="btn btn-bl" onclick="saveBranding()">💾 حفظ</button>
+  </div>
+  <script>
+    document.getElementById('br-name').oninput=function(){document.getElementById('pr-name').textContent=this.value||'CCTV Manager'};
+    document.getElementById('br-logo').oninput=function(){document.getElementById('pr-logo').textContent=this.value||'📹'};
+  <\/script>`);
+}
+
+function saveBranding(){
+  const b = {
+    name:  val('br-name')||'CCTV Manager',
+    logo:  val('br-logo')||'📹',
+    color: document.getElementById('br-color').value||'#58a6ff',
+  };
+  localStorage.setItem('cctv_brand', JSON.stringify(b));
+  loadBranding();
+  closeModal();
+  toast('✅ تم حفظ تخصيصات الشركة');
+  // تحديث الشعار في الشريط
+  const logoEl = document.querySelector('.sb-brand .logo');
+  if(logoEl) logoEl.innerHTML = b.logo+' '+b.name;
+}
+
+function resetBranding(){
+  localStorage.removeItem('cctv_brand');
+  document.documentElement.style.removeProperty('--bl');
+  document.documentElement.style.removeProperty('--bg');
+  closeModal();
+  toast('تم إعادة التعيين');
+  const logoEl = document.querySelector('.sb-brand .logo');
+  if(logoEl) logoEl.innerHTML = '📹 CCTV';
+}
+
+// ═══════════════════════════════════════════════════════
+//  📴 وضع Offline — حفظ البيانات محلياً
+// ═══════════════════════════════════════════════════════
+let _isOnline = navigator.onLine;
+let _offlineQueue = JSON.parse(localStorage.getItem('cctv_offline_queue')||'[]');
+
+window.addEventListener('online', ()=>{
+  _isOnline = true;
+  updateOnlineStatus(true);
+  syncOfflineQueue();
+});
+window.addEventListener('offline', ()=>{
+  _isOnline = false;
+  updateOnlineStatus(false);
+});
+
+function updateOnlineStatus(online){
+  const ind = document.getElementById('online-ind');
+  if(ind){
+    ind.textContent = online ? '🟢' : '🔴';
+    ind.title = online ? 'متصل' : 'غير متصل — البيانات محفوظة محلياً';
+  }
+  if(!online) toast('📴 وضع offline — البيانات ستُزامن عند الاتصال','warn');
+  else if(_offlineQueue.length) toast('🔄 جار مزامنة '+_offlineQueue.length+' عملية...');
+}
+
+// إضافة عملية للقائمة المؤجلة
+function queueOfflineOp(op, path, data){
+  _offlineQueue.push({op, path, data, time: Date.now()});
+  localStorage.setItem('cctv_offline_queue', JSON.stringify(_offlineQueue));
+  // حفظ البيانات محلياً فوراً
+  const local = JSON.parse(localStorage.getItem('cctv_local_db')||'{}');
+  local[path] = data;
+  localStorage.setItem('cctv_local_db', JSON.stringify(local));
+}
+
+// مزامنة القائمة عند عودة الاتصال
+function syncOfflineQueue(){
+  if(!_offlineQueue.length) return;
+  const queue = [..._offlineQueue];
+  _offlineQueue = [];
+  localStorage.setItem('cctv_offline_queue', '[]');
+  
+  queue.forEach(item=>{
+    try{
+      if(item.op==='set') FBDB.ref('cctv/'+item.path).set(item.data);
+      else if(item.op==='push') FBDB.ref('cctv/'+item.path).push(item.data);
+      else if(item.op==='update') FBDB.ref('cctv/'+item.path).update(item.data);
+      else if(item.op==='delete') FBDB.ref('cctv/'+item.path).remove();
+    }catch(e){ console.warn('Sync failed:', item.path); }
+  });
+  toast('✅ تمت المزامنة ('+queue.length+' عملية)');
+}
+
+// حفظ البيانات محلياً عند المزامنة
+function cacheLocalDB(data){
+  try{
+    const mini = {
+      faults: data.faults||{},
+      notifs: data.notifs||{},
+      fieldSites: data.fieldSites||{},
+      maintain: data.maintain||{}
+    };
+    localStorage.setItem('cctv_local_db', JSON.stringify(mini));
+  }catch(e){}
+}
+
+// تحميل البيانات المحلية عند offline
+function loadLocalDB(){
+  try{
+    const local = JSON.parse(localStorage.getItem('cctv_local_db')||'{}');
+    if(local.faults) DB.faults = Object.values(local.faults).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.notifs) DB.notifs = Object.values(local.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.fieldSites) DB.fieldSites = Object.values(local.fieldSites).map(fs=>({...fs,cameras:fs.cameras?Object.values(fs.cameras):[]}));
+    if(local.maintain) DB.maintain = Object.values(local.maintain);
+    toast('📴 عرض بيانات محفوظة — غير متصل','warn');
+    if(PAGE) go(PAGE);
+  }catch(e){}
 }
 
 // ═══════════════════════════════════════════════════════
