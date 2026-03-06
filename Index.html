@@ -554,7 +554,14 @@ function doLogout(){
 
 // ── onAuthStateChanged: بعد تسجيل الدخول بنجاح ──
 FBAUTH.onAuthStateChanged(function(fbUser){
-  if(!fbUser) return;
+  if(!fbUser){
+    // إعادة تفعيل زر الدخول إذا لم يكن هناك مستخدم
+    const btn=$('login-btn');
+    if(btn) btn.disabled=false;
+    const ll=$('lload');
+    if(ll) ll.style.display='none';
+    return;
+  }
   // جلب بيانات المستخدم من قاعدة البيانات
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
     let userData=snap.val();
