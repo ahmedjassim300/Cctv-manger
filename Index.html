@@ -1475,7 +1475,7 @@ function updFaultStatus(f, ri, status){
   const st=FAULT_ST.find(x=>x.k===status);
   const log=[...(f.log||[]),{ico:st?.ico||'',label:st?.l||status,by:CU.name,date:ts()}];
   const upd={status,log};
-  if(status==='resolved') upd.resolvedAt=ts();
+  if(status==='resolved'){ upd.resolvedAt=ts(); upd._tsResolved=Date.now(); }
   fbUpdate('faults/'+f.id, upd);
   logAct('تحديث عطل', f.location+'/'+f.pointId+' → '+(st?.l||status));
   if(f.fieldSiteId){
@@ -2724,13 +2724,13 @@ function pgReports(){
   const highF   = DB.faults.filter(f=>f.priority==='high').length;
 
   // ── SLA: حساب متوسط وقت الحل ──
-  const resolvedWithTime = DB.faults.filter(f=>f.status==='resolved'&&f.resolvedAt&&f.date);
+  const resolvedWithTime = DB.faults.filter(f=>f.status==='resolved'&&f.resolvedAt&&f._ts&&f.date);
   let avgSLA = 0;
   if(resolvedWithTime.length){
     const total = resolvedWithTime.reduce((sum,f)=>{
-      const start = new Date(f.date.replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-      const end   = new Date(f.resolvedAt.replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-      return sum + Math.max(0,(end-start)/(1000*60*60));
+      // نستخدم _ts إذا متاح، وإلا نتجاهل
+      const diffH = f._tsResolved ? (f._tsResolved - f._ts)/(1000*60*60) : 0;
+      return sum + Math.max(0, diffH);
     },0);
     avgSLA = (total/resolvedWithTime.length).toFixed(1);
   }
@@ -2829,7 +2829,7 @@ function pgReports(){
 function exportReportCSV(){
   const rows=[['الموقع','النقطة','السبب','الأولوية','الحالة','المبلغ','التاريخ','تاريخ الحل']];
   DB.faults.forEach(f=>rows.push([f.location,f.pointId,f.reason,f.priority==='high'?'عاجل':'عادي',f.status,f.by,f.date,f.resolvedAt||'']));
-  const csv=rows.map(r=>r.map(v=>'"'+(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const csv=rows.map(r=>r.map(v=>'"'+(v||'').split('"').join('""')+'"').join(',')).join('\n');
   const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download='تقرير_الأعطال_'+new Date().toLocaleDateString('ar-SA').replace(/\/g,'-')+'.csv';
