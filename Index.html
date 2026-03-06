@@ -2036,35 +2036,35 @@ function renderAllFieldSites(sites) {
   </div>`;
 }
 
-// دالة جديدة لإدارة صلاحيات الموقع
+// دالة إدارة صلاحيات الموقع الميداني
 function openSitePermissions(siteId) {
   const site = DB.fieldSites.find(s => s.id === siteId);
   if(!site) return;
-  
-  const allUsers = DB.users.filter(u => u.active && u.id !== CU.id); // نستبعد المدير الحالي
-  
-  openModal(`${mhd('👥 إدارة صلاحيات الموقع: ' + site.name)}
-  <div style="font-size:13px;color:var(--mt);margin-bottom:14px">
-    اختر المستخدمين الذين يمكنهم رؤية هذا الموقع والتبليغ عن أعطاله.
-  </div>
-  <div class="user-selector">
-    ${allUsers.map(user => {
-      const isChecked = site.allowedUsers?.includes(user.uid||user.id);
-      return `<div class="ckf" style="margin-bottom:6px">
-        <input type="checkbox" id="user_${user.uid||user.id}" ${isChecked ? 'checked' : ''}>
-        <label for="user_${user.id}">
-          <span style="color:${RC[user.role]};font-weight:600">${ROLES[user.role]}</span> - ${esc(user.name)}
-          <span style="font-size:11px;color:var(--mt);margin-right:5px">(@${user.username})</span>
-        </label>
-      </div>`;
-    }).join('')}
-    ${allUsers.length === 0 ? '<div style="text-align:center;padding:20px;color:var(--mt)">لا يوجد مستخدمين نشطين آخرين</div>' : ''}
-  </div>
-  <div class="mft" style="margin-top:20px">
+  const allUsers = DB.users.filter(u => u.active && (u.uid||u.id) !== (CU.uid||CU.id));
+  openModal(`${mhd('👥 صلاحيات الموقع: ' + esc(site.name))}
+  <div style="font-size:13px;color:var(--mt);margin-bottom:14px">اختر المستخدمين الذين يمكنهم رؤية هذا الموقع والتبليغ عن أعطاله.</div>
+  ${allUsers.length===0
+    ? `<div style="text-align:center;padding:20px;color:var(--mt)">لا يوجد مستخدمين نشطين آخرين</div>`
+    : `<div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
+      ${allUsers.map(user=>{
+        const uid=user.uid||user.id;
+        const isChecked=site.allowedUsers?.includes(uid);
+        return `<div style="display:flex;align-items:center;gap:10px;background:var(--sf);border-radius:8px;padding:10px 12px">
+          <input type="checkbox" id="usr_${uid}" ${isChecked?'checked':''} style="width:18px;height:18px;cursor:pointer">
+          <label for="usr_${uid}" style="cursor:pointer;flex:1">
+            <div style="font-weight:600;font-size:13px">${esc(user.name)}</div>
+            <div style="font-size:11px;color:${RC[user.role]}">${ROLES[user.role]}</div>
+            <div style="font-size:11px;color:var(--mt)">📧 ${esc(user.email||'')}</div>
+          </label>
+        </div>`;
+      }).join('')}
+    </div>`}
+  <div class="mft" style="margin-top:16px">
     <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
-    <button class="btn btn-bl" onclick="saveSitePermissions('${siteId}')">💾 حفظ الصلاحيات</button>
+    <button class="btn btn-bl" onclick="saveSitePermissions('${siteId}')">💾 حفظ</button>
   </div>`);
 }
+
 
 function saveSitePermissions(siteId) {
   const site = DB.fieldSites.find(s => s.id === siteId);
@@ -2072,7 +2072,7 @@ function saveSitePermissions(siteId) {
   const allowedUsers = [];
   DB.users.forEach(user => {
     const uid = user.uid||user.id;
-    const cb = document.getElementById('user_'+uid);
+    const cb = document.getElementById('usr_'+uid);
     if(cb && cb.checked) allowedUsers.push(uid);
   });
   fbUpdate('fieldSites/'+siteId, {allowedUsers});
