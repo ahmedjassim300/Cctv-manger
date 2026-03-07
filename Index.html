@@ -4333,7 +4333,17 @@ async function requestNotifPermission(){
     const perm = await Notification.requestPermission();
     if(perm !== 'granted'){ toast('الإشعارات غير مسموحة','warn'); return; }
     toast('⏳ جار تفعيل الإشعارات...','warn');
-    const token = await FBMSG.getToken({ vapidKey: VAPID_KEY });
+    // تسجيل service worker من المسار الصحيح داخل المجلد
+    let swReg = null;
+    try {
+      swReg = await navigator.serviceWorker.register('/Cctv-manger/firebase-messaging-sw.js', {scope: '/Cctv-manger/'});
+      await navigator.serviceWorker.ready;
+    } catch(swErr) {
+      console.warn('SW register failed, using default:', swErr);
+    }
+    const tokenOptions = { vapidKey: VAPID_KEY };
+    if(swReg) tokenOptions.serviceWorkerRegistration = swReg;
+    const token = await FBMSG.getToken(tokenOptions);
     if(token && CU){
       await fbSet('users/'+CU.uid+'/fcmToken', token);
       toast('✅ الإشعارات مفعّلة');
