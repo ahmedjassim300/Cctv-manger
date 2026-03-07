@@ -710,17 +710,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     if(fab) fab.style.display='block';
     // طلب إذن الإشعارات
     setTimeout(requestNotifPermission, 2000);
-    // إجبار GPS للفنيين الميدانيين
-    if(CU.role==='field'||CU.role==='technician'){
-      setTimeout(()=>{
-        if(!navigator.geolocation){ showGPSForceDialog('GPS غير مدعوم'); return; }
-        navigator.geolocation.getCurrentPosition(
-          pos=>{ updateTechLocation(pos); startGPSTracking(); toast('📍 GPS مفعّل'); },
-          err=>showGPSForceDialog(null),
-          {enableHighAccuracy:true,timeout:8000}
-        );
-      }, 1500);
-    }
+
     // تحقق من الصيانة المتأخرة
     setTimeout(()=>{
       const today=new Date();
@@ -3543,11 +3533,7 @@ function updateTechLocation(pos){
 }
 
 function handleGPSError(err){
-  const msgs = {1:'تم رفض الإذن — يرجى السماح بالموقع',2:'الموقع غير متاح',3:'انتهت مهلة GPS'};
-  // إذا فني — أجبره على التفعيل
-  if(CU.role==='field'||CU.role==='technician'){
-    showGPSForceDialog(msgs[err.code]||'خطأ في GPS');
-  }
+  console.log('GPS error:', err.code, err.message);
 }
 
 function showGPSForceDialog(reason){
