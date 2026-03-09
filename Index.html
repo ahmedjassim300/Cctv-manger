@@ -1084,7 +1084,7 @@ function go(page){
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
     search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
     performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-    branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs})[page]?.();
+    branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory})[page]?.();
 }
 
 // ============================================
@@ -1214,7 +1214,8 @@ function pgDash(){
         {id:'backup',     ic:'🔐', lb:'احتياطي',         perm:'users'},
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
-        {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',   perm:'users'},
+        {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'fieldmap'},
+        {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
         {id:'docs',       ic:'📁', lb:'المستندات',         perm:null},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
@@ -4619,6 +4620,7 @@ function openAppMenu(){
     {id:'docs',      ic:'📁', lb:'المستندات',          perm:null},
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
+    {id:'siteinv',   ic:'📦', lb:'جرد الموجودات الثابتة', perm:'fieldmap'},
     {id:'branding',  ic:'🎨', lb:'تخصيص الشركة',       perm:'users'},
   ].filter(x=>x.perm===null ? true : p(x.perm));
 
@@ -4738,6 +4740,293 @@ function hideMsgBubble(){
   const wrap = document.getElementById('msg-bubble-wrap');
   if(wrap) wrap.style.display='none';
   if(_bubbleChatListener){ FBDB.ref('cctv/chat').off('value',_bubbleChatListener); _bubbleChatListener=null; }
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  📦 جرد الموجودات الثابتة في المواقع
+// ═══════════════════════════════════════════════════════
+
+function pgSiteInventory(){
+  const sites = getVisibleFieldSites();
+  if(!sites.length){
+    $('page').innerHTML=`<div style="text-align:center;padding:60px;color:var(--mt)">لا مواقع متاحة</div>`;
+    return;
+  }
+
+  // اختر الموقع الافتراضي
+  const selSite = window._invSite || sites[0].id;
+  window._invSite = selSite;
+  const site = sites.find(s=>s.id===selSite) || sites[0];
+
+  // تحميل نقاط الجرد من Firebase
+  FBDB.ref('cctv/siteInventory/'+site.id).once('value').then(snap=>{
+    const points = snap.val() ? Object.values(snap.val()).sort((a,b)=>(a.order||0)-(b.order||0)) : [];
+    const totalItems = points.reduce((s,pt)=>(s + (pt.items ? Object.values(pt.items).length : 0)), 0);
+    const working = points.reduce((s,pt)=>(s + (pt.items ? Object.values(pt.items).filter(i=>i.status==='يعمل').length : 0)), 0);
+    const broken  = points.reduce((s,pt)=>(s + (pt.items ? Object.values(pt.items).filter(i=>i.status==='معطل').length : 0)), 0);
+
+    $('page').innerHTML=`
+    <div class="ph">
+      <div>
+        <div class="pt">📦 جرد الموجودات الثابتة</div>
+        <div class="ps" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
+          <span>📍 ${points.length} نقطة</span>
+          <span>📋 ${totalItems} عنصر</span>
+          <span style="color:var(--gn)">✅ ${working} يعمل</span>
+          <span style="color:var(--rd)">❌ ${broken} معطل</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${canAccessFault({fieldSiteId:site.id})?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
+        <button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>
+      </div>
+    </div>
+
+    <!-- تبويبات المواقع -->
+    <div class="tabs" style="margin-bottom:14px">
+      ${sites.map(s=>`
+        <button class="tb${s.id===site.id?' act':''}" onclick="window._invSite='${s.id}';pgSiteInventory()">
+          📍 ${esc(s.name)}
+        </button>`).join('')}
+    </div>
+
+    <!-- النقاط -->
+    <div id="inv-points">
+      ${points.length
+        ? points.map(pt=>renderSitePoint(pt, site.id)).join('')
+        : `<div class="panel" style="text-align:center;padding:50px;color:var(--mt)">
+            <div style="font-size:48px">📦</div>
+            <div style="margin-top:12px;font-size:17px">لا نقاط بعد — أضف أول نقطة جرد</div>
+          </div>`
+      }
+    </div>`;
+  });
+}
+
+function renderSitePoint(pt, siteId){
+  const items = pt.items ? Object.values(pt.items) : [];
+  const working = items.filter(i=>i.status==='يعمل').length;
+  const broken  = items.filter(i=>i.status==='معطل').length;
+  const maint   = items.filter(i=>i.status==='صيانة').length;
+  const canEdit = canAccessFault({fieldSiteId: siteId});
+
+  return `<div class="panel" style="margin-bottom:12px">
+    <!-- هيدر النقطة -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div>
+        <div style="font-weight:700;font-size:17px">📌 ${esc(pt.name)}</div>
+        ${pt.desc?`<div style="font-size:13px;color:var(--mt)">${esc(pt.desc)}</div>`:''}
+        <div style="display:flex;gap:8px;margin-top:4px;font-size:13px">
+          <span>${items.length} عنصر</span>
+          ${working?`<span style="color:var(--gn)">✅${working}</span>`:''}
+          ${broken?`<span style="color:var(--rd)">❌${broken}</span>`:''}
+          ${maint?`<span style="color:var(--yl)">🔧${maint}</span>`:''}
+        </div>
+      </div>
+      <div style="display:flex;gap:5px;flex-shrink:0">
+        ${canEdit?`
+        <button class="btn btn-sm btn-bl" onclick="openAddSiteItem('${siteId}','${pt.id}')">+ عنصر</button>
+        <button class="btn btn-sm btn-gy" onclick="openEditSitePoint('${siteId}','${pt.id}')">✏️</button>
+        <button class="btn btn-sm btn-rd" onclick="delSitePoint('${siteId}','${pt.id}')">🗑️</button>`:''}
+      </div>
+    </div>
+    <!-- عناصر النقطة -->
+    ${items.length?`
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${items.map(item=>renderSiteItem(item, siteId, pt.id, canEdit)).join('')}
+    </div>`:`<div style="text-align:center;padding:16px;color:var(--mt);font-size:13px">لا عناصر — اضغط "+ عنصر"</div>`}
+  </div>`;
+}
+
+function renderSiteItem(item, siteId, ptId, canEdit){
+  const stColors = {'يعمل':'var(--gn)','معطل':'var(--rd)','صيانة':'var(--yl)'};
+  const stIcons  = {'يعمل':'✅','معطل':'❌','صيانة':'🔧'};
+  const col = stColors[item.status]||'var(--mt)';
+  const ico = stIcons[item.status]||'❓';
+
+  return `<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 12px;border:1px solid var(--br)">
+    <!-- صورة مصغرة -->
+    ${item.photo?`<img src="${item.photo}" onclick="viewPhoto('${item.photo}')" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;flex-shrink:0">`
+    :`<div style="width:44px;height:44px;border-radius:8px;background:var(--sf);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">📦</div>`}
+    <!-- التفاصيل -->
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:700;font-size:15px">${esc(item.name)}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:3px;font-size:12px;color:var(--mt)">
+        <span>الكمية: <b style="color:var(--tx)">${item.qty||1}</b></span>
+        ${item.serial?`<span>SN: <b style="color:var(--bl)">${esc(item.serial)}</b></span>`:''}
+        <span style="color:${col};font-weight:700">${ico} ${esc(item.status||'—')}</span>
+      </div>
+      ${item.notes?`<div style="font-size:11px;color:var(--mt);margin-top:2px">${esc(item.notes)}</div>`:''}
+    </div>
+    <!-- أزرار -->
+    ${canEdit?`<div style="display:flex;gap:4px;flex-shrink:0">
+      <button class="btn btn-sm btn-gy" onclick="openEditSiteItem('${siteId}','${ptId}','${item.id}')">✏️</button>
+      <button class="btn btn-sm btn-rd" onclick="delSiteItem('${siteId}','${ptId}','${item.id}')">🗑️</button>
+    </div>`:''}
+  </div>`;
+}
+
+// ── إضافة نقطة جرد ──
+function openAddSitePoint(siteId){
+  openModal(`${mhd('📌 إضافة نقطة جرد')}
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="field"><label>اسم النقطة *</label><input id="sp-name" placeholder="مثال: المدخل الرئيسي، غرفة المراقبة..."></div>
+    <div class="field"><label>وصف (اختياري)</label><input id="sp-desc" placeholder="وصف مختصر"></div>
+  </div>
+  <div class="mft" style="margin-top:14px">
+    <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+    <button class="btn btn-bl" onclick="saveSitePoint('${siteId}')">💾 حفظ</button>
+  </div>`);
+}
+
+function saveSitePoint(siteId, ptId){
+  const name = val('sp-name');
+  if(!name){ toast('اسم النقطة مطلوب','err'); return; }
+  const id = ptId || gid();
+  const data = { id, name, desc: val('sp-desc')||'', order: Date.now(), _ts: Date.now() };
+  fbSet('siteInventory/'+siteId+'/'+id, data);
+  logAct('نقطة جرد', name);
+  closeModal();
+  toast('✅ تم الحفظ');
+  pgSiteInventory();
+}
+
+function openEditSitePoint(siteId, ptId){
+  FBDB.ref('cctv/siteInventory/'+siteId+'/'+ptId).once('value').then(snap=>{
+    const pt = snap.val();
+    if(!pt) return;
+    openModal(`${mhd('✏️ تعديل النقطة')}
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="field"><label>اسم النقطة *</label><input id="sp-name" value="${esc(pt.name)}"></div>
+      <div class="field"><label>وصف</label><input id="sp-desc" value="${esc(pt.desc||'')}"></div>
+    </div>
+    <div class="mft" style="margin-top:14px">
+      <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+      <button class="btn btn-bl" onclick="saveSitePoint('${siteId}','${ptId}')">💾 حفظ</button>
+    </div>`);
+  });
+}
+
+function delSitePoint(siteId, ptId){
+  if(!confirm('حذف النقطة وجميع عناصرها؟')) return;
+  fbDel('siteInventory/'+siteId+'/'+ptId);
+  toast('تم الحذف');
+  pgSiteInventory();
+}
+
+// ── إضافة عنصر جرد ──
+function openAddSiteItem(siteId, ptId){
+  openModal(`${mhd('📦 إضافة عنصر')}
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="field"><label>اسم العنصر *</label><input id="si-name" placeholder="كاميرا dome، جهاز قدرة، عاكس كهربائي..."></div>
+    <div class="field"><label>الكمية</label><input id="si-qty" type="number" value="1" min="1"></div>
+    <div class="field"><label>الرقم التسلسلي</label><input id="si-serial" placeholder="SN-XXXXX"></div>
+    <div class="field"><label>الحالة</label>
+      <select id="si-status">
+        <option value="يعمل">✅ يعمل</option>
+        <option value="معطل">❌ معطل</option>
+        <option value="صيانة">🔧 صيانة</option>
+      </select>
+    </div>
+    <div class="field"><label>صورة</label>
+      <input type="file" id="si-photo" accept="image/*" style="color:var(--tx)">
+    </div>
+    <div class="field"><label>ملاحظات</label><textarea id="si-notes" rows="2" placeholder="أي ملاحظات..."></textarea></div>
+  </div>
+  <div class="mft" style="margin-top:14px">
+    <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+    <button class="btn btn-bl" onclick="saveSiteItem('${siteId}','${ptId}')">💾 حفظ</button>
+  </div>`);
+}
+
+function saveSiteItem(siteId, ptId, itemId){
+  const name = val('si-name');
+  if(!name){ toast('اسم العنصر مطلوب','err'); return; }
+  const file = document.getElementById('si-photo')?.files[0];
+
+  function doSave(photoData){
+    const id = itemId || gid();
+    const data = {
+      id, name,
+      qty: parseInt(val('si-qty'))||1,
+      serial: val('si-serial')||'',
+      status: val('si-status')||'يعمل',
+      notes: val('si-notes')||'',
+      photo: photoData||'',
+      by: CU.name, date: ts(), _ts: Date.now()
+    };
+    fbSet('siteInventory/'+siteId+'/'+ptId+'/items/'+id, data);
+    logAct('جرد ثابت', name+' — '+data.status);
+    closeModal();
+    toast('✅ تم الحفظ');
+    pgSiteInventory();
+  }
+
+  if(file){
+    if(file.size > 500*1024){ toast('الصورة كبيرة — الحد 500KB','err'); return; }
+    const reader = new FileReader();
+    reader.onload = e => doSave(e.target.result);
+    reader.readAsDataURL(file);
+  } else {
+    doSave('');
+  }
+}
+
+function openEditSiteItem(siteId, ptId, itemId){
+  FBDB.ref('cctv/siteInventory/'+siteId+'/'+ptId+'/items/'+itemId).once('value').then(snap=>{
+    const item = snap.val();
+    if(!item) return;
+    openModal(`${mhd('✏️ تعديل العنصر')}
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="field"><label>اسم العنصر *</label><input id="si-name" value="${esc(item.name)}"></div>
+      <div class="field"><label>الكمية</label><input id="si-qty" type="number" value="${item.qty||1}" min="1"></div>
+      <div class="field"><label>الرقم التسلسلي</label><input id="si-serial" value="${esc(item.serial||'')}"></div>
+      <div class="field"><label>الحالة</label>
+        <select id="si-status">
+          <option value="يعمل" ${item.status==='يعمل'?'selected':''}>✅ يعمل</option>
+          <option value="معطل" ${item.status==='معطل'?'selected':''}>❌ معطل</option>
+          <option value="صيانة" ${item.status==='صيانة'?'selected':''}>🔧 صيانة</option>
+        </select>
+      </div>
+      ${item.photo?`<div style="text-align:center"><img src="${item.photo}" style="max-height:100px;border-radius:8px;margin-bottom:6px"></div>`:''}
+      <div class="field"><label>صورة جديدة</label><input type="file" id="si-photo" accept="image/*" style="color:var(--tx)"></div>
+      <div class="field"><label>ملاحظات</label><textarea id="si-notes" rows="2">${esc(item.notes||'')}</textarea></div>
+    </div>
+    <div class="mft" style="margin-top:14px">
+      <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+      <button class="btn btn-bl" onclick="saveSiteItem('${siteId}','${ptId}','${itemId}')">💾 حفظ</button>
+    </div>`);
+  });
+}
+
+function delSiteItem(siteId, ptId, itemId){
+  if(!confirm('حذف هذا العنصر؟')) return;
+  fbDel('siteInventory/'+siteId+'/'+ptId+'/items/'+itemId);
+  toast('تم الحذف');
+  pgSiteInventory();
+}
+
+// ── تصدير الجرد ──
+function exportSiteInventory(siteId, siteName){
+  FBDB.ref('cctv/siteInventory/'+siteId).once('value').then(snap=>{
+    const points = snap.val() ? Object.values(snap.val()) : [];
+    let csv = '\uFEFF';
+    csv += 'الموقع,النقطة,العنصر,الكمية,الرقم التسلسلي,الحالة,ملاحظات,التاريخ\n';
+    points.forEach(pt=>{
+      const items = pt.items ? Object.values(pt.items) : [];
+      items.forEach(item=>{
+        csv += [siteName, pt.name, item.name, item.qty||1, item.serial||'', item.status||'', item.notes||'', item.date||'']
+          .map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')+'\n';
+      });
+    });
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url; a.download='جرد_'+siteName+'_'+new Date().toISOString().split('T')[0]+'.csv';
+    a.click(); URL.revokeObjectURL(url);
+    toast('✅ تم التصدير');
+  });
 }
 
 // ═══════════════════════════════════════════════════════
