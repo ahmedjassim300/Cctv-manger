@@ -1689,17 +1689,16 @@ function pgMoves(){
 //  FAULTS — مع تحديث لاستخدام المواقع المرئية فقط
 // ============================================
 function pgFaults(){
-  const visibleSites = getVisibleFieldSites();
-  const visibleSiteNames = visibleSites.map(s => s.name);
+  const visibleFaults = getVisibleFaults();
   
-  const active=DB.faults.filter(f=>f.status!=='resolved').length;
+  const active = visibleFaults.filter(f=>f.status!=='resolved').length;
   let html=`<div class="ph">
-    <div><div class="pt">⚠️ الأعطال</div><div class="ps">${active} نشط — ${DB.faults.filter(f=>f.status==='resolved').length} محلول</div></div>
+    <div><div class="pt">⚠️ الأعطال</div><div class="ps">${active} نشط — ${visibleFaults.filter(f=>f.status==='resolved').length} محلول</div></div>
     <button class="btn btn-rd" onclick="openAddFault()">🚨 إبلاغ عن عطل في موقع ميداني</button>
   </div>`;
 
   FAULT_ST.forEach(st=>{
-    const grp=DB.faults.filter(f=>f.status===st.k && visibleSiteNames.includes(f.location));
+    const grp = visibleFaults.filter(f=>f.status===st.k);
     if(!grp.length) return;
     html+=`<div class="sec">${st.ico} ${st.l} <span style="color:var(--mt)">(${grp.length})</span></div>`;
     grp.forEach(f=>{
@@ -1730,7 +1729,7 @@ function pgFaults(){
           <div style="display:flex;flex-direction:column;gap:8px;min-width:160px">
             <button class="btn btn-sm" style="background:#bc8cff22;color:var(--pu);border:1px solid #bc8cff44" onclick="openFaultComments('${f.id}')">💬 تعليقات ${f.comments?.length?'('+f.comments.length+')':''}</button>
             <button class="btn btn-sm" style="background:#58a6ff22;color:var(--bl);border:1px solid #58a6ff44" onclick="openFaultPhotos('${f.id}')">📸 صور ${f.photos?.length?'('+f.photos.length+')':''}</button>
-            ${st.k!=='resolved'&&p('updFault')?`
+            ${st.k!=='resolved'&&p('updFault')&&canAccessFault(f)?`
             <div style="font-size:11px;color:var(--mt);margin-bottom:2px;text-align:center">تحديث الحالة:</div>
             ${FAULT_ST.filter(x=>x.k!==f.status&&x.k!=='open').map(x=>`
               <button class="btn fst-btn" style="background:${x.c}22;border:1px solid ${x.c}44;color:${x.c}"
@@ -1800,6 +1799,8 @@ function saveFault(){
 }
 
 function updFaultStatus(f, ri, status){
+  // تحقق من صلاحية الوصول للموقع
+  if(!canAccessFault(f)){ toast('⛔ لا صلاحية لتعديل هذا العطل','err'); return; }
   const st=FAULT_ST.find(x=>x.k===status);
   const log=[...(f.log||[]),{ico:st?.ico||'',label:st?.l||status,by:CU.name,date:ts()}];
   const upd={status,log};
@@ -2927,9 +2928,10 @@ function doSearch(q){
 //  ⚡ الأعطال العاجلة
 // ═══════════════════════════════════════════════════════
 function pgUrgent(){
-  const urgent = DB.faults.filter(f=>f.status==='open'&&f.priority==='high')
+  const vf = getVisibleFaults();
+  const urgent = vf.filter(f=>f.status==='open'&&f.priority==='high')
     .sort((a,b)=>(b._ts||0)-(a._ts||0));
-  const inprog = DB.faults.filter(f=>f.status==='inprogress')
+  const inprog = vf.filter(f=>f.status==='inprogress')
     .sort((a,b)=>(b._ts||0)-(a._ts||0));
 
   $('page').innerHTML=`
@@ -2949,10 +2951,11 @@ function pgUrgent(){
           <div style="font-size:12px;color:var(--mt)">${esc(f.reason)}</div>
           <div style="font-size:11px;color:var(--mt)">👤 ${esc(f.by)} — ${esc(f.date)}</div>
         </div>
+        ${canAccessFault(f)&&p('updFault')?`
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn btn-sm" style="background:#f8514922;color:var(--rd)" onclick="doUpdFault(${DB.faults.indexOf(f)},'inprogress')">🔧 بدء</button>
           <button class="btn btn-sm btn-gn" onclick="doUpdFault(${DB.faults.indexOf(f)},'resolved')">✅ حل</button>
-        </div>
+        </div>`:''}
       </div>
       ${f.desc?`<div style="font-size:12px;color:var(--mt);border-top:1px solid var(--br);padding-top:6px">${esc(f.desc)}</div>`:''}
       <button class="btn btn-sm btn-gy" style="margin-top:8px" onclick="openFaultComments('${f.id}')">💬 تعليقات (${(f.comments||[]).length})</button>
@@ -2969,7 +2972,7 @@ function pgUrgent(){
           <div style="font-weight:700">📍 ${esc(f.location)} — ${esc(f.pointId)}</div>
           <div style="font-size:12px;color:var(--mt)">${esc(f.reason)} — ${esc(f.by)}</div>
         </div>
-        <button class="btn btn-sm btn-gn" onclick="doUpdFault(${DB.faults.indexOf(f)},'resolved')">✅ حل</button>
+        ${canAccessFault(f)&&p('updFault')?`<button class="btn btn-sm btn-gn" onclick="doUpdFault(${DB.faults.indexOf(f)},'resolved')">✅ حل</button>`:''}
       </div>
       <button class="btn btn-sm btn-gy" style="margin-top:8px" onclick="openFaultComments('${f.id}')">💬 تعليقات (${(f.comments||[]).length})</button>
     </div>`).join('')}
@@ -4291,6 +4294,25 @@ function loadLocalDB(){
   }catch(e){}
 }
 
+
+
+// ═══════════════════════════════════════════════════════
+//  🔐 صلاحية الوصول للعطل بناءً على الموقع
+// ═══════════════════════════════════════════════════════
+function canAccessFault(f){
+  if(!CU) return false;
+  if(CU.role === 'manager') return true;
+  // عطل بدون موقع ميداني — يراه من لديه صلاحية faults
+  if(!f.fieldSiteId) return p('faults');
+  // عطل مرتبط بموقع — يراه فقط من لديه وصول للموقع
+  const site = DB.fieldSites.find(s => s.id === f.fieldSiteId);
+  if(!site) return false;
+  return canUserSeeFieldSite(site);
+}
+
+function getVisibleFaults(){
+  return DB.faults.filter(f => canAccessFault(f));
+}
 
 // ═══════════════════════════════════════════════════════
 //  📱 ويدجت سريع لإضافة عطل
