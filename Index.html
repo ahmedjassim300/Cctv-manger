@@ -2345,6 +2345,15 @@ function pgFieldMap(){
       <button class="btn btn-gy btn-sm" style="margin-right:auto" onclick="fmFitAll()">⊡ عرض الكل</button>
     </div>
 
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+      <button id="btn-my-loc" onclick="addMyLocationToMap()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="موقعي الحالي">📍 موقعي</button>
+      <button id="btn-measure" onclick="toggleMeasure()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="قياس المسافة">📏 قياس المسافة</button>
+      <span id="measure-total" style="font-size:13px;color:#ff6b00;font-weight:700;display:none"></span>
+    </div>
     <div id="fld-map" style="height:490px;border-radius:10px;border:1px solid var(--br);margin-bottom:16px;z-index:1;position:relative;"></div>
 
     ${fieldSearchResult 
@@ -2573,50 +2582,115 @@ function renderFieldSiteDetail(fs){
         لا توجد كاميرات منصوبة
         ${p('fieldmap')?`<br><button class="btn btn-bl btn-sm" style="margin-top:14px" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>`:''}
       </div>`
-    :`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px">
+    :`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
       ${fs.cameras.map((c,ci)=>{
         const hasGPS=c.lat&&c.lng&&!isNaN(parseFloat(c.lat));
         const stC=c.status==='active'?'var(--gn)':c.status==='maintenance'?'var(--yl)':'var(--mt)';
-        const stL=c.status==='active'?'🟢 تعمل':c.status==='maintenance'?'🟡 صيانة':'⚪ مجهول';
-        return `<div class="panel" style="padding:14px;cursor:pointer"
-          onclick="${hasGPS?`fmFlyTo(${c.lat},${c.lng},'${fs.id}_${ci}')`:''}"
-          onmouseenter="this.style.borderColor='var(--bl)'" onmouseleave="this.style.borderColor='var(--br)'">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:18px;margin-bottom:3px">📷 ${esc(c.name||c.serial||'كاميرا')}</div>
-              ${c.camType?`<div style="font-size:12px;color:var(--mt)">${esc(c.camType)}${c.res?' | '+esc(c.res):''}</div>`:''}
-              ${c.installDesc?`<div style="font-size:12px;color:var(--mt);margin-top:3px">📌 ${esc(c.installDesc)}</div>`:''}
-              ${c.dir?`<div style="font-size:12px;color:var(--bl);margin-top:3px">🧭 ${esc(c.dir)}</div>`:''}
-              ${c.ip?`<div style="font-size:12px;color:var(--pu);margin-top:3px">🌐 ${esc(c.ip)}</div>`:''}
-            </div>
-            <div style="text-align:center;flex-shrink:0">
-              <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                <rect x="2" y="8" width="20" height="14" rx="3" fill="${stC}" opacity=".9"/>
-                <polygon points="22,12 30,9 30,21 22,18" fill="${stC}" opacity=".7"/>
-                <circle cx="11" cy="15" r="4" fill="white" opacity=".8"/>
-                <circle cx="11" cy="15" r="2" fill="${stC}"/>
-                <rect x="6" y="22" width="4" height="4" rx="1" fill="${stC}" opacity=".6"/>
-              </svg>
-              <div style="font-size:10px;margin-top:2px;color:${hasGPS?'var(--gn)':'var(--rd)'}">${hasGPS?'✅ GPS':'❌ GPS'}</div>
-            </div>
+        const stL=c.status==='active'?'🟢':'🟡';
+        const mid=fs.id+'_'+ci;
+        return `<div class="panel" style="padding:12px;cursor:pointer;transition:all .15s"
+          onclick="event.stopPropagation();openCamDetail('${fs.id}',${ci})"
+          onmouseenter="this.style.borderColor='var(--bl)';this.style.transform='translateY(-2px)'"
+          onmouseleave="this.style.borderColor='var(--br)';this.style.transform=''">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-size:18px">${stL}</span>
+            <div style="font-weight:700;font-size:15px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name||c.serial||'كاميرا')}</div>
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-            <span style="font-size:12px;font-weight:700;color:${stC}">${stL}</span>
-            ${p('fieldmap')?`<div style="display:flex;gap:5px">
-              <button class="btn btn-sm btn-gy" onclick="event.stopPropagation();openEditFieldCam('${fs.id}',${ci})">✏️</button>
-              <button class="btn btn-sm btn-rd" onclick="event.stopPropagation();delFieldCam('${fs.id}',${ci})">🗑</button>
+          <div style="font-size:12px;color:var(--mt);margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.installDesc||c.camType||'—')}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:${hasGPS?'var(--gn)':'var(--rd)'}">${hasGPS?'📍 GPS':'❌ بدون GPS'}</span>
+            ${p('fieldmap')?`<div style="display:flex;gap:4px" onclick="event.stopPropagation()">
+              <button class="btn btn-sm btn-gy" style="padding:5px 8px;font-size:13px" onclick="openEditFieldCam('${fs.id}',${ci})">✏️</button>
+              <button class="btn btn-sm btn-rd" style="padding:5px 8px;font-size:13px" onclick="delFieldCam('${fs.id}',${ci})">🗑</button>
             </div>`:''}
           </div>
-          ${hasGPS?`<div style="font-size:10px;color:var(--mt);margin-top:6px;direction:ltr;text-align:right">${parseFloat(c.lat).toFixed(5)}, ${parseFloat(c.lng).toFixed(5)}</div>`:''}
         </div>`;
       }).join('')}
     </div>`}`;
 }
 
+
+// ═══════════════════════════════════════════════════════
+//  📷 تفاصيل الكاميرا عند الضغط
+// ═══════════════════════════════════════════════════════
+function openCamDetail(fsId, ci){
+  const fs = DB.fieldSites.find(s=>s.id===fsId);
+  if(!fs) return;
+  const c = fs.cameras[ci];
+  if(!c) return;
+  const hasGPS = c.lat&&c.lng&&!isNaN(parseFloat(c.lat));
+  const stC = c.status==='active'?'var(--gn)':c.status==='maintenance'?'var(--yl)':'var(--mt)';
+  const stL = c.status==='active'?'🟢 تعمل':c.status==='maintenance'?'🟡 صيانة':'⚪ مجهول';
+  const mid = fsId+'_'+ci;
+
+  // تركيز الخريطة على الكاميرا
+  if(hasGPS){
+    setTimeout(()=> fmFlyTo(parseFloat(c.lat), parseFloat(c.lng), mid), 100);
+  }
+
+  openModal(`${mhd('📷 '+esc(c.name||c.serial||'كاميرا'))}
+  <div style="display:flex;flex-direction:column;gap:8px;font-size:15px">
+    <div style="display:flex;gap:12px;align-items:center;padding:12px;background:var(--bg);border-radius:12px">
+      <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
+        <rect x="2" y="8" width="20" height="14" rx="3" fill="${stC}" opacity=".9"/>
+        <polygon points="22,12 30,9 30,21 22,18" fill="${stC}" opacity=".7"/>
+        <circle cx="11" cy="15" r="4" fill="white" opacity=".8"/>
+        <circle cx="11" cy="15" r="2" fill="${stC}"/>
+        <rect x="6" y="22" width="4" height="4" rx="1" fill="${stC}" opacity=".6"/>
+      </svg>
+      <div>
+        <div style="font-weight:800;font-size:18px">${esc(c.name||c.serial||'كاميرا')}</div>
+        <div style="color:${stC};font-weight:700">${stL}</div>
+        <div style="font-size:12px;color:var(--mt)">📍 ${esc(fs.name)}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+      ${c.camType?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">النوع</div><div style="font-weight:600">${esc(c.camType)}</div></div>`:''}
+      ${c.res?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">الدقة</div><div style="font-weight:600">${esc(c.res)}</div></div>`:''}
+      ${c.model?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">الموديل</div><div style="font-weight:600">${esc(c.model)}</div></div>`:''}
+      ${c.mfr?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">الشركة</div><div style="font-weight:600">${esc(c.mfr)}</div></div>`:''}
+      ${c.serial?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">السيريال</div><div style="font-weight:600;direction:ltr;text-align:right">${esc(c.serial)}</div></div>`:''}
+      ${c.ip?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">عنوان IP</div><div style="font-weight:600;direction:ltr;text-align:right;color:var(--pu)">${esc(c.ip)}</div></div>`:''}
+      ${c.angle?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">زاوية الرؤية</div><div style="font-weight:600">${esc(c.angle)}°</div></div>`:''}
+      ${c.viewDist?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt)">مسافة الرؤية</div><div style="font-weight:600">${esc(c.viewDist)} م</div></div>`:''}
+    </div>
+
+    ${c.installDesc?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">📌 موقع التنصيب</div><div>${esc(c.installDesc)}</div></div>`:''}
+    ${c.dir?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🧭 الاتجاه</div><div>${esc(c.dir)}</div></div>`:''}
+    ${hasGPS?`<div class="panel" style="padding:10px;background:#3fb95015;border-color:#3fb95040">
+      <div style="font-size:11px;color:var(--gn);margin-bottom:4px">📍 الموقع الجغرافي</div>
+      <div style="direction:ltr;font-size:13px">${parseFloat(c.lat).toFixed(6)}, ${parseFloat(c.lng).toFixed(6)}</div>
+      <a href="https://maps.google.com/?q=${c.lat},${c.lng}" target="_blank" style="font-size:12px;color:var(--bl)">🗺️ فتح في خرائط جوجل</a>
+    </div>`:''}
+  </div>
+  <div class="mft" style="margin-top:12px">
+    <button class="btn btn-gy" onclick="closeModal()">إغلاق</button>
+    ${hasGPS?`<button class="btn btn-bl" onclick="closeModal();fmFlyTo(${c.lat},${c.lng},'${mid}')">🗺️ على الخريطة</button>`:''}
+    ${p('fieldmap')?`<button class="btn btn-gy" onclick="closeModal();openEditFieldCam('${fsId}',${ci})">✏️ تعديل</button>`:''}
+    <button class="btn btn-rd" onclick="closeModal();openAddFaultFromCam('${fsId}',${ci})">⚠️ إبلاغ عطل</button>
+  </div>`);
+}
+
+function openAddFaultFromCam(fsId, ci){
+  const fs = DB.fieldSites.find(s=>s.id===fsId);
+  if(!fs) return;
+  const c = fs.cameras[ci];
+  openAddFault();
+  setTimeout(()=>{
+    const locEl = document.getElementById('floc');
+    if(locEl){ locEl.value=fs.name; }
+    const ptEl = document.getElementById('fpt');
+    if(ptEl){ ptEl.value=c.name||c.serial||''; }
+  }, 200);
+}
+
 function initFieldMap(){
   if(_map){ _map.remove(); _map=null; }
-  _markers=[];
+  _markers=[]; _distanceMeasure=null;
   const el=$('fld-map'); if(!el) return;
+  // ارتفاع ثلثي الشاشة
+  el.style.height = Math.round(window.innerHeight * 0.62) + 'px';
 
   const visibleSites = getVisibleFieldSites();
   const sites = _FSITE ? visibleSites.filter(fs=>fs.id===_FSITE) : visibleSites;
@@ -2631,17 +2705,17 @@ function initFieldMap(){
   const cLat=allCams.length?allCams.reduce((s,c)=>s+parseFloat(c.lat),0)/allCams.length:defLat;
   const cLng=allCams.length?allCams.reduce((s,c)=>s+parseFloat(c.lng),0)/allCams.length:defLng;
 
-  _map=L.map('fld-map').setView([cLat,cLng],allCams.length?16:7);
+  _map=L.map('fld-map',{maxZoom:22}).setView([cLat,cLng],allCams.length?18:7);
 
   if(_mapLayer==='custom'&&_customMapUrl){
     const bounds=[[cLat-0.02,cLng-0.03],[cLat+0.02,cLng+0.03]];
     L.imageOverlay(_customMapUrl,bounds,{opacity:1,interactive:false}).addTo(_map);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{opacity:0.15,attribution:'© OSM'}).addTo(_map);
   } else if(_mapLayer==='hybrid'){
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:19}).addTo(_map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:22,maxNativeZoom:19}).addTo(_map);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{opacity:0.4,attribution:'© OSM'}).addTo(_map);
   } else if(_mapLayer==='satellite'){
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri World Imagery',maxZoom:19}).addTo(_map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri World Imagery',maxZoom:22,maxNativeZoom:19}).addTo(_map);
   } else {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(_map);
   }
@@ -2653,18 +2727,22 @@ function initFieldMap(){
     const rot=parseFloat(c.beamRot)||0;
     const mid=`${c._fsId}_${c._ci}`;
 
-    const sz=42;
-    const svgIcon=`<svg width="${sz}" height="${sz}" viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg">
-      <g transform="rotate(${rot},21,21)" opacity="0.35">
-        <path d="M21,21 L${21+22*Math.sin((angle/2)*Math.PI/180)},${21-22*Math.cos((angle/2)*Math.PI/180)}
-          A22,22,0,0,0,${21-22*Math.sin((angle/2)*Math.PI/180)},${21-22*Math.cos((angle/2)*Math.PI/180)} Z"
+    // حساب حجم الشعاع حسب مسافة الرؤية
+    const viewDist = parseFloat(c.viewDist)||50; // افتراضي 50م
+    const beamR = Math.min(Math.max(viewDist/3, 18), 60); // بين 18 و 60
+    const sz = Math.round(beamR*2 + 12);
+    const cx = sz/2, cy = sz/2;
+    const bR = beamR;
+    const svgIcon=`<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" xmlns="http://www.w3.org/2000/svg">
+      <g transform="rotate(${rot},${cx},${cy})" opacity="0.45">
+        <path d="M${cx},${cy} L${cx+bR*Math.sin((angle/2)*Math.PI/180)},${cy-bR*Math.cos((angle/2)*Math.PI/180)}
+          A${bR},${bR},0,0,0,${cx-bR*Math.sin((angle/2)*Math.PI/180)},${cy-bR*Math.cos((angle/2)*Math.PI/180)} Z"
           fill="${stColor}"/>
       </g>
-      <rect x="8" y="15" width="17" height="12" rx="3" fill="${stColor}"/>
-      <polygon points="25,17 34,13 34,29 25,25" fill="${stColor}" opacity="0.85"/>
-      <circle cx="16" cy="21" r="4.5" fill="white" opacity="0.9"/>
-      <circle cx="16" cy="21" r="2.5" fill="${stColor}"/>
-      <rect x="13" y="27" width="4" height="4" rx="1" fill="${stColor}" opacity="0.7"/>
+      <rect x="${cx-8}" y="${cy-5}" width="16" height="10" rx="2.5" fill="${stColor}"/>
+      <polygon points="${cx+8},${cy-4} ${cx+16},${cy-6} ${cx+16},${cy+6} ${cx+8},${cy+4}" fill="${stColor}" opacity="0.85"/>
+      <circle cx="${cx-2}" cy="${cy}" r="4" fill="white" opacity="0.9"/>
+      <circle cx="${cx-2}" cy="${cy}" r="2.2" fill="${stColor}"/>
     </svg>`;
 
     const icon=L.divIcon({html:svgIcon,className:'',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
@@ -2696,8 +2774,102 @@ function initFieldMap(){
 
   if(allCams.length>1){
     const g=L.featureGroup(_markers.map(m=>m.marker));
-    _map.fitBounds(g.getBounds().pad(0.2));
+    _map.fitBounds(g.getBounds().pad(0.15));
   }
+
+  // ══ 4. موقعي الحالي ══
+  addMyLocationToMap();
+
+  // ══ 6. قياس المسافة ══
+  addDistanceMeasureTool();
+}
+
+let _myLocationMarker = null;
+let _distanceMeasure = null;
+let _measurePoints = [];
+let _measureLines = [];
+let _measuringMode = false;
+
+function addMyLocationToMap(){
+  if(!navigator.geolocation || !_map) return;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const lat=pos.coords.latitude, lng=pos.coords.longitude;
+    const myIcon = L.divIcon({
+      html:`<div style="width:20px;height:20px;background:#0084ff;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(0,132,255,.3)"></div>`,
+      className:'', iconSize:[20,20], iconAnchor:[10,10]
+    });
+    if(_myLocationMarker){ _myLocationMarker.remove(); }
+    _myLocationMarker = L.marker([lat,lng],{icon:myIcon,zIndexOffset:1000})
+      .addTo(_map)
+      .bindPopup(`<div style="text-align:center;font-family:inherit">
+        <div style="font-size:18px">📍 موقعك الحالي</div>
+        <div style="font-size:12px;color:#666;direction:ltr">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+        <div style="font-size:12px;color:#666">الدقة: ±${Math.round(pos.coords.accuracy)}م</div>
+      </div>`);
+
+    // دائرة دقة الموقع
+    L.circle([lat,lng],{
+      radius: pos.coords.accuracy,
+      color:'#0084ff', fillColor:'#0084ff', fillOpacity:0.08, weight:1.5, dashArray:'5,5'
+    }).addTo(_map);
+
+    // زر للتوجه لموقعي
+    const locBtn = document.getElementById('btn-my-loc');
+    if(locBtn){
+      locBtn.style.opacity='1';
+      locBtn.onclick=()=>_map.flyTo([lat,lng],19,{duration:1});
+    }
+  }, ()=>{}, {enableHighAccuracy:true, timeout:8000});
+}
+
+function addDistanceMeasureTool(){
+  if(!_map) return;
+  _map.on('click', e=>{
+    if(!_measuringMode) return;
+    _measurePoints.push(e.latlng);
+    L.circleMarker(e.latlng,{radius:5,color:'#ff6b00',fillColor:'#ff6b00',fillOpacity:1}).addTo(_map);
+
+    if(_measurePoints.length>1){
+      const p1=_measurePoints[_measurePoints.length-2];
+      const p2=_measurePoints[_measurePoints.length-1];
+      const line=L.polyline([p1,p2],{color:'#ff6b00',weight:2.5,dashArray:'6,4'}).addTo(_map);
+      _measureLines.push(line);
+      const dist=_map.distance(p1,p2);
+      const total=_measurePoints.reduce((s,_,i)=>i===0?0:s+_map.distance(_measurePoints[i-1],_measurePoints[i]),0);
+      const midLat=(p1.lat+p2.lat)/2, midLng=(p1.lng+p2.lng)/2;
+      L.marker([midLat,midLng],{
+        icon:L.divIcon({
+          html:`<div style="background:#ff6b00;color:#fff;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap;font-family:inherit">${dist<1000?Math.round(dist)+'م':( dist/1000).toFixed(2)+'كم'}</div>`,
+          className:'', iconAnchor:[30,10]
+        }), interactive:false
+      }).addTo(_map);
+      if(_measurePoints.length>2){
+        const totLbl=document.getElementById('measure-total');
+        if(totLbl) totLbl.textContent='المجموع: '+(total<1000?Math.round(total)+'م':(total/1000).toFixed(2)+'كم');
+      }
+    }
+  });
+}
+
+function toggleMeasure(){
+  _measuringMode = !_measuringMode;
+  const btn=document.getElementById('btn-measure');
+  if(btn){
+    btn.style.background = _measuringMode?'#ff6b00':'var(--sf)';
+    btn.style.color = _measuringMode?'#fff':'var(--tx)';
+    btn.title = _measuringMode?'إيقاف القياس (انقر لإضافة نقاط)':'قياس المسافة';
+  }
+  const lbl=document.getElementById('measure-total');
+  if(lbl) lbl.style.display = _measuringMode?'inline':'none';
+  if(!_measuringMode){
+    // مسح خطوط القياس
+    _measureLines.forEach(l=>l.remove());
+    _measureLines=[]; _measurePoints=[];
+    const totLbl=document.getElementById('measure-total');
+    if(totLbl) totLbl.textContent='';
+  }
+  if(_map) _map.getContainer().style.cursor = _measuringMode?'crosshair':'';
+  toast(_measuringMode?'📏 وضع القياس — انقر على الخريطة لإضافة نقاط':'تم إيقاف القياس');
 }
 
 function fmFlyTo(lat,lng,mid){
