@@ -2726,27 +2726,53 @@ function initFieldMap(){
     const angle=parseFloat(c.beamAngle)||70;
     const rot=parseFloat(c.beamRot)||0;
     const mid=`${c._fsId}_${c._ci}`;
+    const viewDist=parseFloat(c.viewDist)||50; // المسافة بالمتر
 
-    // حساب حجم الشعاع حسب مسافة الرؤية
-    const viewDist = parseFloat(c.viewDist)||50; // افتراضي 50م
-    const beamR = Math.min(Math.max(viewDist/3, 18), 60); // بين 18 و 60
-    const sz = Math.round(beamR*2 + 12);
-    const cx = sz/2, cy = sz/2;
-    const bR = beamR;
-    const svgIcon=`<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" xmlns="http://www.w3.org/2000/svg">
-      <g transform="rotate(${rot},${cx},${cy})" opacity="0.45">
-        <path d="M${cx},${cy} L${cx+bR*Math.sin((angle/2)*Math.PI/180)},${cy-bR*Math.cos((angle/2)*Math.PI/180)}
-          A${bR},${bR},0,0,0,${cx-bR*Math.sin((angle/2)*Math.PI/180)},${cy-bR*Math.cos((angle/2)*Math.PI/180)} Z"
-          fill="${stColor}"/>
-      </g>
-      <rect x="${cx-8}" y="${cy-5}" width="16" height="10" rx="2.5" fill="${stColor}"/>
-      <polygon points="${cx+8},${cy-4} ${cx+16},${cy-6} ${cx+16},${cy+6} ${cx+8},${cy+4}" fill="${stColor}" opacity="0.85"/>
-      <circle cx="${cx-2}" cy="${cy}" r="4" fill="white" opacity="0.9"/>
-      <circle cx="${cx-2}" cy="${cy}" r="2.2" fill="${stColor}"/>
+    // ══ رسم شعاع الرؤية — قطاع حقيقي بالمتر الجغرافي ══
+    const mPerLat = 111320;
+    const mPerLng = 111320 * Math.cos(lat * Math.PI/180);
+    const halfRad  = (angle/2) * Math.PI/180;
+    const rotRad   = rot       * Math.PI/180;
+    const steps    = Math.max(24, Math.round(angle));
+
+    // كاميرا 360° = دائرة كاملة
+    if(angle >= 358){
+      L.circle([lat,lng],{
+        radius: viewDist,
+        color: stColor, fillColor: stColor,
+        fillOpacity: 0.18, weight: 1.5, opacity: 0.75
+      }).addTo(_map);
+    } else {
+      // قطاع: مركز + قوس
+      const pts = [[lat, lng]];
+      for(let i = 0; i <= steps; i++){
+        // الزاوية الحالية من البداية للنهاية
+        const theta = rotRad - halfRad + (i / steps) * 2 * halfRad;
+        // شمال جغرافي = 0° → (dLat+, dLng=0)
+        // شرق          = 90° → (dLat=0, dLng+)
+        const dLat = (viewDist * Math.cos(theta)) / mPerLat;
+        const dLng = (viewDist * Math.sin(theta)) / mPerLng;
+        pts.push([lat + dLat, lng + dLng]);
+      }
+      pts.push([lat, lng]); // إغلاق القطاع
+      L.polygon(pts,{
+        color: stColor, fillColor: stColor,
+        fillOpacity: 0.20, weight: 1.8, opacity: 0.80
+      }).addTo(_map);
+    }
+
+    // ══ أيقونة الكاميرا الثابتة (صغيرة) ══
+    const sz=32;
+    const svgIcon=`<svg width="${sz}" height="${sz}" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="16" cy="16" r="15" fill="${stColor}" opacity="0.15" stroke="${stColor}" stroke-width="1.5"/>
+      <rect x="5" y="11" width="14" height="10" rx="2.5" fill="${stColor}"/>
+      <polygon points="19,13 27,10 27,22 19,19" fill="${stColor}" opacity="0.85"/>
+      <circle cx="11" cy="16" r="3.5" fill="white" opacity="0.9"/>
+      <circle cx="11" cy="16" r="2" fill="${stColor}"/>
     </svg>`;
 
     const icon=L.divIcon({html:svgIcon,className:'',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
-    const marker=L.marker([lat,lng],{icon}).addTo(_map);
+    const marker=L.marker([lat,lng],{icon,zIndexOffset:500}).addTo(_map);
 
     const popup=`<div style="min-width:230px;direction:rtl;font-family:inherit">
       <div style="font-weight:800;font-size:18px;color:${stColor};margin-bottom:6px">
@@ -2980,6 +3006,16 @@ function showFieldCamForm(fsId,ci,cam){
           oninput="$('fcbr_v').textContent=this.value+'°'" style="flex:1">
         <span id="fcbr_v" style="color:var(--bl);font-weight:700;min-width:50px">${c.beamRot||0}°</span>
       </div></div>
+    <div class="s2 field"><label>📏 مسافة الرؤية (متر) — تتحكم بطول الشعاع على الخريطة</label>
+      <div style="display:flex;gap:10px;align-items:center">
+        <input id="fcvd" type="range" min="5" max="3000" step="5" value="${c.viewDist||50}"
+          oninput="$('fcvd_v').textContent=this.value+'م'" style="flex:1">
+        <span id="fcvd_v" style="color:var(--gn);font-weight:700;min-width:50px">${c.viewDist||50}م</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--mt);margin-top:2px">
+        <span>5م</span><span>داخلي 20م | خارجي 100م | شارع 500م | دوّارة 2-3كم</span><span>3000م</span>
+      </div>
+    </div>
   </div>
   ${mft(ci>=0?'💾 حفظ':'➕ إضافة',`saveFieldCam('${fsId}',${ci})`)}`);
 }
@@ -2994,7 +3030,7 @@ function saveFieldCam(fsId,ci){
     angle:val('fcan'), model:val('fcmd'), mfr:val('fcmf'), ip:val('fcip'),
     installDesc:val('fcdc'), dir:val('fcdir'), status:val('fcst'),
     lat:val('fclat'), lng:val('fclng'),
-    beamAngle:$('fcba')?.value||70, beamRot:$('fcbr')?.value||0,
+    beamAngle:$('fcba')?.value||70, beamRot:$('fcbr')?.value||0, viewDist:parseFloat($('fcvd')?.value)||50,
     addedBy:CU.name, addedAt:(ci>=0&&fs.cameras[ci]?.addedAt)||ts()
   };
   fbSet('fieldSites/'+fsId+'/cameras/'+cam.id, cam);
