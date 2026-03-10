@@ -3040,116 +3040,103 @@ function showFieldCamForm(fsId,ci,cam){
     </div>
   </div>
   ${mft(ci>=0?'💾 حفظ':'➕ إضافة',"saveFieldCam('"+fsId+"',"+ci+")")}
-  <script>
-  (function(){
-    let _rot = parseFloat(document.getElementById('fcbr').value)||0;
-    const canvas = document.getElementById('compass-canvas');
-    if(!canvas) return;
-    const ctx = canvas.getContext('2d');
-    let dragging = false;
+  <div id="compass-init-marker"></div>`);
+  // تشغيل البوصلة بعد إدراج الـ HTML في الـ DOM
+  setTimeout(()=>initCompass(), 50);
+}
 
-    const dirs = [{a:0,l:'ش'},{a:45,l:'ش.ش'},{a:90,l:'ش'},{a:135,l:'ج.ش'},
-                  {a:180,l:'ج'},{a:-135,l:'ج.غ'},{a:-90,l:'غ'},{a:-45,l:'ش.غ'}];
-    const dirNames = ['شمال','شمال شرق','شرق','جنوب شرق','جنوب','جنوب غرب','غرب','شمال غرب'];
 
-    function drawCompass(deg){
-      const W=160,H=160,cx=80,cy=80,R=72;
-      ctx.clearRect(0,0,W,H);
+// ═══════════════════════════════════════════════════════
+//  🧭 بوصلة اتجاه الكاميرا
+// ═══════════════════════════════════════════════════════
+function initCompass(){
+  const canvas = document.getElementById('compass-canvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let dragging = false;
+  let _rot = parseFloat(document.getElementById('fcbr')?.value)||0;
 
-      // خلفية
-      const grad=ctx.createRadialGradient(cx,cy,10,cx,cy,R);
-      grad.addColorStop(0,'#1a2332'); grad.addColorStop(1,'#0d1117');
-      ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
-      ctx.fillStyle=grad; ctx.fill();
-      ctx.strokeStyle='#30363d'; ctx.lineWidth=2; ctx.stroke();
+  const dirNames = ['شمال','شمال شرق','شرق','جنوب شرق','جنوب','جنوب غرب','غرب','شمال غرب'];
 
-      // خطوط التدريج
-      for(let i=0;i<360;i+=10){
-        const a=(i-90)*Math.PI/180;
-        const inner=i%90===0?R-18:i%45===0?R-14:R-9;
-        ctx.beginPath();
-        ctx.moveTo(cx+inner*Math.cos(a), cy+inner*Math.sin(a));
-        ctx.lineTo(cx+(R-3)*Math.cos(a), cy+(R-3)*Math.sin(a));
-        ctx.strokeStyle=i%90===0?'#58a6ff':i%45===0?'#8b949e':'#30363d';
-        ctx.lineWidth=i%90===0?2:1; ctx.stroke();
-      }
-
-      // تسميات الاتجاهات
-      const lblMap={0:'N',90:'E',180:'S',270:'W'};
-      [0,90,180,270].forEach(a=>{
-        const rad=(a-90)*Math.PI/180;
-        const lx=cx+(R-28)*Math.cos(rad), ly=cy+(R-28)*Math.sin(rad);
-        ctx.fillStyle=a===0?'#f85149':'#58a6ff';
-        ctx.font='bold 13px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.fillText(lblMap[a],lx,ly);
-      });
-
-      // خط الاتجاه (المؤشر)
-      const needleRad=(deg-90)*Math.PI/180;
-      // ذيل
+  function drawCompass(deg){
+    const W=160,H=160,cx=80,cy=80,R=72;
+    ctx.clearRect(0,0,W,H);
+    const grad=ctx.createRadialGradient(cx,cy,10,cx,cy,R);
+    grad.addColorStop(0,'#1a2332'); grad.addColorStop(1,'#0d1117');
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
+    ctx.fillStyle=grad; ctx.fill();
+    ctx.strokeStyle='#30363d'; ctx.lineWidth=2; ctx.stroke();
+    for(let i=0;i<360;i+=10){
+      const a=(i-90)*Math.PI/180;
+      const inner=i%90===0?R-18:i%45===0?R-14:R-9;
       ctx.beginPath();
-      ctx.moveTo(cx,cy);
-      ctx.lineTo(cx-(R-22)*Math.cos(needleRad), cy-(R-22)*Math.sin(needleRad));
-      ctx.strokeStyle='#7d8590'; ctx.lineWidth=3; ctx.stroke();
-      // رأس (أحمر)
-      ctx.beginPath();
-      ctx.moveTo(cx,cy);
-      ctx.lineTo(cx+(R-14)*Math.cos(needleRad), cy+(R-14)*Math.sin(needleRad));
-      ctx.strokeStyle='#f85149'; ctx.lineWidth=3; ctx.stroke();
-      // نقطة المركز
-      ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2);
-      ctx.fillStyle='#fff'; ctx.fill();
-
-      // قوس الشعاع (زاوية الرؤية)
-      const beamAngle=parseFloat(document.getElementById('fcba')?.value)||70;
-      if(beamAngle<358){
-        const half=(beamAngle/2)*Math.PI/180;
-        const bRad=(deg-90)*Math.PI/180;
-        ctx.beginPath();
-        ctx.moveTo(cx,cy);
-        ctx.arc(cx,cy,R-6,bRad-half,bRad+half);
-        ctx.closePath();
-        ctx.fillStyle='rgba(88,166,255,0.15)';
-        ctx.strokeStyle='#58a6ff'; ctx.lineWidth=1.5;
-        ctx.fill(); ctx.stroke();
-      }
+      ctx.moveTo(cx+inner*Math.cos(a), cy+inner*Math.sin(a));
+      ctx.lineTo(cx+(R-3)*Math.cos(a), cy+(R-3)*Math.sin(a));
+      ctx.strokeStyle=i%90===0?'#58a6ff':i%45===0?'#8b949e':'#30363d';
+      ctx.lineWidth=i%90===0?2:1; ctx.stroke();
     }
-
-    function updateLabel(deg){
-      const d=((deg%360)+360)%360;
-      document.getElementById('compass-deg-label').textContent=Math.round(deg)+'°';
-      const idx=Math.round(d/45)%8;
-      document.getElementById('compass-dir-label').textContent=dirNames[idx];
-      document.getElementById('fcbr').value=Math.round(deg);
+    const lblMap={0:'N',90:'E',180:'S',270:'W'};
+    [0,90,180,270].forEach(a=>{
+      const rad=(a-90)*Math.PI/180;
+      const lx=cx+(R-28)*Math.cos(rad), ly=cy+(R-28)*Math.sin(rad);
+      ctx.fillStyle=a===0?'#f85149':'#58a6ff';
+      ctx.font='bold 13px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(lblMap[a],lx,ly);
+    });
+    const needleRad=(deg-90)*Math.PI/180;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.lineTo(cx-(R-22)*Math.cos(needleRad), cy-(R-22)*Math.sin(needleRad));
+    ctx.strokeStyle='#7d8590'; ctx.lineWidth=3; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.lineTo(cx+(R-14)*Math.cos(needleRad), cy+(R-14)*Math.sin(needleRad));
+    ctx.strokeStyle='#f85149'; ctx.lineWidth=3; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2);
+    ctx.fillStyle='#fff'; ctx.fill();
+    const beamAngle=parseFloat(document.getElementById('fcba')?.value)||70;
+    if(beamAngle<358){
+      const half=(beamAngle/2)*Math.PI/180;
+      const bRad=(deg-90)*Math.PI/180;
+      ctx.beginPath(); ctx.moveTo(cx,cy);
+      ctx.arc(cx,cy,R-6,bRad-half,bRad+half);
+      ctx.closePath();
+      ctx.fillStyle='rgba(88,166,255,0.15)';
+      ctx.strokeStyle='#58a6ff'; ctx.lineWidth=1.5;
+      ctx.fill(); ctx.stroke();
     }
+  }
 
-    function angleFromCenter(e){
-      const rect=canvas.getBoundingClientRect();
-      const ex=e.touches?e.touches[0].clientX:e.clientX;
-      const ey=e.touches?e.touches[0].clientY:e.clientY;
-      const dx=ex-rect.left-80, dy=ey-rect.top-80;
-      return Math.atan2(dx,-dy)*180/Math.PI;
-    }
+  function updateLabel(deg){
+    const d=((deg%360)+360)%360;
+    const el=document.getElementById('compass-deg-label');
+    const dl=document.getElementById('compass-dir-label');
+    const hi=document.getElementById('fcbr');
+    if(el) el.textContent=Math.round(deg)+'°';
+    if(dl) dl.textContent=dirNames[Math.round(d/45)%8];
+    if(hi) hi.value=Math.round(deg);
+  }
 
-    canvas.addEventListener('mousedown',  e=>{ dragging=true; canvas.style.cursor='grabbing'; });
-    canvas.addEventListener('mousemove',  e=>{ if(!dragging) return; _rot=angleFromCenter(e); drawCompass(_rot); updateLabel(_rot); });
-    canvas.addEventListener('mouseup',    e=>{ dragging=false; canvas.style.cursor='grab'; });
-    canvas.addEventListener('mouseleave', e=>{ dragging=false; canvas.style.cursor='grab'; });
-    canvas.addEventListener('touchstart', e=>{ dragging=true; e.preventDefault(); },{passive:false});
-    canvas.addEventListener('touchmove',  e=>{ if(!dragging) return; e.preventDefault(); _rot=angleFromCenter(e); drawCompass(_rot); updateLabel(_rot); },{passive:false});
-    canvas.addEventListener('touchend',   e=>{ dragging=false; });
+  function angleFromCenter(e){
+    const rect=canvas.getBoundingClientRect();
+    const ex=e.touches?e.touches[0].clientX:e.clientX;
+    const ey=e.touches?e.touches[0].clientY:e.clientY;
+    return Math.atan2(ex-rect.left-80,-(ey-rect.top-80))*180/Math.PI;
+  }
 
-    // دالة الأزرار السريعة
-    window.setCompass = function(deg){ _rot=parseFloat(deg); drawCompass(_rot); updateLabel(_rot); };
+  canvas.addEventListener('mousedown',  ()=>{ dragging=true; canvas.style.cursor='grabbing'; });
+  canvas.addEventListener('mousemove',  e=>{ if(!dragging) return; _rot=angleFromCenter(e); drawCompass(_rot); updateLabel(_rot); });
+  canvas.addEventListener('mouseup',    ()=>{ dragging=false; canvas.style.cursor='grab'; });
+  canvas.addEventListener('mouseleave', ()=>{ dragging=false; canvas.style.cursor='grab'; });
+  canvas.addEventListener('touchstart', e=>{ dragging=true; e.preventDefault(); },{passive:false});
+  canvas.addEventListener('touchmove',  e=>{ if(!dragging) return; e.preventDefault(); _rot=angleFromCenter(e); drawCompass(_rot); updateLabel(_rot); },{passive:false});
+  canvas.addEventListener('touchend',   ()=>{ dragging=false; });
 
-    // أيضاً تحديث قوس البوصلة عند تغيير زاوية الرؤية
-    const fcba=document.getElementById('fcba');
-    if(fcba) fcba.addEventListener('input',()=>drawCompass(_rot));
+  window.setCompass = function(deg){ _rot=parseFloat(deg); drawCompass(_rot); updateLabel(_rot); };
 
-    drawCompass(_rot);
-    updateLabel(_rot);
-  })();
-  </script>`);
+  const fcba=document.getElementById('fcba');
+  if(fcba) fcba.addEventListener('input',()=>drawCompass(_rot));
+
+  drawCompass(_rot);
+  updateLabel(_rot);
 }
 
 function saveFieldCam(fsId,ci){
