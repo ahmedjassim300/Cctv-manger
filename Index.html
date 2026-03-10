@@ -899,6 +899,8 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     showMsgBubble();
     // طلب إذن الإشعارات
     setTimeout(requestNotifPermission, 2000);
+    // طلب إذن GPS
+    setTimeout(requestGPSPermission, 4000);
 
     // تحقق من الصيانة المتأخرة
     setTimeout(()=>{
@@ -1233,6 +1235,7 @@ function pgDash(){
   <!-- زر الإشعارات وتسجيل الخروج -->
   <div style="display:flex;gap:10px;padding:0 16px 30px;justify-content:center">
     <button class="btn" style="flex:1;padding:14px;font-size:17px;background:var(--sf);border:1px solid var(--br);border-radius:12px" onclick="requestNotifPermission()">🔔 تفعيل الإشعارات</button>
+    <button class="btn" style="flex:1;padding:14px;font-size:17px;background:var(--sf);border:1px solid var(--br);border-radius:12px" onclick="requestGPSPermission()">📍 تفعيل GPS</button>
     <button class="btn btn-rd" style="flex:1;padding:14px;font-size:17px;border-radius:12px" onclick="doLogout()">🚪 خروج</button>
   </div>
 `;
@@ -5423,6 +5426,99 @@ function sendPushNotif(title, message, type){
 }
 
 // طلب إذن الإشعارات وتسجيل FCM Token
+
+// ═══════════════════════════════════════════════════════
+//  📍 طلب إذن GPS
+// ═══════════════════════════════════════════════════════
+function requestGPSPermission(){
+  if(!navigator.geolocation){
+    toast('المتصفح لا يدعم GPS','warn');
+    return;
+  }
+
+  // تحقق إذا كان الإذن ممنوح مسبقاً
+  if(navigator.permissions){
+    navigator.permissions.query({name:'geolocation'}).then(result=>{
+      if(result.state==='granted'){
+        toast('✅ GPS مفعّل مسبقاً');
+        saveGPSLocation();
+        return;
+      }
+      if(result.state==='denied'){
+        showGPSBlockedDialog();
+        return;
+      }
+      // prompt — اطلب الإذن
+      showGPSRequestDialog();
+    }).catch(()=> showGPSRequestDialog());
+  } else {
+    showGPSRequestDialog();
+  }
+}
+
+function showGPSRequestDialog(){
+  openModal(
+    '<div style="text-align:center;padding:10px">'
+    +'<div style="font-size:56px;margin-bottom:12px">📍</div>'
+    +'<div style="font-weight:800;font-size:20px;margin-bottom:10px">تفعيل خدمة الموقع</div>'
+    +'<div style="font-size:15px;color:var(--mt);margin-bottom:20px;line-height:1.6">'
+    +'يستخدم التطبيق موقعك لتحديد أقرب الكاميرات إليك وعرض موقعك على الخريطة الميدانية'
+    +'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px">'
+    +'<button class="btn btn-bl" style="padding:14px;font-size:17px" onclick="doRequestGPS()">📍 السماح بالوصول للموقع</button>'
+    +'<button class="btn btn-gy" style="padding:12px;font-size:15px" onclick="closeModal()">لاحقاً</button>'
+    +'</div></div>'
+  );
+}
+
+function showGPSBlockedDialog(){
+  openModal(
+    '<div style="text-align:center;padding:10px">'
+    +'<div style="font-size:56px;margin-bottom:12px">🚫</div>'
+    +'<div style="font-weight:800;font-size:20px;margin-bottom:10px">GPS محظور</div>'
+    +'<div style="font-size:15px;color:var(--mt);margin-bottom:20px;line-height:1.6">'
+    +'تم حظر الوصول للموقع. لتفعيله افتح إعدادات المتصفح وامنح إذن الموقع للتطبيق'
+    +'</div>'
+    +'<button class="btn btn-gy" style="padding:12px;font-size:15px;width:100%" onclick="closeModal()">حسناً</button>'
+    +'</div>'
+  );
+}
+
+function doRequestGPS(){
+  closeModal();
+  toast('⏳ جار تحديد الموقع...','warn');
+  navigator.geolocation.getCurrentPosition(
+    pos=>{
+      toast('✅ تم تفعيل GPS');
+      // حفظ الموقع في Firebase للمستخدم
+      if(CU && (CU.uid||CU.id)){
+        fbUpdate('users/'+(CU.uid||CU.id), {
+          lastLat: pos.coords.latitude,
+          lastLng: pos.coords.longitude,
+          lastLocTime: Date.now()
+        });
+      }
+    },
+    err=>{
+      if(err.code===1) showGPSBlockedDialog();
+      else toast('تعذّر تحديد الموقع: '+err.message,'warn');
+    },
+    {enableHighAccuracy:true, timeout:10000}
+  );
+}
+
+function saveGPSLocation(){
+  navigator.geolocation.getCurrentPosition(pos=>{
+    if(CU && (CU.uid||CU.id)){
+      fbUpdate('users/'+(CU.uid||CU.id), {
+        lastLat: pos.coords.latitude,
+        lastLng: pos.coords.longitude,
+        lastLocTime: Date.now()
+      });
+    }
+  }, ()=>{}, {enableHighAccuracy:false, timeout:5000});
+}
+
 async function requestNotifPermission(){
   if(!FBMSG){ toast('FCM غير متاح في هذا المتصفح','warn'); return; }
   try {
