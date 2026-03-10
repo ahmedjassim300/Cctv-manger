@@ -568,8 +568,8 @@ window.onerror = function(msg, src, line, col, err) {
 // ============================================
 //  CONSTANTS
 // ============================================
-const ROLES = {manager:'مدير', engineer:'مهندس', technician:'فني', field:'صاعود'};
-const RC    = {manager:'#f85149', engineer:'#58a6ff', technician:'#3fb950', field:'#d29922'};
+const ROLES = {manager:'مدير', engineer:'مهندس', technician:'فني', field:'صاعود', viewer:'السيد'};
+const RC    = {manager:'#f85149', engineer:'#58a6ff', technician:'#3fb950', field:'#d29922', viewer:'#bc8cff'};
 
 const PERM_DEF = {
   inv      : 'عرض المخزن',
@@ -591,6 +591,7 @@ const DEF_PERMS = {
   engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1},
   technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1},
   field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1},
 };
 
 const FAULT_ST = [
@@ -684,7 +685,7 @@ function canUserSeeFieldSite(site) {
 // فلترة المواقع الميدانية حسب صلاحيات المستخدم
 function getVisibleFieldSites() {
   if(!CU) return [];
-  if(CU.role === 'manager') return DB.fieldSites;
+  if(CU.role === 'manager' || CU.role === 'viewer') return DB.fieldSites;
   return DB.fieldSites.filter(site => canUserSeeFieldSite(site));
 }
 
@@ -995,7 +996,7 @@ function fbStartSync(){
     const allNotifs = data.notifs ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     const myUid = CU?.uid||CU?.id;
     DB.notifs = allNotifs.filter(n=>{
-      if(!CU || CU.role==='manager') return true; // المدير يرى الكل
+      if(!CU || CU.role==='manager' || CU.role==='viewer') return true; // المدير والسيد يريان الكل
       if(!n.allowedUsers) return true; // إشعار عام قديم
       if(n.allowedUsers.includes('all')) return true; // إشعار عام
       if(n.allowedUsers.includes('manager_only')) return false; // للمدير فقط
@@ -1802,6 +1803,7 @@ function saveFault(){
 function updFaultStatus(f, ri, status){
   // تحقق من صلاحية الوصول للموقع
   if(!canAccessFault(f)){ toast('⛔ لا صلاحية لتعديل هذا العطل','err'); return; }
+  if(CU.role==='viewer'){ toast('⛔ السيد لديه صلاحية مشاهدة فقط','err'); return; }
   const st=FAULT_ST.find(x=>x.k===status);
   const log=[...(f.log||[]),{ico:st?.ico||'',label:st?.l||status,by:CU.name,date:ts()}];
   const upd={status,log};
@@ -2005,45 +2007,60 @@ function openPerms(i){
   const u=DB.users[i];
   if(u.role==='manager'){ toast('المدير لديه جميع الصلاحيات دائماً','warn'); return; }
   const cur=u.perms||DEF_PERMS[u.role]||{};
-  const locked=['faults','notifs'];
-  openModal(`${mhd('🔑 صلاحيات: '+u.name+' ('+ROLES[u.role]+')')}
-  <div style="font-size:17px;color:var(--mt);margin-bottom:14px">
-    الصلاحيات الافتراضية للدور <b style="color:var(--tx)">${ROLES[u.role]}</b>. يمكنك تخصيصها لهذا المستخدم بشكل مستقل.
-  </div>
-  <div class="pg">
-    ${Object.entries(PERM_DEF).map(([k,label])=>{
-      const isLocked=locked.includes(k);
-      return `<div class="pi">
-        <input type="checkbox" id="pm_${k}" ${(isLocked||cur[k])?'checked':''} ${isLocked?'disabled':''}>
-        <label for="pm_${k}" style="${isLocked?'color:var(--mt)':''}">${label}${isLocked?' 🔒':''}</label>
-      </div>`;
-    }).join('')}
-  </div>
-  <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-    <button class="btn btn-sm btn-gy" onclick="resetPerms(${i})">↩️ إعادة للافتراضي</button>
-    <button class="btn btn-sm" style="background:#3fb95022;border:1px solid #3fb95044;color:var(--gn)" onclick="grantAll(${i})">✅ منح الكل</button>
-    <button class="btn btn-sm btn-rd" onclick="revokeAll(${i})">⛔ سحب الكل</button>
-  </div>
-  ${mft('💾 حفظ الصلاحيات',`savePerms(${i})`)}`);
+  const isViewer=u.role==='viewer';
+  const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap'];
+  const WRITE_PERMS =['addItem','updFault','importInv','users'];
+  const PERM_LABELS ={
+    inv:'عرض المخزن', faults:'عرض الأعطال', notifs:'الإشعارات',
+    invoices:'عرض الفواتير', moves:'عرض حركة المواد', sites:'عرض المواقع والمخازن',
+    types:'عرض أنواع المواد', fieldmap:'خريطة المواقع الميدانية',
+    addItem:'إضافة وتعديل المواد', updFault:'تحديث حالة الأعطال',
+    importInv:'استيراد الفواتير', users:'إدارة المستخدمين'
+  };
+  function permRow(k){
+    const locked=k==='notifs';
+    const checked=locked||!!cur[k];
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:5px">'
+      +'<input type="checkbox" id="pm_'+k+'" '+(checked?'checked ':'')+''+(locked?'disabled ':'')+' style="width:18px;height:18px;cursor:'+(locked?'default':'pointer')+'">'
+      +'<label for="pm_'+k+'" style="flex:1;cursor:'+(locked?'default':'pointer')+';font-size:15px;'+(locked?'color:var(--mt)':'')+'">'
+      +(PERM_LABELS[k]||k)+(locked?' 🔒':'')+'</label></div>';
+  }
+  openModal(mhd('🔑 صلاحيات: '+esc(u.name)+' ('+ROLES[u.role]+')')
+    +(isViewer
+      ?'<div style="background:#bc8cff18;border:1px solid #bc8cff44;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;color:#bc8cff">👑 <b>السيد</b> — يرى كل المواقع والبيانات. يمكنك هنا منحه صلاحيات التعديل أو سحبها.</div>'
+      :'<div style="font-size:14px;color:var(--mt);margin-bottom:14px">صلاحيات <b style=\"color:var(--tx)\">'+ROLES[u.role]+'</b> — يمكنك تخصيصها بشكل مستقل.</div>')
+    +'<div style="font-size:13px;font-weight:700;color:var(--gn);margin-bottom:6px">👁️ صلاحيات العرض والمشاهدة</div>'
+    +READ_PERMS.map(k=>permRow(k)).join('')
+    +'<div style="font-size:13px;font-weight:700;color:var(--yl);margin:12px 0 6px">⚙️ صلاحيات الإجراءات (إضافة / تعديل / حذف)</div>'
+    +WRITE_PERMS.map(k=>permRow(k)).join('')
+    +'<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">'
+    +'<button class="btn btn-sm btn-gy" onclick="resetPerms('+i+')">↩️ إعادة للافتراضي</button>'
+    +'<button class="btn btn-sm" style="background:#3fb95022;border:1px solid #3fb95044;color:var(--gn)" onclick="grantAll('+i+')">✅ منح الكل</button>'
+    +'<button class="btn btn-sm btn-rd" onclick="revokeAll('+i+')">⛔ سحب الكل</button></div>'
+    +mft('💾 حفظ الصلاحيات','savePerms('+i+')'));
 }
 
 function savePerms(i){
-  const locked=['faults','notifs'];
+  const ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users'];
   const perms={};
-  Object.keys(PERM_DEF).forEach(k=>{
-    const el=$(`pm_${k}`);
-    perms[k]=locked.includes(k)?true:(el?el.checked:false);
+  ALL_KEYS.forEach(k=>{
+    const el=document.getElementById('pm_'+k);
+    perms[k]=k==='notifs'?true:(el?el.checked:false);
   });
   const u2=DB.users[i]; if(u2) fbUpdate('users/'+(u2.uid||u2.id),{perms});
-  closeModal(); toast('تم حفظ الصلاحيات');
+  closeModal(); toast('✅ تم حفظ الصلاحيات');
 }
 function resetPerms(i){ const u=DB.users[i]; if(u) fbUpdate('users/'+(u.uid||u.id),{perms:null}); closeModal(); toast('تم إعادة الصلاحيات للافتراضي'); }
-function grantAll(i){
-  Object.keys(PERM_DEF).forEach(k=>{ const el=$(`pm_${k}`); if(el&&!el.disabled) el.checked=true; });
-}
+
 function revokeAll(i){
-  const locked=['faults','notifs'];
-  Object.keys(PERM_DEF).forEach(k=>{ const el=$(`pm_${k}`); if(el&&!el.disabled&&!locked.includes(k)) el.checked=false; });
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users'].forEach(k=>{
+    const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=false;
+  });
+}
+function grantAll(i){
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users'].forEach(k=>{
+    const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=true;
+  });
 }
 
 // ============================================
@@ -4630,6 +4647,7 @@ function loadLocalDB(){
 function canAccessFault(f){
   if(!CU) return false;
   if(CU.role === 'manager') return true;
+  if(CU.role === 'viewer') return true; // السيد يرى كل شيء لكن لا يعدل
   // عطل بدون موقع ميداني — يراه من لديه صلاحية faults
   if(!f.fieldSiteId) return p('faults');
   // عطل مرتبط بموقع — يراه فقط من لديه وصول للموقع
