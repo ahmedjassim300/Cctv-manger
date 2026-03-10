@@ -1913,7 +1913,13 @@ function showUserForm(u,idx){
   <div class="field"><label>كلمة المرور *</label><input type="password" id="upw" placeholder="6 أحرف على الأقل"></div>`
   :`<div style="background:var(--bg);border-radius:7px;padding:9px 12px;font-size:17px;color:var(--mt);margin-bottom:12px">📧 ${esc(f.email||f.username||'')}</div>`}
   <div class="field"><label>الدور الوظيفي</label>
-    <select id="urol">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}"${f.role===k?' selected':''}>${v}</option>`).join('')}</select>
+    <select id="urol">
+      <option value="manager"  ${f.role==='manager'  ?'selected':''}>مدير</option>
+      <option value="engineer" ${f.role==='engineer' ?'selected':''}>مهندس</option>
+      <option value="technician"${f.role==='technician'?'selected':''}>فني</option>
+      <option value="field"    ${f.role==='field'    ?'selected':''}>صاعود</option>
+      <option value="viewer"   ${f.role==='viewer'   ?'selected':''}>👑 السيد</option>
+    </select>
   </div>
   ${idx<0?`<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:7px;padding:9px 12px;font-size:12px;color:var(--bl);margin-bottom:12px">
     ℹ️ سيتم إنشاء الحساب في Firebase Authentication تلقائياً
