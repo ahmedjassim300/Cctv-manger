@@ -5435,25 +5435,26 @@ function requestGPSPermission(){
     toast('المتصفح لا يدعم GPS','warn');
     return;
   }
-
-  // تحقق إذا كان الإذن ممنوح مسبقاً
-  if(navigator.permissions){
-    navigator.permissions.query({name:'geolocation'}).then(result=>{
-      if(result.state==='granted'){
-        toast('✅ GPS مفعّل مسبقاً');
-        saveGPSLocation();
-        return;
+  // نطلب الموقع مباشرة بدون permissions API
+  // لأن بعض أجهزة Android ترجع 'denied' خطأً رغم أن الإذن ممنوح
+  toast('⏳ جار تحديد الموقع...','warn');
+  navigator.geolocation.getCurrentPosition(
+    pos=>{
+      toast('✅ تم تفعيل GPS');
+      if(CU && (CU.uid||CU.id)){
+        fbUpdate('users/'+(CU.uid||CU.id),{
+          lastLat: pos.coords.latitude,
+          lastLng: pos.coords.longitude,
+          lastLocTime: Date.now()
+        });
       }
-      if(result.state==='denied'){
-        showGPSBlockedDialog();
-        return;
-      }
-      // prompt — اطلب الإذن
-      showGPSRequestDialog();
-    }).catch(()=> showGPSRequestDialog());
-  } else {
-    showGPSRequestDialog();
-  }
+    },
+    err=>{
+      if(err.code===1) showGPSBlockedDialog();
+      else toast('تعذّر تحديد الموقع، تأكد من تفعيل GPS من إعدادات الجهاز','warn');
+    },
+    {enableHighAccuracy:true, timeout:12000, maximumAge:0}
+  );
 }
 
 function showGPSRequestDialog(){
@@ -5465,7 +5466,7 @@ function showGPSRequestDialog(){
     +'يستخدم التطبيق موقعك لتحديد أقرب الكاميرات إليك وعرض موقعك على الخريطة الميدانية'
     +'</div>'
     +'<div style="display:flex;flex-direction:column;gap:10px">'
-    +'<button class="btn btn-bl" style="padding:14px;font-size:17px" onclick="doRequestGPS()">📍 السماح بالوصول للموقع</button>'
+    +'<button class="btn btn-bl" style="padding:14px;font-size:17px" onclick="closeModal();requestGPSPermission()">📍 السماح بالوصول للموقع</button>'
     +'<button class="btn btn-gy" style="padding:12px;font-size:15px" onclick="closeModal()">لاحقاً</button>'
     +'</div></div>'
   );
