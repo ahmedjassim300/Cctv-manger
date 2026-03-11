@@ -3022,10 +3022,18 @@ function showFieldCamForm(fsId,ci,cam){
     </div>
     <div class="s2 field"><label>🔦 زاوية شعاع الرؤية على الخريطة (°)</label>
       <div style="display:flex;gap:10px;align-items:center">
-        <input id="fcba" type="range" min="10" max="180" value="${c.beamAngle||70}"
-          oninput="$('fcba_v').textContent=this.value+'°'" style="flex:1">
-        <span id="fcba_v" style="color:var(--bl);font-weight:700;min-width:40px">${c.beamAngle||70}°</span>
-      </div></div>
+        <input id="fcba" type="range" min="10" max="360" value="${c.beamAngle||70}"
+          oninput="onBeamAngleChange(this.value)" style="flex:1">
+        <span id="fcba_v" style="color:var(--bl);font-weight:700;min-width:50px">${c.beamAngle||70}°</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button type="button" onclick="setBeamAngle(60)"  style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--tx);font-family:inherit">60°</button>
+        <button type="button" onclick="setBeamAngle(90)"  style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--tx);font-family:inherit">90°</button>
+        <button type="button" onclick="setBeamAngle(110)" style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--tx);font-family:inherit">110°</button>
+        <button type="button" onclick="setBeamAngle(180)" style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--tx);font-family:inherit">180°</button>
+        <button type="button" onclick="setBeamAngle(360)" style="background:#bc8cff22;border:1px solid #bc8cff44;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#bc8cff;font-family:inherit;font-weight:700">360° PTZ 🔄</button>
+      </div>
+    </div>
     <!-- ══ البوصلة الدائرية ══ -->
     <div class="s2 field"><label>🧭 اتجاه الكاميرا — اسحب المؤشر لتحديد الاتجاه</label>
       <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
@@ -3075,6 +3083,23 @@ function showFieldCamForm(fsId,ci,cam){
 // ═══════════════════════════════════════════════════════
 //  🧭 بوصلة اتجاه الكاميرا
 // ═══════════════════════════════════════════════════════
+function setBeamAngle(deg){
+  const sl = document.getElementById('fcba');
+  const lbl = document.getElementById('fcba_v');
+  if(sl){ sl.value = deg; }
+  if(lbl){ lbl.textContent = deg + (deg===360?' 🔄':'') + '°'; }
+  // تحديث البوصلة لإظهار القوس الجديد
+  const canvas = document.getElementById('compass-canvas');
+  if(canvas && window._compassDraw) window._compassDraw();
+}
+
+function onBeamAngleChange(val){
+  const lbl = document.getElementById('fcba_v');
+  const v = parseInt(val);
+  if(lbl){ lbl.textContent = v + (v===360?' 🔄':'') + '°'; }
+  if(window._compassDraw) window._compassDraw();
+}
+
 function initCompass(){
   const canvas = document.getElementById('compass-canvas');
   if(!canvas) return;
@@ -3119,7 +3144,17 @@ function initCompass(){
     ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2);
     ctx.fillStyle='#fff'; ctx.fill();
     const beamAngle=parseFloat(document.getElementById('fcba')?.value)||70;
-    if(beamAngle<358){
+    if(beamAngle>=358){
+      // PTZ 360° — دائرة كاملة في البوصلة
+      ctx.beginPath(); ctx.arc(cx,cy,R-6,0,Math.PI*2);
+      ctx.fillStyle='rgba(188,140,255,0.15)';
+      ctx.strokeStyle='#bc8cff'; ctx.lineWidth=1.5;
+      ctx.fill(); ctx.stroke();
+      // نص PTZ
+      ctx.fillStyle='#bc8cff'; ctx.font='bold 11px sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('PTZ 360°',cx,cy+20);
+    } else {
       const half=(beamAngle/2)*Math.PI/180;
       const bRad=(deg-90)*Math.PI/180;
       ctx.beginPath(); ctx.moveTo(cx,cy);
@@ -5451,7 +5486,26 @@ function requestGPSPermission(){
     },
     err=>{
       if(err.code===1) showGPSBlockedDialog();
-      else toast('تعذّر تحديد الموقع، تأكد من تفعيل GPS من إعدادات الجهاز','warn');
+      else {
+        // POSITION_UNAVAILABLE أو TIMEOUT — يحتمل إعداد Samsung
+        openModal(
+          '<div style="text-align:center;padding:10px">'
+          +'<div style="font-size:48px;margin-bottom:10px">📡</div>'
+          +'<div style="font-weight:800;font-size:18px;margin-bottom:16px">تعذّر تحديد الموقع</div>'
+          +'<div style="text-align:right;background:var(--bg);border-radius:12px;padding:14px;margin-bottom:14px">'
+          +'<div style="font-weight:700;color:var(--yl);margin-bottom:10px">⚙️ تحقق من الإعدادات:</div>'
+          +'<div style="font-size:14px;line-height:2;color:var(--tx)">'
+          +'✅ الإعدادات ← الموقع ← <b>مفعّل</b><br>'
+          +'✅ دقة الموقع ← <b>عالية الدقة</b><br>'
+          +'✅ اخرج للخارج أو قرب النافذة<br>'
+          +'✅ انتظر 10-15 ثانية وحاول مجدداً'
+          +'</div></div>'
+          +'<div style="display:flex;gap:8px">'
+          +'<button class="btn btn-gy" style="flex:1;padding:12px" onclick="closeModal()">إغلاق</button>'
+          +'<button class="btn btn-bl" style="flex:1;padding:12px" onclick="closeModal();setTimeout(requestGPSPermission,500)">🔄 إعادة المحاولة</button>'
+          +'</div></div>'
+        );
+      }
     },
     {enableHighAccuracy:true, timeout:12000, maximumAge:0}
   );
@@ -5475,10 +5529,19 @@ function showGPSRequestDialog(){
 function showGPSBlockedDialog(){
   openModal(
     '<div style="text-align:center;padding:10px">'
-    +'<div style="font-size:56px;margin-bottom:12px">🚫</div>'
-    +'<div style="font-weight:800;font-size:20px;margin-bottom:10px">GPS محظور</div>'
-    +'<div style="font-size:15px;color:var(--mt);margin-bottom:20px;line-height:1.6">'
-    +'تم حظر الوصول للموقع. لتفعيله افتح إعدادات المتصفح وامنح إذن الموقع للتطبيق'
+    +'<div style="font-size:48px;margin-bottom:10px">🚫</div>'
+    +'<div style="font-weight:800;font-size:18px;margin-bottom:16px">لا يمكن الوصول للموقع</div>'
+    +'<div style="text-align:right;background:var(--bg);border-radius:12px;padding:14px;margin-bottom:14px">'
+    +'<div style="font-weight:700;color:var(--gn);margin-bottom:10px">📱 خطوات التفعيل على Samsung:</div>'
+    +'<div style="font-size:14px;line-height:2;color:var(--tx)">'
+    +'1️⃣ الإعدادات ← الموقع<br>'
+    +'2️⃣ تأكد أن الموقع <b style="color:var(--gn)">مفعّل</b><br>'
+    +'3️⃣ اضغط <b>دقة الموقع</b> ← فعّل <b>GPS والواي فاي والبيانات</b><br>'
+    +'4️⃣ ارجع للمتصفح ← الإعدادات ← أذونات الموقع ← السماح<br>'
+    +'5️⃣ افتح التطبيق من جديد'
+    +'</div></div>'
+    +'<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:10px;padding:10px;margin-bottom:14px;font-size:13px;color:var(--bl)">'
+    +'💡 إذا ظهر سؤال "السماح للموقع بالوصول لموقعك؟" في المتصفح — اضغط <b>السماح دائماً</b>'
     +'</div>'
     +'<button class="btn btn-gy" style="padding:12px;font-size:15px;width:100%" onclick="closeModal()">حسناً</button>'
     +'</div>'
