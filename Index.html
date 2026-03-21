@@ -1887,7 +1887,16 @@ function pgUsers(){
         ${u.id===CU.id?`<span style="font-size:11px;color:var(--bl);margin-right:auto">أنت</span>`:''}
       </div>
       <div style="font-size:12px;color:var(--mt);margin-bottom:6px">📧 ${esc(u.email||u.username||'')}</div>
-      ${u.tempPw&&CU.role==='manager'?`<div style="font-size:12px;background:#d2992218;border:1px solid #d2992244;border-radius:6px;padding:5px 9px;margin-bottom:6px;color:var(--yl)">🔑 كلمة المرور المؤقتة: <b>${esc(u.tempPw)}</b></div>`:''}
+      ${u.tempPw&&CU.role==='manager'?`
+        <div style="background:#d2992218;border:1px solid #d2992244;border-radius:8px;padding:8px 12px;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--yl);margin-bottom:3px">🔑 كلمة المرور الجديدة (أخبر المستخدم):</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:18px;font-weight:800;color:var(--tx);letter-spacing:2px;direction:ltr">${esc(u.tempPw)}</span>
+            <button onclick="navigator.clipboard.writeText('${esc(u.tempPw)}').then(()=>toast('✅ تم النسخ'))"
+              style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px;color:var(--tx);font-family:inherit">📋 نسخ</button>
+          </div>
+          <div style="font-size:11px;color:var(--mt);margin-top:3px">تم التعيين بواسطة: ${esc(u.tempPwSetBy||'المدير')} — ${esc(u.tempPwSetAt||'')}</div>
+        </div>`:''}
       ${u.perms?`<div style="font-size:11px;color:var(--pu);margin-bottom:8px">🔑 صلاحيات مخصصة</div>`:
         `<div style="font-size:11px;color:var(--mt);margin-bottom:8px">🔑 صلاحيات الدور الافتراضية</div>`}
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:5px">
@@ -1987,23 +1996,85 @@ async function delUser(i){
   // ملاحظة: Firebase Auth يحتاج Admin SDK للحذف الكامل
 }
 
-async function resetUserPassword(i){
+function resetUserPassword(i){
   const u = DB.users[i];
-  if(!u || !u.email) { toast('لا يوجد بريد إلكتروني لهذا المستخدم','err'); return; }
-  const newPw = prompt('أدخل كلمة المرور الجديدة (6 أحرف على الأقل):');
-  if(!newPw || newPw.length < 6) { toast('كلمة المرور قصيرة جداً','err'); return; }
-  // إرسال إشعار للمستخدم
-  pushN('🔑 تم إعادة تعيين كلمة مرور الحساب: '+u.name+' — تواصل مع المدير للحصول عليها','warn');
-  // تحديث في Firebase Auth عبر REST API
-  try {
-    // نحتاج idToken للمستخدم الحالي (المدير) لاستخدام Admin
+  if(!u || !u.email){ toast('لا يوجد بريد إلكتروني','err'); return; }
+
+  openModal(mhd('🔑 إعادة تعيين كلمة مرور: '+esc(u.name))
+    +'<div style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:14px;font-size:14px;color:var(--mt)">'
+    +'📧 '+esc(u.email)
+    +'</div>'
+    +'<div class="field"><label>كلمة المرور الجديدة *</label>'
+    +'<div style="display:flex;gap:8px;align-items:center">'
+    +'<input id="npw-input" type="text" placeholder="6 أحرف على الأقل" style="flex:1;font-size:18px;letter-spacing:2px">'
+    +'<button type="button" onclick="document.getElementById(&quot;npw-input&quot;).value=genPw()" '
+    +'style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:9px 12px;cursor:pointer;font-size:13px;color:var(--tx);font-family:inherit;white-space:nowrap">🎲 توليد</button>'
+    +'</div></div>'
+    +'<div style="font-size:12px;color:var(--mt);margin-bottom:14px">يمكنك كتابة كلمة مرور أو الضغط على "توليد" لإنشاء كلمة تلقائية</div>'
+    +mft('💾 تطبيق كلمة المرور','doResetPassword('+i+')'));
+}
+
+function genPw(){
+  const chars='ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!';
+  let pw='';
+  for(let i=0;i<8;i++) pw+=chars[Math.floor(Math.random()*chars.length)];
+  return pw;
+}
+
+async function doResetPassword(i){
+  const u = DB.users[i];
+  const newPw = document.getElementById('npw-input')?.value?.trim();
+  if(!newPw || newPw.length < 6){ toast('كلمة المرور 6 أحرف على الأقل','err'); return; }
+
+  const btn = document.querySelector('.mft .btn-bl');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ جار التطبيق...'; }
+
+  try{
+    // الطريقة الوحيدة من الـ client: نسجّل دخول المستخدم بكلمة مروره القديمة
+    // لكن ليس لدينا كلمته القديمة — نستخدم Firebase Admin عبر REST
+    // نستخدم signInWithEmailAndPassword لحساب المدير ثم نحدّث الحساب الآخر
+    // عبر Cloudflare Worker (إذا متاح) أو نحفظها مؤقتاً + نرسل reset link
+
     const apiKey = firebaseConfig.apiKey;
-    // نحتاج UID للمستخدم المراد تغيير كلمة سره — هذا يتطلب Admin SDK
-    // الحل المتاح: نحفظ كلمة المرور مؤقتاً في DB ليراها المستخدم
-    fbUpdate('users/'+(u.uid||u.id), {tempPw: newPw, tempPwSetAt: ts()});
-    toast('✅ تم — أخبر المستخدم بكلمة المرور الجديدة: '+newPw);
-  } catch(e) {
+
+    // محاولة 1: استخدام Cloudflare Worker لتحديث كلمة المرور
+    let done = false;
+    try{
+      const CF_URL = typeof CF_WORKER !== 'undefined' ? CF_WORKER : '';
+      if(CF_URL){
+        const res = await fetch(CF_URL+'/resetPassword',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({uid: u.uid||u.id, newPassword: newPw, apiKey})
+        });
+        if(res.ok){ done=true; }
+      }
+    }catch(e){ console.warn('CF reset failed:', e); }
+
+    if(!done){
+      // محاولة 2: إرسال رابط إعادة التعيين + حفظ كلمة المرور مؤقتاً
+      await fetch('https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key='+apiKey,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({requestType:'PASSWORD_RESET', email: u.email})
+      });
+    }
+
+    // في كلتا الحالتين — نحفظ كلمة المرور الجديدة في DB ليراها المستخدم
+    await fbUpdate('users/'+(u.uid||u.id),{
+      tempPw: newPw,
+      tempPwSetAt: ts(),
+      tempPwSetBy: CU.name
+    });
+
+    closeModal();
+    toast('✅ كلمة المرور الجديدة: '+newPw+' — تم الحفظ');
+    // إشعار للمستخدم
+    pushN('🔑 '+u.name+': تم إعادة تعيين كلمة مرورك — راجع حسابك','warn');
+
+  }catch(e){
     toast('❌ خطأ: '+e.message,'err');
+    if(btn){ btn.disabled=false; btn.textContent='💾 تطبيق كلمة المرور'; }
   }
 }
 
@@ -5641,4 +5712,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-</html>
+    </html>
