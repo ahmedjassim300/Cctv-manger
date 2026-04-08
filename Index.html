@@ -823,7 +823,7 @@ function doLogout(){
     btn.disabled=false;
     btn.textContent='تسجيل الدخول';
     $('lload').style.display='none';
-    $('lerr').style.display='none';
+    // لا نمسح lerr هنا — قد تحتوي على رسالة خطأ مهمة
   });
 }
 
@@ -842,8 +842,10 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     _loginAttempted = false;
     return;
   }
+  console.log('Auth OK, uid:', fbUser.uid, 'email:', fbUser.email);
   // جلب بيانات المستخدم من قاعدة البيانات
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
+    console.log('DB user data:', snap.val());
     let userData=snap.val();
     if(!userData){
       // إذا كان أول مستخدم (المدير) أضف بياناته تلقائياً
@@ -875,13 +877,25 @@ FBAUTH.onAuthStateChanged(function(fbUser){
             fbStartSync();
           });
         } else {
-          doLogout();
-          const e=$('lerr'); e.textContent='❌ حسابك غير مسجّل في النظام. تواصل مع المدير'; e.style.display='block';
+          const e=$('lerr');
+          e.textContent='❌ حسابك غير مسجّل في النظام. تواصل مع المدير';
+          e.style.display='block';
+          e.style.opacity='1';
+          FBAUTH.signOut();
+          console.error('User not in DB, uid:', fbUser.uid);
         }
       });
       return;
     }
-    if(!userData.active){ doLogout(); const e=$('lerr'); e.textContent='⛔ حسابك معطّل، تواصل مع المدير'; e.style.display='block'; return; }
+    if(!userData.active){
+      const e=$('lerr');
+      e.textContent='⛔ حسابك معطّل، تواصل مع المدير';
+      e.style.display='block';
+      e.style.opacity='1';
+      FBAUTH.signOut();
+      console.error('User disabled:', fbUser.uid);
+      return;
+    }
     CU={...userData, uid:fbUser.uid, email:fbUser.email};
     $('lload').style.display='none';
     $('lerr').style.display='none';
@@ -5715,4 +5729,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-    </html>
+</html>
