@@ -787,14 +787,17 @@ function doLogin(){
       'auth/invalid-email':'❌ البريد غير صحيح',
       'auth/too-many-requests':'⛔ محاولات كثيرة، انتظر قليلاً',
       'auth/network-request-failed':'❌ لا يوجد اتصال بالإنترنت',
-      'auth/invalid-credential':'❌ البريد أو كلمة المرور خاطئة'
+      'auth/invalid-credential':'❌ البريد أو كلمة المرور خاطئة',
+      'auth/user-disabled':'⛔ الحساب معطّل'
     };
     const e=$('lerr');
-    e.textContent=msgs[err.code]||('❌ '+err.message);
-    e.style.display='block';
+    e.textContent = msgs[err.code] || ('❌ ' + err.code);
+    e.style.display = 'block';
+    e.style.opacity = '1';
     const b=$('login-btn');
     b.disabled=false;
     b.textContent='تسجيل الدخول';
+    console.error('Login error:', err.code, err.message);
   });
 }
 
@@ -5712,4 +5715,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-    </html>
+</html>
