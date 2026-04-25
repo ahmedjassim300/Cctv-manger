@@ -658,7 +658,7 @@ let fieldSearchResult = null;
 //  HELPERS
 // ============================================
 const gid  = () => Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-const ts   = () => new Date().toLocaleString('ar-SA');
+const ts   = () => new Date().toLocaleString('ar-IQ', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 const esc  = v  => String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const $    = id => document.getElementById(id);
 const val  = id => { const e=$(id); return e?e.value.trim():''; };
@@ -861,7 +861,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
             role: 'manager',
             active: true,
             perms: null,
-            createdAt: new Date().toLocaleString('ar-SA')
+            createdAt: new Date().toLocaleString('ar-IQ')
           };
           FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(()=>{
             CU={...newUser};
@@ -1187,7 +1187,7 @@ function pgDash(){
   $('page').innerHTML=`
     <div class="ph">
       <div><div class="pt">مرحباً، ${esc(CU.name)} 👋</div>
-      <div class="ps">${new Date().toLocaleDateString('ar-SA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div></div>
+      <div class="ps">${new Date().toLocaleDateString('ar-IQ',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div></div>
     </div>
     <div class="cg">${statsH}</div>
     ${myTasksH}
@@ -3955,7 +3955,7 @@ function printAllBarcodes(){
 function exportMapReport(){
   const lines = [];
   lines.push('تقرير المواقع الميدانية والكاميرات');
-  lines.push('تاريخ التقرير: '+new Date().toLocaleDateString('ar-SA'));
+  lines.push('تاريخ التقرير: '+new Date().toLocaleDateString('ar-IQ'));
   lines.push('='.repeat(50));
   lines.push('');
   DB.fieldSites.forEach(fs=>{
@@ -4023,7 +4023,7 @@ function doBackup(){
   a.download = 'CCTV_Backup_'+new Date().toISOString().split('T')[0]+'.json';
   a.click();
   toast('✅ تم تصدير النسخة الاحتياطية');
-  logAct('نسخة احتياطية', new Date().toLocaleDateString('ar-SA'));
+  logAct('نسخة احتياطية', new Date().toLocaleDateString('ar-IQ'));
 }
 
 function restoreBackup(input){
@@ -5729,4 +5729,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-</html>
+    </html>
