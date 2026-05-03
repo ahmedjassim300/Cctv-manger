@@ -5783,10 +5783,13 @@ function renderFaultChart(){
 // ═══════════════════════════════════════════════════════
 function pgTasks(){
   const isManager = CU.role==='manager'||CU.role==='engineer';
-  const allTasks = DB.tasks||[];
-  const myTasks  = isManager ? allTasks : allTasks.filter(t=>t.assignedTo===CU.name||(t.assignedToId&&t.assignedToId===(CU.uid||CU.id)));
-  const open     = myTasks.filter(t=>t.status!=='done');
-  const done     = myTasks.filter(t=>t.status==='done');
+  $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⏳ جار التحميل...</div>';
+  FBDB.ref('cctv/tasks').once('value').then(snap=>{
+    DB.tasks = snap.val() ? Object.values(snap.val()).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    const allTasks = DB.tasks;
+    const myTasks  = isManager ? allTasks : allTasks.filter(t=>t.assignedTo===CU.name||(t.assignedToId&&t.assignedToId===(CU.uid||CU.id)));
+    const open     = myTasks.filter(t=>t.status!=='done');
+    const done     = myTasks.filter(t=>t.status==='done');
 
   $('page').innerHTML = `
   <div class="ph">
@@ -5815,6 +5818,7 @@ function pgTasks(){
         `:''}
       </div>`
   }`;
+  }); // إغلاق FBDB.then
 }
 
 function renderTaskCard(t, isManager){
