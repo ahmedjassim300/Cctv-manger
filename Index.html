@@ -5223,7 +5223,7 @@ function openAppMenu(){
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
     {id:'siteinv',   ic:'📦', lb:'جرد الموجودات الثابتة', perm:'fieldmap'},
-    {id:'tasks',     ic:'📋', lb:'مهامي',                  perm:'faults'},
+    {id:'tasks',     ic:'📋', lb:'المهام',                  perm:'faults'},
     {id:'branding',  ic:'🎨', lb:'تخصيص الشركة',       perm:'users'},
   ].filter(x=>x.perm===null ? true : p(x.perm));
 
@@ -5775,6 +5775,193 @@ function renderFaultChart(){
   </div>`;
 }
 
+
+// ═══════════════════════════════════════════════════════
+//  📋 نظام المهام
+// ═══════════════════════════════════════════════════════
+function pgTasks(){
+  const isManager = CU.role==='manager'||CU.role==='engineer';
+  const allTasks = DB.tasks||[];
+  const myTasks  = isManager ? allTasks : allTasks.filter(t=>t.assignedTo===CU.name||(t.assignedToId&&t.assignedToId===(CU.uid||CU.id)));
+  const open     = myTasks.filter(t=>t.status!=='done');
+  const done     = myTasks.filter(t=>t.status==='done');
+
+  $('page').innerHTML = `
+  <div class="ph">
+    <div>
+      <div class="pt">📋 المهام</div>
+      <div class="ps" style="display:flex;gap:12px;margin-top:4px">
+        <span style="color:var(--rd)">${open.filter(t=>t.priority==='high').length} عاجل</span>
+        <span style="color:var(--yl)">${open.filter(t=>t.status==='inprogress').length} جاري</span>
+        <span style="color:var(--gn)">✅ ${done.length} منجز</span>
+      </div>
+    </div>
+    ${isManager?`<button class="btn btn-bl" onclick="openAddTask()">+ مهمة جديدة</button>`:''}
+  </div>
+
+  ${open.length===0&&done.length===0
+    ?`<div class="panel" style="text-align:center;padding:50px;color:var(--mt)">
+        <div style="font-size:48px">📋</div>
+        <div style="margin-top:12px;font-size:17px">لا مهام — ${isManager?'اضغط + لإضافة مهمة':'لا مهام معينة لك'}</div>
+      </div>`
+    :`<div style="display:flex;flex-direction:column;gap:8px">
+        ${open.map(t=>renderTaskCard(t,isManager)).join('')}
+        ${done.length?`
+        <div style="font-size:13px;color:var(--mt);margin:10px 0 4px;font-weight:700">✅ المنجزة (${done.length})</div>
+        ${done.slice(0,5).map(t=>renderTaskCard(t,isManager)).join('')}
+        ${done.length>5?`<div style="text-align:center;font-size:13px;color:var(--mt);padding:8px">${done.length-5} مهمة منجزة أخرى</div>`:''}
+        `:''}
+      </div>`
+  }`;
+}
+
+function renderTaskCard(t, isManager){
+  const pri   = t.priority==='high'?{c:'#f85149',ic:'🔴'}:t.priority==='medium'?{c:'#d29922',ic:'🟡'}:{c:'#3fb950',ic:'🟢'};
+  const stMap = {open:{l:'مفتوحة',c:'var(--mt)'},inprogress:{l:'جاري',c:'var(--yl)'},done:{l:'منجزة',c:'var(--gn)'}};
+  const st    = stMap[t.status]||stMap.open;
+  const age   = faultAge({_ts:t._ts,status:t.status==='done'?'resolved':'open'});
+  const overdue = t.dueDate && t.status!=='done' && new Date(t.dueDate)<new Date();
+
+  return `<div class="panel" style="border-right:4px solid ${pri.c};padding:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap">
+          <span>${pri.ic}</span>
+          <span style="font-weight:700;font-size:16px">${esc(t.title)}</span>
+          <span style="font-size:12px;background:${st.c}22;color:${st.c};padding:2px 8px;border-radius:10px">${st.l}</span>
+        </div>
+        ${t.desc?`<div style="font-size:13px;color:var(--mt);margin-bottom:4px">${esc(t.desc)}</div>`:''}
+        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mt)">
+          <span>👤 ${esc(t.assignedTo)}</span>
+          ${t.location?`<span>📍 ${esc(t.location)}</span>`:''}
+          ${t.dueDate?`<span style="color:${overdue?'var(--rd)':'var(--mt)'}">${overdue?'⚠️ ':''} 📅 ${t.dueDate}</span>`:''}
+          ${age&&t.status!=='done'?`<span style="color:${age.color};font-weight:700">${age.urgent?'🔴':'🟡'} ${age.txt}</span>`:''}
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+        ${t.status==='open'&&!isManager?`<button class="btn btn-sm" style="background:#d2992222;color:var(--yl);border:1px solid #d2992244" onclick="updTask('${t.id}','inprogress')">🔧 بدء</button>`:''}
+        ${t.status==='inprogress'?`<button class="btn btn-sm btn-gn" onclick="updTask('${t.id}','done')">✅ إنجاز</button>`:''}
+        ${t.status==='done'?`<button class="btn btn-sm btn-gy" onclick="updTask('${t.id}','open')">↩️ إعادة</button>`:''}
+        ${isManager?`
+        <button class="btn btn-sm btn-gy" onclick="openEditTask('${t.id}')">✏️</button>
+        <button class="btn btn-sm btn-rd" onclick="delTask('${t.id}')">🗑️</button>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function openAddTask(){
+  const users = DB.users.filter(u=>u.active&&u.role!=='manager'&&u.role!=='viewer');
+  const sites = getVisibleFieldSites();
+  openModal(mhd('📋 مهمة جديدة')
+  +`<div class="fg">
+    <div class="s2 field"><label>عنوان المهمة *</label><input id="tk-title" placeholder="مثال: فحص كاميرات موقع الرجيبة"></div>
+    <div class="s2 field"><label>الوصف</label><textarea id="tk-desc" rows="2" placeholder="تفاصيل المهمة..."></textarea></div>
+    <div class="field"><label>تعيين إلى *</label>
+      <select id="tk-assign">
+        <option value="">— اختر —</option>
+        ${users.map(u=>`<option value="${esc(u.name)}|${esc(u.uid||u.id)}">${esc(u.name)} (${ROLES[u.role]||u.role})</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>الموقع</label>
+      <select id="tk-loc">
+        <option value="">— اختياري —</option>
+        ${sites.map(s=>`<option>${esc(s.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>الأولوية</label>
+      <select id="tk-pri">
+        <option value="low">🟢 منخفض</option>
+        <option value="medium" selected>🟡 متوسط</option>
+        <option value="high">🔴 عالي</option>
+      </select>
+    </div>
+    <div class="field"><label>الموعد النهائي</label>
+      <input id="tk-due" type="date">
+    </div>
+  </div>
+  `+mft('💾 إضافة المهمة','saveTask()'));
+}
+
+function saveTask(taskId){
+  const title = val('tk-title');
+  if(!title){ toast('عنوان المهمة مطلوب','err'); return; }
+  const assignRaw = val('tk-assign');
+  const [assignName, assignId] = assignRaw ? assignRaw.split('|') : ['',''];
+  if(!assignName){ toast('يجب تعيين المهمة لشخص','err'); return; }
+
+  const data = {
+    title, desc: val('tk-desc')||'',
+    assignedTo: assignName, assignedToId: assignId||'',
+    location: val('tk-loc')||'',
+    priority: val('tk-pri')||'medium',
+    dueDate: val('tk-due')||'',
+    status: 'open', by: CU.name,
+    _ts: Date.now(), date: ts()
+  };
+
+  if(taskId){
+    fbUpdate('tasks/'+taskId, data);
+    toast('✅ تم تحديث المهمة');
+  } else {
+    data.id = gid();
+    fbSet('tasks/'+data.id, data);
+    // إشعار للمعين
+    pushN('📋 مهمة جديدة: '+title+' — من '+CU.name,'info');
+    toast('✅ تمت إضافة المهمة');
+    logAct('مهمة جديدة', title+' → '+assignName);
+  }
+  closeModal();
+  setTimeout(pgTasks, 300);
+}
+
+function openEditTask(taskId){
+  FBDB.ref('cctv/tasks/'+taskId).once('value').then(snap=>{
+    const t = snap.val(); if(!t) return;
+    const users = DB.users.filter(u=>u.active&&u.role!=='manager'&&u.role!=='viewer');
+    const sites = getVisibleFieldSites();
+    openModal(mhd('✏️ تعديل المهمة')
+    +`<div class="fg">
+      <div class="s2 field"><label>عنوان المهمة *</label><input id="tk-title" value="${esc(t.title)}"></div>
+      <div class="s2 field"><label>الوصف</label><textarea id="tk-desc" rows="2">${esc(t.desc||'')}</textarea></div>
+      <div class="field"><label>تعيين إلى *</label>
+        <select id="tk-assign">
+          ${users.map(u=>`<option value="${esc(u.name)}|${esc(u.uid||u.id)}" ${t.assignedTo===u.name?'selected':''}>${esc(u.name)} (${ROLES[u.role]||u.role})</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>الموقع</label>
+        <select id="tk-loc">
+          <option value="">— اختياري —</option>
+          ${sites.map(s=>`<option ${t.location===s.name?'selected':''}>${esc(s.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>الأولوية</label>
+        <select id="tk-pri">
+          <option value="low" ${t.priority==='low'?'selected':''}>🟢 منخفض</option>
+          <option value="medium" ${t.priority==='medium'?'selected':''}>🟡 متوسط</option>
+          <option value="high" ${t.priority==='high'?'selected':''}>🔴 عالي</option>
+        </select>
+      </div>
+      <div class="field"><label>الموعد النهائي</label>
+        <input id="tk-due" type="date" value="${t.dueDate||''}">
+      </div>
+    </div>
+    `+mft('💾 حفظ التعديل',`saveTask('${taskId}')`));
+  });
+}
+
+function updTask(taskId, status){
+  fbUpdate('tasks/'+taskId,{status, _tsUpdated:Date.now()});
+  if(status==='done') logAct('إنجاز مهمة','');
+  setTimeout(pgTasks,300);
+}
+
+function delTask(taskId){
+  if(!confirm('حذف هذه المهمة؟')) return;
+  fbDel('tasks/'+taskId);
+  setTimeout(pgTasks,300);
+}
+
 // ═══════════════════════════════════════════════════════
 //  🌙 THEME TOGGLE
 // ═══════════════════════════════════════════════════════
@@ -5998,4 +6185,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-</html>
+    </html>
