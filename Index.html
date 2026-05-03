@@ -1268,6 +1268,8 @@ function pgDash(){
     <button class="btn btn-rd" style="flex:1;padding:14px;font-size:17px;border-radius:12px" onclick="doLogout()">🚪 خروج</button>
   </div>
 `;
+
+  setTimeout(renderFaultChart, 300);
 }
 
 function qUpdFault(fid, status){
@@ -1747,7 +1749,10 @@ function pgFaults(){
             ${f.camSN?`<div style="font-size:17px;color:var(--mt);margin-bottom:3px">🔢 ${esc(f.camSN)}</div>`:''}
             <div style="font-size:17px;color:var(--mt);margin-bottom:5px">السبب: ${esc(f.reason)}</div>
             ${f.desc?`<div style="font-size:12px;color:var(--mt);margin-bottom:5px">${esc(f.desc)}</div>`:''}
-            <div style="font-size:11px;color:#555">أُبلغ بواسطة ${esc(f.by)} — ${esc(f.date)}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11px;color:#555">أُبلغ بواسطة ${esc(f.by)} — ${esc(f.date)}</span>
+              ${f.status!=='resolved'?(()=>{const a=faultAge(f);return a?`<span style="font-size:12px;font-weight:700;color:${a.color};background:${a.color}18;padding:2px 8px;border-radius:20px;border:1px solid ${a.color}44">${a.urgent?'🔴':'🟡'} ${a.txt}</span>`:''})():''}
+            </div>
             ${f.resolvedAt?`<div style="font-size:11px;color:var(--gn);margin-top:2px">✅ ${esc(f.resolvedAt)}</div>`:''}
             ${f.log&&f.log.length?`
               <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--br)">
@@ -1791,12 +1796,17 @@ function openAddFault(){
   openModal(`${mhd('🚨 إبلاغ عن عطل في موقع ميداني')}
   <div class="fg">
     <div class="s2 field"><label>الموقع الميداني *</label>
-      <select id="floc">
+      <select id="floc" onchange="onFaultSiteChange()">
         <option value="">— اختر الموقع الميداني —</option>
-        ${visibleSites.map(s=>`<option>${esc(s.name)}</option>`).join('')}
+        ${visibleSites.map(s=>`<option value="${esc(s.id)}" data-name="${esc(s.name)}">${esc(s.name)}</option>`).join('')}
       </select>
     </div>
-    <div class="field"><label>رقم النقطة / الكاميرا *</label><input id="fpt" placeholder="CAM-01"></div>
+    <div class="field"><label>رقم النقطة / الكاميرا *</label>
+      <select id="fpt" onchange="onFaultPointChange()">
+        <option value="">— اختر أو اكتب —</option>
+      </select>
+      <input id="fpt-custom" placeholder="أو اكتب اسم النقطة يدوياً..." style="margin-top:6px">
+    </div>
     <div class="field"><label>الرقم التسلسلي (اختياري)</label><input id="fsn" placeholder="SN-XXXXX"></div>
     <div class="s2 field"><label>سبب العطل *</label><input id="frsn" placeholder="انقطاع الصورة / لا يستجيب..."></div>
     <div class="s2 field"><label>تفاصيل</label><textarea id="fdsc" placeholder="وصف تفصيلي..."></textarea></div>
@@ -1806,8 +1816,60 @@ function openAddFault(){
   ${mft('🚨 إرسال البلاغ','saveFault()','btn-rd')}`);
 }
 
+
+function onFaultSiteChange(){
+  const sel = document.getElementById('floc');
+  const siteId = sel?.value;
+  const ptSel = document.getElementById('fpt');
+  if(!ptSel) return;
+  ptSel.innerHTML = '<option value="">— اختر النقطة/الكاميرا —</option>';
+  if(!siteId) return;
+  const site = DB.fieldSites.find(s=>s.id===siteId);
+  if(!site) return;
+  // أضف الكاميرات
+  if(site.cameras && site.cameras.length){
+    const grp = document.createElement('optgroup');
+    grp.label = '📷 الكاميرات';
+    site.cameras.forEach((c,i)=>{
+      const opt = document.createElement('option');
+      opt.value = c.name||c.serial||('كاميرا '+(i+1));
+      opt.textContent = opt.value + (c.installDesc?' — '+c.installDesc:'');
+      grp.appendChild(opt);
+    });
+    ptSel.appendChild(grp);
+  }
+  // أضف نقاط الجرد من siteInventory
+  const invData = DB.siteInventory && DB.siteInventory[siteId];
+  if(invData){
+    const pts = Object.values(invData);
+    if(pts.length){
+      const grp2 = document.createElement('optgroup');
+      grp2.label = '📌 النقاط';
+      pts.forEach(pt=>{
+        const opt = document.createElement('option');
+        opt.value = pt.name;
+        opt.textContent = pt.name;
+        grp2.appendChild(opt);
+      });
+      ptSel.appendChild(grp2);
+    }
+  }
+  // تحديث اسم الموقع في floc
+  const selOpt = sel.options[sel.selectedIndex];
+  if(selOpt) sel.setAttribute('data-selected-name', selOpt.getAttribute('data-name')||selOpt.text);
+}
+
+function onFaultPointChange(){
+  const ptSel = document.getElementById('fpt');
+  const ptCustom = document.getElementById('fpt-custom');
+  if(ptCustom) ptCustom.style.display = (ptSel?.value===''||!ptSel?.value) ? 'block' : 'none';
+}
+
 function saveFault(){
-  const loc=val('floc'),pt=val('fpt'),rsn=val('frsn');
+  const loc=val('floc');
+  const ptSel=val('fpt'), ptCustom=val('fpt-custom');
+  const pt = ptSel && ptSel!=='' ? ptSel : ptCustom;
+  const rsn=val('frsn');
   if(!loc||!pt||!rsn){ toast('الموقع والنقطة والسبب مطلوبة','err'); return; }
   
   const visibleSiteNames = getVisibleFieldSites().map(s => s.name);
@@ -1817,9 +1879,13 @@ function saveFault(){
   }
   
   // إيجاد الموقع الميداني المرتبط
-  const relatedSite = DB.fieldSites.find(s=>s.name===loc);
+  // استخرج اسم الموقع من الـ select
+  const flocEl = document.getElementById('floc');
+  const locName = flocEl ? (flocEl.options[flocEl.selectedIndex]?.getAttribute('data-name')||loc) : loc;
+  const relatedSite = DB.fieldSites.find(s=>s.id===loc||s.name===loc||s.name===locName);
+  const locFinal = relatedSite?.name || locName || loc;
   fbPush('faults',{
-    location:loc,pointId:pt,camSN:val('fsn'),reason:rsn,
+    location:locFinal,pointId:pt,camSN:val('fsn'),reason:rsn,
     desc:val('fdsc'),priority:val('fpri'),by:CU.name,date:ts(),status:'open',log:[],
     fieldSiteId: relatedSite?.id||null
   });
@@ -3198,6 +3264,53 @@ function onBeamAngleChange(val){
   const v = parseInt(val);
   if(lbl){ lbl.textContent = v + (v===360?' 🔄':'') + '°'; }
   if(window._compassDraw) window._compassDraw();
+}
+
+
+let _faultMarkers = [];
+let _faultsLayerOn = false;
+
+function toggleFaultsLayer(){
+  _faultsLayerOn = !_faultsLayerOn;
+  const btn = document.getElementById('btn-faults-layer');
+  if(btn){
+    btn.style.background = _faultsLayerOn ? '#f8514922' : 'var(--sf)';
+    btn.style.color = _faultsLayerOn ? '#f85149' : 'var(--tx)';
+    btn.style.borderColor = _faultsLayerOn ? '#f8514944' : 'var(--br)';
+  }
+  if(_faultsLayerOn) showFaultsOnMap();
+  else { _faultMarkers.forEach(m=>m.remove()); _faultMarkers=[]; }
+}
+
+function showFaultsOnMap(){
+  if(!_map) return;
+  _faultMarkers.forEach(m=>m.remove()); _faultMarkers=[];
+  const activeFaults = getVisibleFaults().filter(f=>f.status!=='resolved');
+  activeFaults.forEach(f=>{
+    // ابحث عن إحداثيات الكاميرا المرتبطة
+    const site = DB.fieldSites.find(s=>s.id===f.fieldSiteId||s.name===f.location);
+    if(!site) return;
+    const cam = site.cameras?.find(c=>c.name===f.pointId||c.serial===f.camSN);
+    const lat = cam?.lat ? parseFloat(cam.lat) : null;
+    const lng = cam?.lng ? parseFloat(cam.lng) : null;
+    if(!lat||!lng||isNaN(lat)||isNaN(lng)) return;
+    const pri = f.priority==='high'?'#f85149':f.priority==='medium'?'#d29922':'#58a6ff';
+    const icon = L.divIcon({
+      html:`<div onclick="go('faults')" style="width:22px;height:22px;background:${pri};border:3px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:pointer;animation:pulse 1.5s infinite"></div>`,
+      className:'', iconSize:[22,22], iconAnchor:[11,11]
+    });
+    const m = L.marker([lat,lng],{icon,zIndexOffset:900})
+      .addTo(_map)
+      .bindPopup(`<div style="font-family:inherit;min-width:160px">
+        <div style="font-weight:700;color:${pri};margin-bottom:4px">${f.priority==='high'?'🔴 عاجل':'🟡 متوسط'}</div>
+        <div style="font-weight:700">${esc(f.location)}</div>
+        <div style="font-size:12px;color:#666">${esc(f.pointId)}</div>
+        <div style="font-size:12px;margin-top:4px">${esc(f.reason)}</div>
+      </div>`);
+    _faultMarkers.push(m);
+  });
+  if(_faultMarkers.length===0) toast('لا أعطال نشطة لها إحداثيات','warn');
+  else toast('🔴 '+_faultMarkers.length+' عطل على الخريطة');
 }
 
 function initCompass(){
@@ -5110,6 +5223,7 @@ function openAppMenu(){
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
     {id:'siteinv',   ic:'📦', lb:'جرد الموجودات الثابتة', perm:'fieldmap'},
+    {id:'tasks',     ic:'📋', lb:'مهامي',                  perm:'faults'},
     {id:'branding',  ic:'🎨', lb:'تخصيص الشركة',       perm:'users'},
   ].filter(x=>x.perm===null ? true : p(x.perm));
 
@@ -5532,6 +5646,133 @@ function exportSiteInventory(siteId, siteName){
     a.click(); URL.revokeObjectURL(url);
     toast('✅ تم التصدير');
   });
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  ⏱️ مؤقت الأعطال
+// ═══════════════════════════════════════════════════════
+function faultAge(f){
+  if(!f._ts) return '';
+  const ms = Date.now() - f._ts;
+  const h  = Math.floor(ms / 3600000);
+  const m  = Math.floor((ms % 3600000) / 60000);
+  if(h >= 72) return { txt: Math.floor(h/24)+'ي', color:'#f85149', urgent:true };
+  if(h >= 24) return { txt: h+'س', color:'#f85149', urgent:true };
+  if(h >= 1)  return { txt: h+'س '+m+'د', color:'#d29922', urgent:false };
+  return { txt: m+'د', color:'var(--gn)', urgent:false };
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  📋 قائمة مهام الفني
+// ═══════════════════════════════════════════════════════
+function pgMyTasks(){
+  const myFaults = getVisibleFaults().filter(f=>
+    f.status!=='resolved' && (
+      f.assignedTo===CU.name ||
+      f.by===CU.name ||
+      CU.role==='manager' ||
+      CU.role==='engineer'
+    )
+  ).sort((a,b)=>{
+    const pri = {high:0,medium:1,low:2};
+    return (pri[a.priority]||1)-(pri[b.priority]||1);
+  });
+
+  const done  = getVisibleFaults().filter(f=>f.status==='resolved'&&f.resolvedBy===CU.name);
+  const today = new Date().toDateString();
+  const todayDone = done.filter(f=>f._tsResolved && new Date(f._tsResolved).toDateString()===today);
+
+  $('page').innerHTML = `
+  <div class="ph">
+    <div>
+      <div class="pt">📋 مهامي</div>
+      <div class="ps" style="display:flex;gap:12px;margin-top:4px">
+        <span style="color:var(--rd)">🔴 ${myFaults.filter(f=>f.priority==='high').length} عاجل</span>
+        <span style="color:var(--yl)">🟡 ${myFaults.filter(f=>f.status==='inprogress').length} جاري</span>
+        <span style="color:var(--gn)">✅ ${todayDone.length} أنجزت اليوم</span>
+      </div>
+    </div>
+  </div>
+
+  ${myFaults.length===0
+    ? `<div class="panel" style="text-align:center;padding:50px;color:var(--mt)">
+        <div style="font-size:48px">✅</div>
+        <div style="margin-top:12px;font-size:17px">لا مهام معلقة — أحسنت!</div>
+       </div>`
+    : myFaults.map(f=>{
+        const age = faultAge(f);
+        const pri = f.priority==='high'?'🔴':f.priority==='medium'?'🟡':'🟢';
+        const st  = FAULT_ST.find(x=>x.k===f.status)||FAULT_ST[0];
+        const ri  = DB.faults.indexOf(f);
+        return `<div class="panel" style="margin-bottom:10px;border-right:4px solid ${st.c}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div style="flex:1">
+              <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+                <span>${pri}</span>
+                <span style="font-weight:700;font-size:16px">${esc(f.location)}</span>
+                <span style="font-size:13px;color:var(--mt)">— ${esc(f.pointId)}</span>
+              </div>
+              <div style="font-size:14px;color:var(--mt);margin-bottom:4px">${esc(f.reason)}</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <span style="font-size:12px;background:${st.c}22;color:${st.c};padding:2px 8px;border-radius:10px">${st.ico} ${st.l}</span>
+                ${age?`<span style="font-size:12px;color:${age.color};font-weight:700">${age.urgent?'🔴':'🟡'} ${age.txt}</span>`:''}
+              </div>
+            </div>
+            ${p('updFault')&&canAccessFault(f)?`
+            <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+              ${f.status==='open'?`<button class="btn btn-sm" style="background:#d2992222;color:var(--yl);border:1px solid #d2992244" onclick="doUpdFault(${ri},'inprogress')">🔧 بدء</button>`:''}
+              ${f.status==='inprogress'?`<button class="btn btn-sm btn-gn" onclick="doUpdFault(${ri},'resolved')">✅ إنهاء</button>`:''}
+            </div>`:''}
+          </div>
+        </div>`;
+      }).join('')
+  }`;
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  📊 رسم بياني للأعطال
+// ═══════════════════════════════════════════════════════
+function renderFaultChart(){
+  const el = document.getElementById('fault-chart');
+  if(!el) return;
+  // آخر 6 أشهر
+  const months = [];
+  for(let i=5;i>=0;i--){
+    const d = new Date(); d.setMonth(d.getMonth()-i);
+    months.push({ y:d.getFullYear(), m:d.getMonth(),
+      label: d.toLocaleDateString('ar-IQ',{month:'short'}) });
+  }
+  const counts = months.map(mo=>
+    DB.faults.filter(f=>{
+      const d = f._ts ? new Date(f._ts) : null;
+      return d && d.getFullYear()===mo.y && d.getMonth()===mo.m;
+    }).length
+  );
+  const resolved = months.map(mo=>
+    DB.faults.filter(f=>{
+      const d = f._tsResolved ? new Date(f._tsResolved) : null;
+      return d && d.getFullYear()===mo.y && d.getMonth()===mo.m;
+    }).length
+  );
+  const max = Math.max(...counts, ...resolved, 1);
+  el.innerHTML = `
+  <div style="font-size:13px;font-weight:700;color:var(--tx);margin-bottom:10px">📊 الأعطال — آخر 6 أشهر</div>
+  <div style="display:flex;align-items:flex-end;gap:8px;height:80px">
+    ${months.map((mo,i)=>`
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+      <div style="font-size:10px;color:var(--mt)">${counts[i]||''}</div>
+      <div style="width:100%;background:#f8514966;border-radius:4px 4px 0 0;height:${Math.round((counts[i]/max)*64)+4}px;min-height:4px"></div>
+      <div style="width:100%;background:#3fb95066;border-radius:4px 4px 0 0;height:${Math.round((resolved[i]/max)*64)+4}px;min-height:4px;margin-top:2px"></div>
+      <div style="font-size:10px;color:var(--mt)">${mo.label}</div>
+    </div>`).join('')}
+  </div>
+  <div style="display:flex;gap:12px;margin-top:8px;font-size:11px">
+    <span><span style="display:inline-block;width:10px;height:10px;background:#f8514966;border-radius:2px;margin-left:4px"></span>مُبلَّغ</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#3fb95066;border-radius:2px;margin-left:4px"></span>محلول</span>
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════════
