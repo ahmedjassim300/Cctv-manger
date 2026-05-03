@@ -5901,11 +5901,11 @@ function saveTask(taskId){
   };
 
   if(taskId){
-    fbUpdate('tasks/'+taskId, data);
+    fbUpdate('cctv/tasks/'+taskId, data);
     toast('✅ تم تحديث المهمة');
   } else {
     data.id = gid();
-    fbSet('tasks/'+data.id, data);
+    fbSet('cctv/tasks/'+data.id, data);
     // إشعار للمعين
     pushN('📋 مهمة جديدة: '+title+' — من '+CU.name,'info');
     toast('✅ تمت إضافة المهمة');
@@ -5951,14 +5951,14 @@ function openEditTask(taskId){
 }
 
 function updTask(taskId, status){
-  fbUpdate('tasks/'+taskId,{status, _tsUpdated:Date.now()});
+  fbUpdate('cctv/tasks/'+taskId,{status, _tsUpdated:Date.now()});
   if(status==='done') logAct('إنجاز مهمة','');
   setTimeout(pgTasks,300);
 }
 
 function delTask(taskId){
   if(!confirm('حذف هذه المهمة؟')) return;
-  fbDel('tasks/'+taskId);
+  fbDel('cctv/tasks/'+taskId);
   setTimeout(pgTasks,300);
 }
 
@@ -6185,4 +6185,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-    </html>
+</html>
