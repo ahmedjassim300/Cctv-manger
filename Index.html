@@ -1118,7 +1118,7 @@ function go(page){
     notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
     search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
     performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-    branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory})[page]?.();
+    branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks})[page]?.();
 }
 
 // ============================================
@@ -5785,6 +5785,7 @@ function pgTasks(){
   const isManager = CU.role==='manager'||CU.role==='engineer';
   $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⏳ جار التحميل...</div>';
   FBDB.ref('cctv/tasks').once('value').then(snap=>{
+    console.log('tasks snap exists:', snap.exists(), 'val:', JSON.stringify(snap.val()));
     DB.tasks = snap.val() ? Object.values(snap.val()).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     const allTasks = DB.tasks;
     const myTasks  = isManager ? allTasks : allTasks.filter(t=>t.assignedTo===CU.name||(t.assignedToId&&t.assignedToId===(CU.uid||CU.id)));
@@ -6191,4 +6192,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-</html>
+    </html>
