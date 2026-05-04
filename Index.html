@@ -1043,6 +1043,8 @@ function fbStartSync(){
     DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
     DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.siteInventory = data.siteInventory || {};
+    // تحديث صفحة المهام إذا كانت مفتوحة
+    if(PAGE==='tasks') pgTasks();
 
     // تحديث المستخدم الحالي إذا تغيرت بياناته
     if(CU && data.users && data.users[CU.uid]){
