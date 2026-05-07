@@ -2484,11 +2484,12 @@ let _mapLayer='osm';
 let _customMapUrl='';
 
 const MAP_LAYERS = {
-  osm:       {label:'🗺️ جغرافية',    url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr:'© OpenStreetMap'},
-  satellite: {label:'🛰️ ستلايت',    url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri'},
-  hybrid:    {label:'🌍 هايبرد',     url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri', labels:true},
-  custom:    {label:'🖼️ صورة مخصصة', url:null},
+  osm:       {label:'🗺️ Google Maps',       url:'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', attr:'© Google Maps'},
+  satellite: {label:'🛰️ Google Satellite',  url:'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', attr:'© Google'},
+  hybrid:    {label:'🌍 Google Hybrid',     url:'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', attr:'© Google'},
+  custom:    {label:'🖼️ صورة مخصصة',         url:null},
 };
+
 
 function pgFieldMap(){
   const visibleSites = getVisibleFieldSites();
