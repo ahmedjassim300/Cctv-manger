@@ -2548,7 +2548,20 @@ function pgFieldMap(){
         title="موقعي الحالي">📍 موقعي</button>
       <button id="btn-measure" onclick="toggleMeasure()"
         style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
-        title="قياس المسافة">📏 قياس المسافة</button>
+        title="قياس المسافة">📏 قياس</button>
+      <button id="btn-faults-layer" onclick="toggleFaultsLayer()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="طبقة الأعطال">🔴 الأعطال</button>
+      <button id="btn-traffic" onclick="toggleTrafficLayer()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="حركة المرور">🚦 المرور</button>
+      <button onclick="startDrawBoundary()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="رسم حدود">📐 حدود</button>
+      <button onclick="document.getElementById('kml-import-file').click()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="استيراد KML">📂 KML</button>
+      <input type="file" id="kml-import-file" accept=".kml,.kmz" style="display:none" onchange="importKML(this)">
       <span id="measure-total" style="font-size:13px;color:#ff6b00;font-weight:700;display:none"></span>
     </div>
     <div id="fld-map" style="height:490px;border-radius:10px;border:1px solid var(--br);margin-bottom:16px;z-index:1;position:relative;"></div>
@@ -3483,28 +3496,43 @@ function importKML(input){
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
-  // استخدام html2canvas إذا متاح، وإلا رسالة
   toast('💾 جار التصدير...','warn');
-  try{
-    const container = _map.getContainer();
-    const link = document.createElement('a');
-    // بديل بسيط — نفتح الخريطة في نافذة طباعة
-    const printWin = window.open('','_blank');
-    const center = _map.getCenter();
-    const zoom = _map.getZoom();
-    const layer = _mapLayer==='satellite'?'s':_mapLayer==='hybrid'?'y':_mapLayer==='gmap'?'m':'m';
-    const imgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat},${center.lng}&zoom=${zoom}&size=1024x768&maptype=${_mapLayer==='satellite'?'satellite':'roadmap'}&key=`;
-    printWin.document.write(`<!DOCTYPE html><html><head><title>خريطة CCTV</title></head>
-    <body style="margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh">
-    <div style="text-align:center;color:#fff;font-family:Arial">
-      <h2 style="margin-bottom:20px">🗺️ خريطة المواقع الميدانية</h2>
-      <p>الإحداثيات: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}</p>
-      <p>مستوى التكبير: ${zoom}</p>
-      <p style="color:#888;font-size:12px">لتصدير صورة دقيقة استخدم Print Screen أو Screenshot</p>
-      <button onclick="window.print()" style="background:#3fb950;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer;margin-top:16px">🖨️ طباعة</button>
-    </div></body></html>`);
-    printWin.document.close();
-  }catch(e){ toast('خطأ في التصدير','err'); }
+
+  // نستخدم html2canvas لالتقاط الخريطة
+  const mapEl = _map.getContainer();
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+  script.onload = () => {
+    html2canvas(mapEl, {
+      useCORS: true,
+      allowTaint: true,
+      scale: 2,
+      logging: false
+    }).then(canvas => {
+      const link = document.createElement('a');
+      link.download = 'خريطة_CCTV_' + new Date().toLocaleDateString('ar-IQ').replace(/\/|\\/g,'-') + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      toast('✅ تم تصدير الخريطة');
+    }).catch(()=>{
+      // بديل — screenshot عبر طباعة
+      window.print();
+    });
+  };
+  script.onerror = () => { window.print(); };
+  if(!document.querySelector('script[src*="html2canvas"]')){
+    document.head.appendChild(script);
+  } else {
+    if(window.html2canvas){
+      html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2}).then(canvas=>{
+        const link=document.createElement('a');
+        link.download='خريطة_CCTV.png';
+        link.href=canvas.toDataURL('image/png');
+        link.click();
+        toast('✅ تم تصدير الخريطة');
+      });
+    }
+  }
 }
 
 // ── تحميل الحدود عند فتح الخريطة ──
