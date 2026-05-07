@@ -2484,12 +2484,12 @@ let _mapLayer='osm';
 let _customMapUrl='';
 
 const MAP_LAYERS = {
-  osm:       {label:'🗺️ Google Maps',       url:'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', attr:'© Google Maps'},
-  satellite: {label:'🛰️ Google Satellite',  url:'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', attr:'© Google'},
-  hybrid:    {label:'🌍 Google Hybrid',     url:'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', attr:'© Google'},
-  custom:    {label:'🖼️ صورة مخصصة',         url:null},
+  osm:       {label:'🗺️ جغرافية',    url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr:'© OpenStreetMap'},
+  satellite: {label:'🛰️ ستلايت',    url:'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', attr:'© Google'},
+  hybrid:    {label:'🌍 هايبرد',     url:'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', attr:'© Google', labels:true},
+  gmap:      {label:'🗺️ گوگل ماب',   url:'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', attr:'© Google'},
+  custom:    {label:'🖼️ صورة مخصصة', url:null},
 };
-
 
 function pgFieldMap(){
   const visibleSites = getVisibleFieldSites();
@@ -2904,17 +2904,31 @@ function initFieldMap(){
 
   _map=L.map('fld-map',{maxZoom:22}).setView([cLat,cLng],allCams.length?18:7);
 
+  const _googleTiles = {
+    satellite: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    hybrid:    'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    gmap:      'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    geo:       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+  };
+
   if(_mapLayer==='custom'&&_customMapUrl){
     const bounds=[[cLat-0.02,cLng-0.03],[cLat+0.02,cLng+0.03]];
     L.imageOverlay(_customMapUrl,bounds,{opacity:1,interactive:false}).addTo(_map);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{opacity:0.15,attribution:'© OSM'}).addTo(_map);
+    L.tileLayer(_googleTiles.geo,{opacity:0.15,attribution:'© OSM'}).addTo(_map);
   } else if(_mapLayer==='hybrid'){
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:22,maxNativeZoom:19}).addTo(_map);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{opacity:0.4,attribution:'© OSM'}).addTo(_map);
+    L.tileLayer(_googleTiles.hybrid,{attribution:'© Google',maxZoom:22,maxNativeZoom:21}).addTo(_map);
   } else if(_mapLayer==='satellite'){
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri World Imagery',maxZoom:22,maxNativeZoom:19}).addTo(_map);
+    L.tileLayer(_googleTiles.satellite,{attribution:'© Google',maxZoom:22,maxNativeZoom:21}).addTo(_map);
+  } else if(_mapLayer==='gmap'){
+    L.tileLayer(_googleTiles.gmap,{attribution:'© Google',maxZoom:22,maxNativeZoom:21}).addTo(_map);
   } else {
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(_map);
+    L.tileLayer(_googleTiles.geo,{attribution:'© OpenStreetMap',maxZoom:19}).addTo(_map);
+  }
+
+  // ══ طبقة حركة المرور ══
+  if(window._trafficLayer){
+    L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
+      {attribution:'© Google Traffic',maxZoom:22,maxNativeZoom:21,opacity:0.7}).addTo(_map);
   }
 
   allCams.forEach(c=>{
@@ -3002,6 +3016,19 @@ function initFieldMap(){
 
   // ══ 4. موقعي الحالي ══
   addMyLocationToMap();
+  // ══ تحميل الحدود المحفوظة ══
+  loadBoundaries();
+  // ══ listener لرسم الحدود ══
+  _map.on('click', e=>{
+    if(!_drawingBoundary) return;
+    _boundaryPoints.push([e.latlng.lat, e.latlng.lng]);
+    const dot = L.circleMarker(e.latlng,{radius:5,color:'#f85149',fillColor:'#f85149',fillOpacity:1}).addTo(_map);
+    _boundaryMarkers.push(dot);
+    if(_boundaryLine){ _boundaryLine.remove(); }
+    if(_boundaryPoints.length>1){
+      _boundaryLine = L.polyline(_boundaryPoints,{color:'#f85149',weight:2,dashArray:'6,4'}).addTo(_map);
+    }
+  });
 
   // ══ 6. قياس المسافة ══
   addDistanceMeasureTool();
@@ -3271,6 +3298,216 @@ function onBeamAngleChange(val){
   if(window._compassDraw) window._compassDraw();
 }
 
+
+
+// ═══════════════════════════════════════════════════════
+//  🗺️ ميزات الخريطة المتقدمة
+// ═══════════════════════════════════════════════════════
+
+// ── طبقة حركة المرور ──
+let _trafficTileLayer = null;
+function toggleTrafficLayer(){
+  const btn = document.getElementById('btn-traffic');
+  if(_trafficTileLayer){
+    _trafficTileLayer.remove(); _trafficTileLayer=null;
+    if(btn){ btn.style.background='var(--sf)'; btn.style.color='var(--tx)'; btn.style.borderColor='var(--br)'; }
+  } else {
+    if(!_map) return;
+    _trafficTileLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
+      {attribution:'© Google',maxZoom:22,maxNativeZoom:21,opacity:0.8}).addTo(_map);
+    if(btn){ btn.style.background='#f8514922'; btn.style.color='#f85149'; btn.style.borderColor='#f8514944'; }
+    toast('🚦 طبقة المرور مفعّلة');
+  }
+}
+
+// ── رسم الحدود ──
+let _boundaryPoints  = [];
+let _boundaryMarkers = [];
+let _boundaryLine    = null;
+let _boundaryPolygon = null;
+let _drawingBoundary = false;
+let _savedBoundaries = [];
+
+function startDrawBoundary(){
+  if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
+  if(CU.role!=='manager'){ toast('صلاحية المدير فقط','err'); return; }
+  _drawingBoundary = true;
+  _boundaryPoints = []; _boundaryMarkers = [];
+  if(_boundaryLine){ _boundaryLine.remove(); _boundaryLine=null; }
+  _map.getContainer().style.cursor = 'crosshair';
+  toast('📐 انقر على الخريطة لتحديد نقاط الحدود — اضغط "حفظ الحدود" عند الانتهاء');
+
+  // إضافة زر حفظ مؤقت
+  const existing = document.getElementById('boundary-save-btn');
+  if(existing) existing.remove();
+  const btn = document.createElement('button');
+  btn.id = 'boundary-save-btn';
+  btn.innerHTML = '💾 حفظ الحدود';
+  btn.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#3fb950;color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:16px;font-family:inherit;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  btn.onclick = saveBoundary;
+  document.body.appendChild(btn);
+}
+
+function saveBoundary(){
+  _drawingBoundary = false;
+  _map.getContainer().style.cursor = '';
+  const btn = document.getElementById('boundary-save-btn');
+  if(btn) btn.remove();
+
+  if(_boundaryPoints.length < 3){ toast('يجب تحديد 3 نقاط على الأقل','err'); clearBoundaryDraw(); return; }
+
+  openModal(mhd('📐 حفظ الحدود')
+    +'<div class="field"><label>اسم الحدود</label><input id="boundary-name" placeholder="مثال: منطقة العمليات، حدود المشروع..."></div>'
+    +'<div class="field"><label>اللون</label><div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +['#f85149','#3fb950','#58a6ff','#d29922','#bc8cff','#ff7b00'].map(c=>
+      `<div onclick="this.parentElement.querySelectorAll('div').forEach(d=>d.style.outline='');this.style.outline='3px solid #fff';document.getElementById('bnd-color').value='${c}'"
+        style="width:30px;height:30px;background:${c};border-radius:6px;cursor:pointer;border:2px solid rgba(255,255,255,.3)"></div>`
+    ).join('')
+    +'<input type="hidden" id="bnd-color" value="#f85149">'
+    +'</div></div>'
+    +mft('💾 حفظ','doSaveBoundary()'));
+}
+
+function doSaveBoundary(){
+  const name  = val('boundary-name')||'حدود '+new Date().toLocaleDateString('ar-IQ');
+  const color = document.getElementById('bnd-color')?.value||'#f85149';
+  const id    = gid();
+  const data  = { id, name, color, points: _boundaryPoints, by: CU.name, date: ts(), _ts: Date.now() };
+  fbSet('boundaries/'+id, data);
+  closeModal();
+  clearBoundaryDraw();
+  loadBoundaries();
+  toast('✅ تم حفظ الحدود: '+name);
+  logAct('حدود جديدة', name);
+}
+
+function clearBoundaryDraw(){
+  _boundaryMarkers.forEach(m=>m.remove()); _boundaryMarkers=[];
+  if(_boundaryLine){ _boundaryLine.remove(); _boundaryLine=null; }
+  _boundaryPoints=[];
+}
+
+function loadBoundaries(){
+  if(!_map) return;
+  // احذف الحدود القديمة من الخريطة
+  if(window._boundaryLayers){ window._boundaryLayers.forEach(l=>l.remove()); }
+  window._boundaryLayers = [];
+
+  FBDB.ref('cctv/boundaries').once('value').then(snap=>{
+    if(!snap.val()) return;
+    Object.values(snap.val()).forEach(b=>{
+      if(!b.points||b.points.length<3) return;
+      const poly = L.polygon(b.points,{
+        color:b.color||'#f85149', fillColor:b.color||'#f85149',
+        fillOpacity:0.1, weight:2.5
+      }).addTo(_map)
+        .bindPopup(`<div style="font-family:inherit">
+          <div style="font-weight:700;margin-bottom:4px">${esc(b.name)}</div>
+          <div style="font-size:12px;color:#666">بواسطة: ${esc(b.by||'')} — ${esc(b.date||'')}</div>
+          ${CU.role==='manager'?`<div style="display:flex;gap:6px;margin-top:8px">
+            <button onclick="deleteBoundary('${b.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit">🗑️ حذف</button>
+          </div>`:''}
+        </div>`);
+      window._boundaryLayers.push(poly);
+    });
+  });
+}
+
+function deleteBoundary(id){
+  if(!confirm('حذف هذه الحدود؟')) return;
+  fbDel('boundaries/'+id);
+  loadBoundaries();
+  toast('تم الحذف');
+}
+
+// ── استيراد KML ──
+function importKML(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const parser = new DOMParser();
+      const kml = parser.parseFromString(e.target.result, 'text/xml');
+      const placemarks = kml.querySelectorAll('Placemark');
+      if(!placemarks.length){ toast('لا بيانات في الملف','err'); return; }
+
+      let added=0;
+      placemarks.forEach(pm=>{
+        const name = pm.querySelector('name')?.textContent||'نقطة';
+        // نقاط Point
+        const coord = pm.querySelector('Point coordinates')?.textContent?.trim();
+        if(coord){
+          const [lng,lat] = coord.split(',').map(Number);
+          if(!isNaN(lat)&&!isNaN(lng)){
+            const icon = L.divIcon({
+              html:`<div style="background:#bc8cff;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 2px 4px rgba(0,0,0,.4)"></div>`,
+              className:'', iconSize:[14,14], iconAnchor:[7,7]
+            });
+            L.marker([lat,lng],{icon}).addTo(_map)
+              .bindPopup(`<div style="font-family:inherit"><b>${esc(name)}</b></div>`);
+            added++;
+          }
+        }
+        // خطوط LineString
+        const lineCoords = pm.querySelector('LineString coordinates')?.textContent?.trim();
+        if(lineCoords){
+          const pts = lineCoords.split(/\s+/).map(c=>{ const[lg,lt]=c.split(',').map(Number); return [lt,lg]; }).filter(p=>!isNaN(p[0]));
+          if(pts.length>1){
+            L.polyline(pts,{color:'#bc8cff',weight:2.5}).addTo(_map)
+              .bindPopup(`<b>${esc(name)}</b>`);
+            added++;
+          }
+        }
+        // مضلعات Polygon
+        const polyCoords = pm.querySelector('Polygon outerBoundaryIs coordinates')?.textContent?.trim()
+          || pm.querySelector('Polygon coordinates')?.textContent?.trim();
+        if(polyCoords){
+          const pts = polyCoords.split(/\s+/).map(c=>{ const[lg,lt]=c.split(',').map(Number); return [lt,lg]; }).filter(p=>!isNaN(p[0]));
+          if(pts.length>2){
+            L.polygon(pts,{color:'#bc8cff',fillColor:'#bc8cff',fillOpacity:0.1,weight:2}).addTo(_map)
+              .bindPopup(`<b>${esc(name)}</b>`);
+            added++;
+          }
+        }
+      });
+      toast('✅ تم استيراد '+added+' عنصر من KML');
+    }catch(err){
+      toast('❌ خطأ في قراءة الملف: '+err.message,'err');
+    }
+  };
+  reader.readAsText(file);
+  input.value='';
+}
+
+// ── تصدير الخريطة كصورة ──
+function exportMapImage(){
+  if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
+  // استخدام html2canvas إذا متاح، وإلا رسالة
+  toast('💾 جار التصدير...','warn');
+  try{
+    const container = _map.getContainer();
+    const link = document.createElement('a');
+    // بديل بسيط — نفتح الخريطة في نافذة طباعة
+    const printWin = window.open('','_blank');
+    const center = _map.getCenter();
+    const zoom = _map.getZoom();
+    const layer = _mapLayer==='satellite'?'s':_mapLayer==='hybrid'?'y':_mapLayer==='gmap'?'m':'m';
+    const imgUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat},${center.lng}&zoom=${zoom}&size=1024x768&maptype=${_mapLayer==='satellite'?'satellite':'roadmap'}&key=`;
+    printWin.document.write(`<!DOCTYPE html><html><head><title>خريطة CCTV</title></head>
+    <body style="margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh">
+    <div style="text-align:center;color:#fff;font-family:Arial">
+      <h2 style="margin-bottom:20px">🗺️ خريطة المواقع الميدانية</h2>
+      <p>الإحداثيات: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}</p>
+      <p>مستوى التكبير: ${zoom}</p>
+      <p style="color:#888;font-size:12px">لتصدير صورة دقيقة استخدم Print Screen أو Screenshot</p>
+      <button onclick="window.print()" style="background:#3fb950;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer;margin-top:16px">🖨️ طباعة</button>
+    </div></body></html>`);
+    printWin.document.close();
+  }catch(e){ toast('خطأ في التصدير','err'); }
+}
+
+// ── تحميل الحدود عند فتح الخريطة ──
 
 let _faultMarkers = [];
 let _faultsLayerOn = false;
@@ -6191,4 +6428,4 @@ function localNotif(title, body){
 }
 </script>
 </body>
-    </html>
+</html>
