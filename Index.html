@@ -3517,51 +3517,54 @@ function importKML(input){
 function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
 
-  // الطريقة: Screen Capture API
-  if(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia){
-    toast('📸 اختر نافذة التطبيق للتصوير...','warn');
-    navigator.mediaDevices.getDisplayMedia({
-      video:{ mediaSource:'screen', displaySurface:'browser' },
-      audio:false
-    }).then(stream=>{
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.onloadedmetadata = ()=>{
-        video.play();
-        setTimeout(()=>{
-          const canvas = document.createElement('canvas');
-          canvas.width  = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(video, 0, 0);
-          stream.getTracks().forEach(t=>t.stop());
+  const center  = _map.getCenter();
+  const zoom    = Math.min(_map.getZoom(), 20);
+  const mapType = (_mapLayer==='satellite'||_mapLayer==='hybrid') ? 'satellite' : 'roadmap';
+  const size    = '640x640';
 
-          // اقتصص منطقة الخريطة فقط
-          const mapEl = _map.getContainer();
-          const rect  = mapEl.getBoundingClientRect();
-          const dpr   = window.devicePixelRatio||1;
-          const sx = rect.left * dpr;
-          const sy = rect.top  * dpr;
-          const sw = rect.width  * dpr;
-          const sh = rect.height * dpr;
-
-          const cropCanvas = document.createElement('canvas');
-          cropCanvas.width  = sw;
-          cropCanvas.height = sh;
-          cropCanvas.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
-
-          // ارسم الكاميرات
-          drawCamerasOnCanvas(cropCanvas);
-        }, 300);
-      };
-    }).catch(err=>{
-      if(err.name==='NotAllowedError') toast('تم الرفض — جرب Screenshot يدوي','warn');
-      else toast('❌ '+err.message,'err');
+  // بناء markers للكاميرات
+  let markers = '';
+  if(window._markers && _markers.length){
+    _markers.slice(0,50).forEach(m=>{
+      const ll = m.marker.getLatLng();
+      const c  = m.cam;
+      const color = c.status==='active'?'green':c.status==='maintenance'?'yellow':'blue';
+      const label = encodeURIComponent((c.name||'C').charAt(0).toUpperCase());
+      markers += `&markers=color:${color}|label:${label}|${ll.lat.toFixed(6)},${ll.lng.toFixed(6)}`;
     });
-  } else {
-    // بديل — فتح نافذة طباعة مع الخريطة
-    doLeafletImageExport();
   }
+
+  // Google Static Maps URL — يعمل بدون API key للاستخدام المحدود
+  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat},${center.lng}&zoom=${zoom}&size=${size}&maptype=${mapType}&scale=2${markers}`;
+
+  // افتح الصورة في نافذة جديدة للحفظ
+  const win = window.open('','_blank','width=700,height=750');
+  const site = typeof _FSITE!=='undefined'&&_FSITE ? (DB.fieldSites.find(s=>s.id===_FSITE)?.name||'') : '';
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head>
+    <meta charset="UTF-8">
+    <title>خريطة ${site}</title>
+    <style>body{margin:0;background:#0d1117;color:#fff;font-family:Arial;text-align:center;padding:16px}
+    img{max-width:100%;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+    h3{margin:0 0 12px}p{color:#888;font-size:13px;margin:8px 0}
+    button{background:#3fb950;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:15px;cursor:pointer;margin-top:12px}</style>
+  </head><body>
+    <h3>🗺️ ${site||'خريطة CCTV'}</h3>
+    <img src="${url}" crossorigin="anonymous" id="map-img"
+      onerror="document.getElementById('err').style.display='block';this.style.display='none'">
+    <div id="err" style="display:none;color:#f85149;padding:20px">
+      ❌ تعذّر تحميل الصورة — Google Static Maps يحتاج API Key<br>
+      <a href="${url}" target="_blank" style="color:#58a6ff">افتح الرابط مباشرة</a>
+    </div>
+    <p>${new Date().toLocaleString('ar-IQ')}</p>
+    <button onclick="
+      const a=document.createElement('a');
+      a.href=document.getElementById('map-img').src;
+      a.download='خريطة_${site||'CCTV'}.png';
+      a.click()">💾 حفظ الصورة</button>
+    <button onclick="window.print()" style="background:#58a6ff;margin-right:8px">🖨️ طباعة</button>
+  </body></html>`);
+  win.document.close();
+  toast('✅ تم فتح الخريطة في نافذة جديدة');
 }
 
 function doLeafletImageExport(){
