@@ -562,6 +562,7 @@ function fbDel(path){ return FBDB.ref('cctv/'+path).remove(); }
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.L=null;console.warn('Leaflet failed to load - map disabled')"></script>
+<script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
 <script>
 // ============================================
 // الكود مع إضافة نظام الصلاحيات لكل موقع
@@ -3515,73 +3516,29 @@ function importKML(input){
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
-  toast('📸 جار التقاط الخريطة...','warn');
-
-  // الطريقة 1: استخدام getCanvas من Leaflet مباشرة
-  try{
-    const mapContainer = _map.getContainer();
-    const canvas = document.createElement('canvas');
-    const size = _map.getSize();
-    canvas.width  = size.x * 2;
-    canvas.height = size.y * 2;
-    const ctx = canvas.getContext('2d');
-
-    // ارسم خلفية
-    ctx.fillStyle = '#1a2332';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    // اجمع كل tile canvases
-    const tiles = mapContainer.querySelectorAll('.leaflet-tile-pane canvas, .leaflet-tile-pane img.leaflet-tile');
-    let loaded = 0;
-    const total = tiles.length;
-
-    if(total === 0){
-      // لا tiles — التقط عبر طريقة بديلة
-      captureMapFallback();
-      return;
-    }
-
-    tiles.forEach(tile=>{
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        const rect = tile.getBoundingClientRect();
-        const mapRect = mapContainer.getBoundingClientRect();
-        const x = (rect.left - mapRect.left) * 2;
-        const y = (rect.top  - mapRect.top)  * 2;
-        try{ ctx.drawImage(img, x, y, rect.width*2, rect.height*2); }catch(e){}
-        loaded++;
-        if(loaded >= total) finishExport(canvas);
-      };
-      img.onerror = () => { loaded++; if(loaded>=total) finishExport(canvas); };
-      img.src = tile.src || tile.toDataURL?.();
-    });
-
-    // timeout احتياطي
-    setTimeout(()=>{ if(loaded<total) finishExport(canvas); }, 3000);
-
-  } catch(e){
-    captureMapFallback();
+  if(typeof leafletImage === 'undefined'){
+    toast('⏳ جار التحميل...','warn');
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js';
+    s.onload = ()=> doLeafletImageExport();
+    document.head.appendChild(s);
+    return;
   }
+  doLeafletImageExport();
 }
 
-function captureMapFallback(){
-  // استخدام html2canvas كبديل
-  const mapEl = _map.getContainer();
-  const s = document.createElement('script');
-  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-  s.onload = ()=>{
-    html2canvas(mapEl,{
-      useCORS:true, allowTaint:true, scale:2,
-      ignoreElements: el => el.tagName==='BUTTON'
-    }).then(canvas=> finishExport(canvas))
-      .catch(()=> toast('تعذّر التصدير — جرب Screenshot يدوي','err'));
-  };
-  s.onerror = ()=> toast('تعذّر التصدير — جرب Screenshot يدوي','err');
-  if(!window.html2canvas){ document.head.appendChild(s); }
-  else {
-    html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2}).then(c=>finishExport(c));
-  }
+function doLeafletImageExport(){
+  toast('📸 جار التقاط الخريطة...','warn');
+  leafletImage(_map, function(err, canvas){
+    if(err){ toast('❌ '+err,'err'); return; }
+    drawCamerasOnCanvas(canvas);
+  });
+}
+
+function captureMapFallback(){ doLeafletImageExport(); }
+
+function drawCamerasOnCanvas(canvas){
+  finishExport(canvas);
 }
 
 function finishExport(canvas){
