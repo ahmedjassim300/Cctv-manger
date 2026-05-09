@@ -3535,7 +3535,8 @@ function exportMapImage(){
   }
 
   // Google Static Maps URL — يعمل بدون API key للاستخدام المحدود
-  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat},${center.lng}&zoom=${zoom}&size=${size}&maptype=${mapType}&scale=2${markers}`;
+  const STATIC_KEY = 'AIzaSyDRxLI4FFxbdCybC0KiA566omuenf_K8mA';
+  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat},${center.lng}&zoom=${zoom}&size=${size}&maptype=${mapType}&scale=2${markers}&key=${STATIC_KEY}`;
 
   // افتح الصورة في نافذة جديدة للحفظ
   const win = window.open('','_blank','width=700,height=750');
