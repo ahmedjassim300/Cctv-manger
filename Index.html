@@ -733,6 +733,25 @@ function pushN(text,type='info'){
   try{ sendPushNotif('CCTV Manager', text, type); }catch(e){}
 }
 
+// إشعار لمستخدم محدد بـ UID
+function pushToUser(text, targetUids, type='info'){
+  if(!targetUids||!targetUids.length) return pushN(text,type);
+  const uids = targetUids.filter(Boolean);
+  fbPush('notifs',{text,type,time:ts(),read:false,_ts:Date.now(),allowedUsers:uids});
+  buildNav();
+  const myUid = CU?.uid||CU?.id;
+  if(uids.includes(myUid)){
+    try{ localNotif('CCTV Manager', text); }catch(e){}
+  }
+  try{
+    fetch(CF_WORKER+'/notify',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title:'CCTV Manager', message:text, type, allowedUsers:uids})
+    }).catch(()=>{});
+  }catch(e){}
+}
+
 // إشعار مرتبط بموقع ميداني — يُرسل فقط لمن لديه صلاحية
 function pushFieldN(text, fieldSiteId, type='info'){
   const site = DB.fieldSites.find(s=>s.id===fieldSiteId);
@@ -6178,7 +6197,8 @@ function saveTask(taskId){
     data.id = gid();
     fbSet('tasks/'+data.id, data);
     // إشعار للمعين
-    pushN('📋 مهمة جديدة: '+title+' — من '+CU.name,'info');
+    // إشعار للشخص المعين فقط
+    pushToUser('📋 مهمة جديدة: '+title+' — من '+CU.name, [assignId], 'info');
     toast('✅ تمت إضافة المهمة');
     logAct('مهمة جديدة', title+' → '+assignName);
   }
