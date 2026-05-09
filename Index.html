@@ -3039,7 +3039,7 @@ function initFieldMap(){
         border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;width:100%">✏️ تعديل</button>`:''}
     </div>`;
     marker.bindPopup(L.popup({maxWidth:300}).setContent(popup));
-    _markers.push({id:mid,marker});
+    _markers.push({id:mid, marker, cam:c});
   });
 
   if(allCams.length>1){
