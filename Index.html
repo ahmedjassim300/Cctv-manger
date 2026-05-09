@@ -3579,13 +3579,27 @@ function exportMapImage(){
     }
   }
 
+  let _drawAllCalled = false;
   const drawAll = () => {
+    if(_drawAllCalled) return; _drawAllCalled = true;
+    // اجمع الكاميرات من _markers أو من DB مباشرة
+    const cams = [];
+    if(window._markers && _markers.length){
+      _markers.forEach(m=>{ if(m.cam && m.marker) cams.push({cam:m.cam, ll:m.marker.getLatLng()}); });
+    }
+    // إذا فارغ — اجمع من DB
+    if(!cams.length && DB.fieldSites){
+      DB.fieldSites.forEach(fs=>{
+        (fs.cameras||[]).forEach(c=>{
+          if(c.lat&&c.lng&&!isNaN(parseFloat(c.lat))){
+            cams.push({cam:c, ll:{lat:parseFloat(c.lat),lng:parseFloat(c.lng)}});
+          }
+        });
+      });
+    }
+
     // ارسم الشعاع لكل كاميرا
-    if(window._markers){
-      _markers.forEach(m=>{
-        if(!m.cam) return;
-        const c = m.cam;
-        const ll = m.marker.getLatLng();
+    cams.forEach(({cam:c, ll})=>{
         const [cx,cy] = latlngToXY(ll.lat, ll.lng);
         const stColor = c.status==='active'?'#3fb950':c.status==='maintenance'?'#d29922':'#58a6ff';
         const angle   = parseFloat(c.beamAngle)||70;
@@ -3640,8 +3654,7 @@ function exportMapImage(){
           ctx.fillText(name, cx, cy+16);
           ctx.shadowBlur=0;
         }
-      });
-    }
+    });
 
     // ارسم الحدود المحفوظة
     if(window._boundaryLayers){
