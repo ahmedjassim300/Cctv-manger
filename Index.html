@@ -3516,7 +3516,17 @@ function importKML(input){
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
+  openModal(mhd('📸 تصدير الخريطة')
+    +'<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">'
+    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;satellite&quot;)">🛰️ صورة جوية (ESRI Satellite)</button>'
+    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;osm&quot;)">🗺️ خريطة عادية (OpenStreetMap)</button>'
+    +'</div>'
+    +'<div style="font-size:12px;color:var(--mt)">سيتم رسم الكاميرات والشعاع والحدود على الصورة</div>');
+}
+
+function doExportMap(type){
   toast('📸 جار رسم الخريطة...','warn');
+  window._exportTileType = type;
 
   const center  = _map.getCenter();
   const zoom    = Math.min(_map.getZoom(), 18);
@@ -3707,7 +3717,12 @@ function exportMapImage(){
     };
     img.onerror = ()=>{ tilesLoaded++; if(tilesLoaded>=tilesTotal) drawAll(); };
     const tileX = ((tx % numTiles) + numTiles) % numTiles;
-    img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${ty}.png`;
+    // اختيار نوع الخريطة حسب اختيار المستخدم
+    if(window._exportTileType === 'osm'){
+      img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${ty}.png`;
+    } else {
+      img.src = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tileX}`;
+    }
   });
 
   // timeout احتياطي
