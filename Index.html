@@ -3515,43 +3515,96 @@ function importKML(input){
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
-  toast('💾 جار التصدير...','warn');
+  toast('📸 جار التقاط الخريطة...','warn');
 
-  // نستخدم html2canvas لالتقاط الخريطة
-  const mapEl = _map.getContainer();
-  const script = document.createElement('script');
-  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-  script.onload = () => {
-    html2canvas(mapEl, {
-      useCORS: true,
-      allowTaint: true,
-      scale: 2,
-      logging: false
-    }).then(canvas => {
-      const link = document.createElement('a');
-      link.download = 'خريطة_CCTV_' + new Date().toLocaleDateString('ar-IQ').replace(/\/|\\/g,'-') + '.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      toast('✅ تم تصدير الخريطة');
-    }).catch(()=>{
-      // بديل — screenshot عبر طباعة
-      window.print();
-    });
-  };
-  script.onerror = () => { window.print(); };
-  if(!document.querySelector('script[src*="html2canvas"]')){
-    document.head.appendChild(script);
-  } else {
-    if(window.html2canvas){
-      html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2}).then(canvas=>{
-        const link=document.createElement('a');
-        link.download='خريطة_CCTV.png';
-        link.href=canvas.toDataURL('image/png');
-        link.click();
-        toast('✅ تم تصدير الخريطة');
-      });
+  // الطريقة 1: استخدام getCanvas من Leaflet مباشرة
+  try{
+    const mapContainer = _map.getContainer();
+    const canvas = document.createElement('canvas');
+    const size = _map.getSize();
+    canvas.width  = size.x * 2;
+    canvas.height = size.y * 2;
+    const ctx = canvas.getContext('2d');
+
+    // ارسم خلفية
+    ctx.fillStyle = '#1a2332';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // اجمع كل tile canvases
+    const tiles = mapContainer.querySelectorAll('.leaflet-tile-pane canvas, .leaflet-tile-pane img.leaflet-tile');
+    let loaded = 0;
+    const total = tiles.length;
+
+    if(total === 0){
+      // لا tiles — التقط عبر طريقة بديلة
+      captureMapFallback();
+      return;
     }
+
+    tiles.forEach(tile=>{
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const rect = tile.getBoundingClientRect();
+        const mapRect = mapContainer.getBoundingClientRect();
+        const x = (rect.left - mapRect.left) * 2;
+        const y = (rect.top  - mapRect.top)  * 2;
+        try{ ctx.drawImage(img, x, y, rect.width*2, rect.height*2); }catch(e){}
+        loaded++;
+        if(loaded >= total) finishExport(canvas);
+      };
+      img.onerror = () => { loaded++; if(loaded>=total) finishExport(canvas); };
+      img.src = tile.src || tile.toDataURL?.();
+    });
+
+    // timeout احتياطي
+    setTimeout(()=>{ if(loaded<total) finishExport(canvas); }, 3000);
+
+  } catch(e){
+    captureMapFallback();
   }
+}
+
+function captureMapFallback(){
+  // استخدام html2canvas كبديل
+  const mapEl = _map.getContainer();
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+  s.onload = ()=>{
+    html2canvas(mapEl,{
+      useCORS:true, allowTaint:true, scale:2,
+      ignoreElements: el => el.tagName==='BUTTON'
+    }).then(canvas=> finishExport(canvas))
+      .catch(()=> toast('تعذّر التصدير — جرب Screenshot يدوي','err'));
+  };
+  s.onerror = ()=> toast('تعذّر التصدير — جرب Screenshot يدوي','err');
+  if(!window.html2canvas){ document.head.appendChild(s); }
+  else {
+    html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2}).then(c=>finishExport(c));
+  }
+}
+
+function finishExport(canvas){
+  // أضف overlay معلومات
+  const ctx = canvas.getContext('2d');
+  const site = typeof _FSITE !== 'undefined' && _FSITE
+    ? (DB.fieldSites.find(s=>s.id===_FSITE)?.name||'')
+    : '';
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, canvas.height-60, canvas.width, 60);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 20px Arial';
+  ctx.textAlign = 'right';
+  ctx.fillText('CCTV Manager' + (site?' — '+site:''), canvas.width-20, canvas.height-30);
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#aaaaaa';
+  ctx.fillText(new Date().toLocaleString('ar-IQ'), canvas.width-20, canvas.height-10);
+
+  const link = document.createElement('a');
+  link.download = 'خريطة_' + (site||'CCTV') + '_' + Date.now() + '.png';
+  link.href = canvas.toDataURL('image/png', 1.0);
+  link.click();
+  toast('✅ تم تصدير الخريطة');
 }
 
 // ── تحميل الحدود عند فتح الخريطة ──
