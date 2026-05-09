@@ -3585,26 +3585,114 @@ function captureMapFallback(){
 }
 
 function finishExport(canvas){
-  // أضف overlay معلومات
   const ctx = canvas.getContext('2d');
+  const mapContainer = _map.getContainer();
+  const mapRect = mapContainer.getBoundingClientRect();
+  const scaleX = canvas.width  / mapRect.width;
+  const scaleY = canvas.height / mapRect.height;
+
+  // ارسم الكاميرات يدوياً على الـ canvas
+  if(window._markers && _markers.length){
+    _markers.forEach(m=>{
+      const latlng = m.marker.getLatLng();
+      const pt = _map.latLngToContainerPoint(latlng);
+      const x = pt.x * scaleX;
+      const y = pt.y * scaleY;
+      const c = m.cam;
+      const stColor = c.status==='active'?'#3fb950':c.status==='maintenance'?'#d29922':'#58a6ff';
+      const angle   = parseFloat(c.beamAngle)||70;
+      const rot     = parseFloat(c.beamRot)||0;
+      const viewDist= parseFloat(c.viewDist)||50;
+
+      // رسم الشعاع
+      if(angle < 358){
+        const mPerLat = 111320;
+        const mPerLng = 111320 * Math.cos(latlng.lat * Math.PI/180);
+        const halfRad = (angle/2) * Math.PI/180;
+        const rotRad  = rot * Math.PI/180;
+        const steps   = 24;
+
+        // حوّل نقطة الطرف لـ pixel
+        const getPt = (theta) => {
+          const dLat = (viewDist * Math.cos(theta)) / mPerLat;
+          const dLng = (viewDist * Math.sin(theta)) / mPerLng;
+          const p = _map.latLngToContainerPoint([latlng.lat+dLat, latlng.lng+dLng]);
+          return [p.x * scaleX, p.y * scaleY];
+        };
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        for(let i=0; i<=steps; i++){
+          const theta = rotRad - halfRad + (i/steps)*2*halfRad;
+          const [px,py] = getPt(theta);
+          i===0 ? ctx.lineTo(px,py) : ctx.lineTo(px,py);
+        }
+        ctx.closePath();
+        ctx.fillStyle   = stColor+'33';
+        ctx.strokeStyle = stColor+'bb';
+        ctx.lineWidth   = 1.5 * scaleX;
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        // PTZ 360°
+        const edgePt = _map.latLngToContainerPoint([latlng.lat + viewDist/111320, latlng.lng]);
+        const r = Math.abs(edgePt.y - _map.latLngToContainerPoint(latlng).y) * scaleY;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI*2);
+        ctx.fillStyle   = stColor+'22';
+        ctx.strokeStyle = stColor+'88';
+        ctx.lineWidth   = 1.5;
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // رسم أيقونة الكاميرا
+      const r = 10 * scaleX;
+      ctx.fillStyle = stColor;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(x-r, y-r*0.7, r*2, r*1.4, r*0.3)
+                    : ctx.rect(x-r, y-r*0.7, r*2, r*1.4);
+      ctx.fill();
+
+      // عدسة
+      ctx.fillStyle = '#ffffff88';
+      ctx.beginPath();
+      ctx.arc(x-r*0.2, y, r*0.4, 0, Math.PI*2);
+      ctx.fill();
+
+      // اسم الكاميرا
+      const name = c.name||c.serial||'';
+      if(name){
+        ctx.font = `bold ${Math.round(11*scaleX)}px Arial`;
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 3;
+        ctx.fillText(name, x, y + r*1.8);
+        ctx.shadowBlur = 0;
+      }
+    });
+  }
+
+  // overlay معلومات في الأسفل
   const site = typeof _FSITE !== 'undefined' && _FSITE
     ? (DB.fieldSites.find(s=>s.id===_FSITE)?.name||'')
     : '';
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(0, canvas.height-60, canvas.width, 60);
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(0, canvas.height-56, canvas.width, 56);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 20px Arial';
+  ctx.font = `bold ${Math.round(18*scaleX)}px Arial`;
   ctx.textAlign = 'right';
-  ctx.fillText('CCTV Manager' + (site?' — '+site:''), canvas.width-20, canvas.height-30);
-  ctx.font = '14px Arial';
+  ctx.fillText('CCTV Manager' + (site?' — '+site:''), canvas.width-16, canvas.height-28);
+  ctx.font = `${Math.round(13*scaleX)}px Arial`;
   ctx.fillStyle = '#aaaaaa';
-  ctx.fillText(new Date().toLocaleString('ar-IQ'), canvas.width-20, canvas.height-10);
+  ctx.fillText(new Date().toLocaleString('ar-IQ'), canvas.width-16, canvas.height-10);
 
   const link = document.createElement('a');
   link.download = 'خريطة_' + (site||'CCTV') + '_' + Date.now() + '.png';
   link.href = canvas.toDataURL('image/png', 1.0);
   link.click();
-  toast('✅ تم تصدير الخريطة');
+  toast('✅ تم تصدير الخريطة مع الكاميرات');
 }
 
 // ── تحميل الحدود عند فتح الخريطة ──
