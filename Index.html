@@ -3516,15 +3516,52 @@ function importKML(input){
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
-  if(typeof leafletImage === 'undefined'){
-    toast('⏳ جار التحميل...','warn');
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js';
-    s.onload = ()=> doLeafletImageExport();
-    document.head.appendChild(s);
-    return;
+
+  // الطريقة: Screen Capture API
+  if(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia){
+    toast('📸 اختر نافذة التطبيق للتصوير...','warn');
+    navigator.mediaDevices.getDisplayMedia({
+      video:{ mediaSource:'screen', displaySurface:'browser' },
+      audio:false
+    }).then(stream=>{
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.onloadedmetadata = ()=>{
+        video.play();
+        setTimeout(()=>{
+          const canvas = document.createElement('canvas');
+          canvas.width  = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0);
+          stream.getTracks().forEach(t=>t.stop());
+
+          // اقتصص منطقة الخريطة فقط
+          const mapEl = _map.getContainer();
+          const rect  = mapEl.getBoundingClientRect();
+          const dpr   = window.devicePixelRatio||1;
+          const sx = rect.left * dpr;
+          const sy = rect.top  * dpr;
+          const sw = rect.width  * dpr;
+          const sh = rect.height * dpr;
+
+          const cropCanvas = document.createElement('canvas');
+          cropCanvas.width  = sw;
+          cropCanvas.height = sh;
+          cropCanvas.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+          // ارسم الكاميرات
+          drawCamerasOnCanvas(cropCanvas);
+        }, 300);
+      };
+    }).catch(err=>{
+      if(err.name==='NotAllowedError') toast('تم الرفض — جرب Screenshot يدوي','warn');
+      else toast('❌ '+err.message,'err');
+    });
+  } else {
+    // بديل — فتح نافذة طباعة مع الخريطة
+    doLeafletImageExport();
   }
-  doLeafletImageExport();
 }
 
 function doLeafletImageExport(){
