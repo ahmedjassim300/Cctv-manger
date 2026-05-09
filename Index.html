@@ -2507,7 +2507,7 @@ const MAP_LAYERS = {
   osm:       {label:'🗺️ جغرافية',    url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr:'© OpenStreetMap'},
   satellite: {label:'🛰️ ستلايت',    url:'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', attr:'© Google'},
   hybrid:    {label:'🌍 هايبرد',     url:'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', attr:'© Google', labels:true},
-  gmap:      {label:'🗺️ گوگل ماب',   url:'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', attr:'© Google'},
+  gmap:      {label:'🗺️ خريطة',      url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attr:'© OpenStreetMap'},
   custom:    {label:'🖼️ صورة مخصصة', url:null},
 };
 
@@ -2940,7 +2940,7 @@ function initFieldMap(){
   const _googleTiles = {
     satellite: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
     hybrid:    'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-    gmap:      'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    gmap:      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     geo:       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
   };
 
@@ -2953,7 +2953,7 @@ function initFieldMap(){
   } else if(_mapLayer==='satellite'){
     L.tileLayer(_googleTiles.satellite,{attribution:'© Google',maxZoom:22,maxNativeZoom:21}).addTo(_map);
   } else if(_mapLayer==='gmap'){
-    L.tileLayer(_googleTiles.gmap,{attribution:'© Google',maxZoom:22,maxNativeZoom:21}).addTo(_map);
+    L.tileLayer(_googleTiles.gmap,{attribution:'© OpenStreetMap',maxZoom:19}).addTo(_map);
   } else {
     L.tileLayer(_googleTiles.geo,{attribution:'© OpenStreetMap',maxZoom:19}).addTo(_map);
   }
@@ -3516,56 +3516,189 @@ function importKML(input){
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
+  toast('📸 جار رسم الخريطة...','warn');
 
   const center  = _map.getCenter();
-  const zoom    = Math.min(_map.getZoom(), 20);
-  const mapType = (_mapLayer==='satellite'||_mapLayer==='hybrid') ? 'satellite' : 'roadmap';
-  const size    = '640x640';
+  const zoom    = Math.min(_map.getZoom(), 18);
+  const size    = _map.getSize();
+  const W       = size.x, H = size.y;
+  const canvas  = document.createElement('canvas');
+  canvas.width  = W * 2;
+  canvas.height = H * 2;
+  const ctx     = canvas.getContext('2d');
+  ctx.scale(2, 2);
 
-  // بناء markers للكاميرات
-  let markers = '';
-  if(window._markers && _markers.length){
-    _markers.slice(0,50).forEach(m=>{
-      const ll = m.marker.getLatLng();
-      const c  = m.cam;
-      const color = c.status==='active'?'green':c.status==='maintenance'?'yellow':'blue';
-      const label = encodeURIComponent((c.name||'C').charAt(0).toUpperCase());
-      markers += `&markers=color:${color}|label:${label}|${ll.lat.toFixed(6)},${ll.lng.toFixed(6)}`;
-    });
+  // حساب النطاق الجغرافي للخريطة
+  const bounds = _map.getBounds();
+  const nw = bounds.getNorthWest();
+  const se = bounds.getSouthEast();
+
+  // دالة تحويل إحداثيات جغرافية → pixel
+  const latlngToXY = (lat, lng) => {
+    const x = (lng - nw.lng) / (se.lng - nw.lng) * W;
+    const y = (nw.lat - lat) / (nw.lat - se.lat) * H;
+    return [x, y];
+  };
+
+  // تحميل tiles من OSM (مسموح للاستخدام)
+  const tileSize = 256;
+  const numTiles = Math.pow(2, zoom);
+  const toTile = (lat, lng) => {
+    const x = Math.floor((lng + 180) / 360 * numTiles);
+    const latR = lat * Math.PI / 180;
+    const y = Math.floor((1 - Math.log(Math.tan(latR) + 1/Math.cos(latR)) / Math.PI) / 2 * numTiles);
+    return {x, y};
+  };
+
+  const nwTile = toTile(nw.lat, nw.lng);
+  const seTile = toTile(se.lat, se.lng);
+
+  // حساب offset للـ tile الأول
+  const nwExact = {
+    x: (nw.lng + 180) / 360 * numTiles,
+    y: (1 - Math.log(Math.tan(nw.lat*Math.PI/180) + 1/Math.cos(nw.lat*Math.PI/180))/Math.PI)/2 * numTiles
+  };
+  const tileOffsetX = (nwExact.x - nwTile.x) * tileSize;
+  const tileOffsetY = (nwExact.y - nwTile.y) * tileSize;
+  const scaleX = W / ((seTile.x - nwTile.x + 1) * tileSize);
+  const scaleY = H / ((seTile.y - nwTile.y + 1) * tileSize);
+
+  // خلفية
+  ctx.fillStyle = '#1a2332';
+  ctx.fillRect(0, 0, W, H);
+
+  let tilesTotal = 0, tilesLoaded = 0;
+  const tilesArr = [];
+
+  for(let tx = nwTile.x; tx <= seTile.x + 1; tx++){
+    for(let ty = nwTile.y; ty <= seTile.y + 1; ty++){
+      tilesTotal++;
+      const px = (tx - nwTile.x) * tileSize * scaleX - tileOffsetX * scaleX;
+      const py = (ty - nwTile.y) * tileSize * scaleY - tileOffsetY * scaleY;
+      tilesArr.push({tx, ty, px, py});
+    }
   }
 
-  // Google Static Maps URL — يعمل بدون API key للاستخدام المحدود
-  const STATIC_KEY = 'AIzaSyAtfEikI1TA0mjNFKJJcFmoZLNmj_cjwYY';
-  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${center.lat},${center.lng}&zoom=${zoom}&size=${size}&maptype=${mapType}&scale=2${markers}&key=${STATIC_KEY}`;
+  const drawAll = () => {
+    // ارسم الشعاع لكل كاميرا
+    if(window._markers){
+      _markers.forEach(m=>{
+        if(!m.cam) return;
+        const c = m.cam;
+        const ll = m.marker.getLatLng();
+        const [cx,cy] = latlngToXY(ll.lat, ll.lng);
+        const stColor = c.status==='active'?'#3fb950':c.status==='maintenance'?'#d29922':'#58a6ff';
+        const angle   = parseFloat(c.beamAngle)||70;
+        const rot     = parseFloat(c.beamRot)||0;
+        const viewDist= parseFloat(c.viewDist)||50;
 
-  // افتح الصورة في نافذة جديدة للحفظ
-  const win = window.open('','_blank','width=700,height=750');
-  const site = typeof _FSITE!=='undefined'&&_FSITE ? (DB.fieldSites.find(s=>s.id===_FSITE)?.name||'') : '';
-  win.document.write(`<!DOCTYPE html><html dir="rtl"><head>
-    <meta charset="UTF-8">
-    <title>خريطة ${site}</title>
-    <style>body{margin:0;background:#0d1117;color:#fff;font-family:Arial;text-align:center;padding:16px}
-    img{max-width:100%;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
-    h3{margin:0 0 12px}p{color:#888;font-size:13px;margin:8px 0}
-    button{background:#3fb950;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-size:15px;cursor:pointer;margin-top:12px}</style>
-  </head><body>
-    <h3>🗺️ ${site||'خريطة CCTV'}</h3>
-    <img src="${url}" crossorigin="anonymous" id="map-img"
-      onerror="document.getElementById('err').style.display='block';this.style.display='none'">
-    <div id="err" style="display:none;color:#f85149;padding:20px">
-      ❌ تعذّر تحميل الصورة — Google Static Maps يحتاج API Key<br>
-      <a href="${url}" target="_blank" style="color:#58a6ff">افتح الرابط مباشرة</a>
-    </div>
-    <p>${new Date().toLocaleString('ar-IQ')}</p>
-    <button onclick="
-      const a=document.createElement('a');
-      a.href=document.getElementById('map-img').src;
-      a.download='خريطة_${site||'CCTV'}.png';
-      a.click()">💾 حفظ الصورة</button>
-    <button onclick="window.print()" style="background:#58a6ff;margin-right:8px">🖨️ طباعة</button>
-  </body></html>`);
-  win.document.close();
-  toast('✅ تم فتح الخريطة في نافذة جديدة');
+        // حساب طول الشعاع بالـ pixels
+        const mPerLat = 111320;
+        const mPerLng = 111320 * Math.cos(ll.lat * Math.PI/180);
+        const [ex,ey] = latlngToXY(ll.lat + viewDist/mPerLat, ll.lng);
+        const beamPx  = Math.abs(ey - cy);
+
+        if(angle >= 358){
+          ctx.beginPath();
+          ctx.arc(cx, cy, beamPx, 0, Math.PI*2);
+          ctx.fillStyle = stColor+'25';
+          ctx.strokeStyle = stColor+'90';
+          ctx.lineWidth = 1.5;
+          ctx.fill(); ctx.stroke();
+        } else {
+          const halfRad = (angle/2) * Math.PI/180;
+          const rotRad  = (rot - 90) * Math.PI/180;
+          const steps   = 20;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          for(let i=0; i<=steps; i++){
+            const theta = rotRad - halfRad + (i/steps)*2*halfRad;
+            ctx.lineTo(cx + beamPx*Math.cos(theta), cy + beamPx*Math.sin(theta));
+          }
+          ctx.closePath();
+          ctx.fillStyle = stColor+'25';
+          ctx.strokeStyle = stColor+'90';
+          ctx.lineWidth = 1.5;
+          ctx.fill(); ctx.stroke();
+        }
+
+        // أيقونة الكاميرا
+        ctx.fillStyle = stColor;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(cx-8,cy-5,16,10,3) : ctx.rect(cx-8,cy-5,16,10);
+        ctx.fill();
+        ctx.fillStyle='#ffffff60';
+        ctx.beginPath(); ctx.arc(cx-1,cy,3,0,Math.PI*2); ctx.fill();
+
+        // اسم
+        const name = c.name||c.serial||'';
+        if(name){
+          ctx.font = 'bold 10px Arial';
+          ctx.fillStyle = '#fff';
+          ctx.textAlign = 'center';
+          ctx.shadowColor='#000'; ctx.shadowBlur=3;
+          ctx.fillText(name, cx, cy+16);
+          ctx.shadowBlur=0;
+        }
+      });
+    }
+
+    // ارسم الحدود المحفوظة
+    if(window._boundaryLayers){
+      window._boundaryLayers.forEach(poly=>{
+        if(!poly.getLatLngs) return;
+        const latlngs = poly.getLatLngs()[0];
+        if(!latlngs||!latlngs.length) return;
+        const color = poly.options.color||'#f85149';
+        ctx.beginPath();
+        latlngs.forEach((ll,i)=>{
+          const [x,y] = latlngToXY(ll.lat, ll.lng);
+          i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+        });
+        ctx.closePath();
+        ctx.fillStyle = color+'20';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.fill(); ctx.stroke();
+      });
+    }
+
+    // overlay
+    ctx.fillStyle='rgba(0,0,0,0.6)';
+    ctx.fillRect(0,H-40,W,40);
+    ctx.fillStyle='#fff';
+    ctx.font='bold 13px Arial';
+    ctx.textAlign='right';
+    const site = typeof _FSITE!=='undefined'&&_FSITE?(DB.fieldSites.find(s=>s.id===_FSITE)?.name||''):'';
+    ctx.fillText('CCTV Manager'+(site?' — '+site:''), W-10, H-22);
+    ctx.font='11px Arial'; ctx.fillStyle='#aaa';
+    ctx.fillText(new Date().toLocaleString('ar-IQ'), W-10, H-8);
+
+    // تصدير
+    ctx.setTransform(1,0,0,1,0,0);
+    const link = document.createElement('a');
+    link.download = 'خريطة_'+(site||'CCTV')+'_'+Date.now()+'.png';
+    link.href = canvas.toDataURL('image/png',1.0);
+    link.click();
+    toast('✅ تم تصدير الخريطة');
+  };
+
+  // تحميل الـ tiles
+  tilesArr.forEach(({tx,ty,px,py})=>{
+    const img = new Image();
+    img.crossOrigin='anonymous';
+    img.onload = ()=>{
+      ctx.drawImage(img, px, py, tileSize*scaleX, tileSize*scaleY);
+      tilesLoaded++;
+      if(tilesLoaded >= tilesTotal) drawAll();
+    };
+    img.onerror = ()=>{ tilesLoaded++; if(tilesLoaded>=tilesTotal) drawAll(); };
+    const tileX = ((tx % numTiles) + numTiles) % numTiles;
+    img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${ty}.png`;
+  });
+
+  // timeout احتياطي
+  setTimeout(()=>{ if(tilesLoaded<tilesTotal){ tilesLoaded=tilesTotal; drawAll(); } }, 5000);
 }
 
 function doLeafletImageExport(){
