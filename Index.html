@@ -3518,7 +3518,8 @@ function exportMapImage(){
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
   openModal(mhd('📸 تصدير الخريطة')
     +'<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">'
-    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;satellite&quot;)">🛰️ صورة جوية (ESRI Satellite)</button>'
+    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;satellite&quot;)">🛰️ صورة جوية Google Satellite</button>'
+    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;hybrid&quot;)">🌍 هايبرد Google + أسماء</button>'
     +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;osm&quot;)">🗺️ خريطة عادية (OpenStreetMap)</button>'
     +'</div>'
     +'<div style="font-size:12px;color:var(--mt)">سيتم رسم الكاميرات والشعاع والحدود على الصورة</div>');
@@ -3717,11 +3718,14 @@ function doExportMap(type){
     };
     img.onerror = ()=>{ tilesLoaded++; if(tilesLoaded>=tilesTotal) drawAll(); };
     const tileX = ((tx % numTiles) + numTiles) % numTiles;
-    // اختيار نوع الخريطة حسب اختيار المستخدم
+    // اختيار نوع الخريطة
     if(window._exportTileType === 'osm'){
-      img.src = `https://tile.openstreetmap.org/${zoom}/${tileX}/${ty}.png`;
+      img.src = 'https://tile.openstreetmap.org/'+zoom+'/'+tileX+'/'+ty+'.png';
+    } else if(window._exportTileType === 'hybrid'){
+      img.src = 'https://mt1.google.com/vt/lyrs=y&x='+tileX+'&y='+ty+'&z='+zoom;
     } else {
-      img.src = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${tileX}`;
+      // satellite — Google
+      img.src = 'https://mt1.google.com/vt/lyrs=s&x='+tileX+'&y='+ty+'&z='+zoom;
     }
   });
 
