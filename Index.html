@@ -3135,7 +3135,7 @@ function saveCamNewPos(fsId, ci, newLat, newLng){
   // حفظ في Firebase
   const camsObj = {};
   fs.cameras.forEach((c,i)=>{ camsObj[i]=c; });
-  fbUpdate('fieldSites/'+fsId, {cameras: camsObj});
+  FBDB.ref('cctv/fieldSites/'+fsId+'/cameras').set(camsObj);
   logAct('تصحيح موقع كاميرا', (fs.cameras[ci].name||'كاميرا')+' — إزاحة');
   closeModal();
   toast('✅ تم حفظ الموقع الجديد');
@@ -4088,7 +4088,15 @@ function saveFieldCam(fsId,ci){
     beamAngle:$('fcba')?.value||70, beamRot:$('fcbr')?.value||0, viewDist:parseFloat($('fcvd')?.value)||50,
     addedBy:CU.name, addedAt:(ci>=0&&fs.cameras[ci]?.addedAt)||ts()
   };
-  fbSet('fieldSites/'+fsId+'/cameras/'+cam.id, cam);
+  // احفظ الكاميرا في مكانها الصحيح في الـ array
+  if(ci>=0){
+    fs.cameras[ci] = cam;
+  } else {
+    fs.cameras.push(cam);
+  }
+  const camsObj = {};
+  fs.cameras.forEach((c,i)=>{ camsObj[i]=c; });
+  FBDB.ref('cctv/fieldSites/'+fsId+'/cameras').set(camsObj);
   pushFieldN('📷 '+(ci>=0?'تعديل':'إضافة')+' كاميرا: '+nm+' ← '+fs.name, fsId);
   closeModal(); toast(ci>=0?'تم التعديل':'تم الإضافة');
 }
@@ -4096,9 +4104,18 @@ function saveFieldCam(fsId,ci){
 function delFieldCam(fsId,ci){
   const fs=DB.fieldSites.find(x=>x.id===fsId);
   if(!fs||!confirm('حذف الكاميرا نهائياً؟')) return;
-  const cam=fs.cameras[ci];
-  if(cam) fbDel('fieldSites/'+fsId+'/cameras/'+cam.id);
-  toast('تم الحذف','err');
+  // احذف من الـ array محلياً
+  fs.cameras.splice(ci,1);
+  // أعد حفظ الـ array كاملاً في Firebase
+  const camsObj = {};
+  fs.cameras.forEach((c,i)=>{ camsObj[i]=c; });
+  FBDB.ref('cctv/fieldSites/'+fsId+'/cameras').set(
+    fs.cameras.length ? camsObj : null
+  );
+  logAct('حذف كاميرا', fs.name);
+  toast('✅ تم الحذف');
+  closeModal();
+  setTimeout(initFieldMap, 300);
 }
 function getDirArrow(dir){
   const DIR_MAP = {'↖ شمال غرب':'↖','⬆ شمال':'⬆','↗ شمال شرق':'↗','⬅ غرب':'⬅','⊙ عام':'⊙','➡ شرق':'➡','↙ جنوب غرب':'↙','⬇ جنوب':'⬇','↘ جنوب شرق':'↘'};
