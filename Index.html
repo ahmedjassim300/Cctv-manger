@@ -2981,11 +2981,37 @@ function initFieldMap(){
 
     // كاميرا 360° = دائرة كاملة
     if(angle >= 358){
+      // ══ PTZ 360° — شعاع شمسي متقطع أحمر-برتقالي ══
+      // 1. الدائرة الخارجية الحدودية
       L.circle([lat,lng],{
         radius: viewDist,
-        color: stColor, fillColor: stColor,
-        fillOpacity: 0.18, weight: 1.5, opacity: 0.75
+        color: '#ff4400', fillColor: 'transparent',
+        fillOpacity: 0, weight: 2.5, opacity: 0.9,
+        dashArray: '8,4'
       }).addTo(_map);
+
+      // 2. الأشعة المتقطعة من المركز
+      const numRays = 16;
+      for(let r = 0; r < numRays; r++){
+        const theta = (r / numRays) * 2 * Math.PI;
+        const dLat  = (viewDist * Math.cos(theta)) / mPerLat;
+        const dLng  = (viewDist * Math.sin(theta)) / mPerLng;
+        // لون متدرج أحمر-برتقالي حسب الزاوية
+        const hue   = Math.round(r / numRays * 30); // 0=أحمر → 30=برتقالي
+        const rayColor = r % 2 === 0 ? '#ff3300' : '#ff7700';
+        L.polyline(
+          [[lat, lng], [lat + dLat, lng + dLng]],
+          { color: rayColor, weight: 1.8, opacity: 0.75, dashArray: '10,6' }
+        ).addTo(_map);
+      }
+
+      // 3. دائرة صغيرة في المركز
+      L.circle([lat,lng],{
+        radius: viewDist * 0.05,
+        color: '#ff4400', fillColor: '#ff6600',
+        fillOpacity: 0.8, weight: 1
+      }).addTo(_map);
+
     } else {
       // قطاع: مركز + قوس
       const pts = [[lat, lng]];
