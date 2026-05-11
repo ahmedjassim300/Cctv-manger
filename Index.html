@@ -1896,10 +1896,11 @@ function saveFault(){
   const rsn=val('frsn');
   if(!loc||!pt||!rsn){ toast('الموقع والنقطة والسبب مطلوبة','err'); return; }
   
-  const visibleSiteNames = getVisibleFieldSites().map(s => s.name);
-  if(!visibleSiteNames.includes(loc)) {
-    toast('هذا الموقع غير متاح لك', 'err');
-    return;
+  const visibleSites = getVisibleFieldSites();
+  const visibleSiteIds = visibleSites.map(s=>s.id);
+  const visibleSiteNms = visibleSites.map(s=>s.name);
+  if(loc && !visibleSiteIds.includes(loc) && !visibleSiteNms.includes(loc)){
+    toast('هذا الموقع غير متاح لك','err'); return;
   }
   
   // إيجاد الموقع الميداني المرتبط
