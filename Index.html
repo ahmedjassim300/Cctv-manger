@@ -3042,7 +3042,27 @@ function initFieldMap(){
     </svg>`;
 
     const icon=L.divIcon({html:svgIcon,className:'',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
-    const marker=L.marker([lat,lng],{icon,zIndexOffset:500}).addTo(_map);
+    const isDraggable = CU && (CU.role==='manager'||CU.role==='engineer');
+    const marker=L.marker([lat,lng],{icon, zIndexOffset:500, draggable:isDraggable}).addTo(_map);
+
+    if(isDraggable){
+      marker.on('dragstart', ()=>{ toast('📍 اسحب لتصحيح الموقع','warn'); marker.closePopup(); });
+      marker.on('dragend', function(e){
+        const nl = e.target.getLatLng();
+        const dist = Math.round(_map.distance([lat,lng],[nl.lat,nl.lng]));
+        window._pendingCamMove = {fsId:c._fsId, ci:c._ci, lat:nl.lat, lng:nl.lng};
+        openModal(mhd('📍 تأكيد تعديل موقع الكاميرا')
+          +'<div style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:14px">'
+          +'<div style="font-weight:700;margin-bottom:6px">📷 '+esc(c.name||c.serial||'كاميرا')+'</div>'
+          +'<div style="font-size:14px;color:var(--mt)">تم إزاحة الكاميرا <b style="color:var(--yl)">'+dist+' متر</b></div>'
+          +'<div style="font-size:12px;color:var(--mt);margin-top:4px;direction:ltr">'
+          +nl.lat.toFixed(6)+', '+nl.lng.toFixed(6)+'</div></div>'
+          +'<div style="display:flex;gap:8px">'
+          +'<button class="btn btn-gy" style="flex:1" onclick="closeModal();initFieldMap()">↩️ إلغاء</button>'
+          +'<button class="btn btn-bl" style="flex:1" onclick="confirmCamMove()">✅ حفظ الموقع</button>'
+          +'</div>');
+      });
+    }
 
     const popup=`<div style="min-width:230px;direction:rtl;font-family:inherit">
       <div style="font-weight:800;font-size:18px;color:${stColor};margin-bottom:6px">
@@ -3098,6 +3118,29 @@ let _distanceMeasure = null;
 let _measurePoints = [];
 let _measureLines = [];
 let _measuringMode = false;
+
+
+function confirmCamMove(){
+  const p = window._pendingCamMove;
+  if(!p) return;
+  saveCamNewPos(p.fsId, p.ci, p.lat, p.lng);
+  window._pendingCamMove = null;
+}
+
+function saveCamNewPos(fsId, ci, newLat, newLng){
+  const fs = DB.fieldSites.find(s=>s.id===fsId);
+  if(!fs||!fs.cameras[ci]){ toast('خطأ','err'); return; }
+  fs.cameras[ci].lat = newLat;
+  fs.cameras[ci].lng = newLng;
+  // حفظ في Firebase
+  const camsObj = {};
+  fs.cameras.forEach((c,i)=>{ camsObj[i]=c; });
+  fbUpdate('fieldSites/'+fsId, {cameras: camsObj});
+  logAct('تصحيح موقع كاميرا', (fs.cameras[ci].name||'كاميرا')+' — إزاحة');
+  closeModal();
+  toast('✅ تم حفظ الموقع الجديد');
+  setTimeout(initFieldMap, 300);
+}
 
 function addMyLocationToMap(){
   if(!navigator.geolocation || !_map) return;
