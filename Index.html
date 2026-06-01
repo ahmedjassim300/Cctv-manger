@@ -2584,6 +2584,22 @@ function pgFieldMap(){
         title="استيراد KML">📂 KML</button>
       <input type="file" id="kml-import-file" accept=".kml,.kmz" style="display:none" onchange="importKML(this)">
       <span id="measure-total" style="font-size:13px;color:#ff6b00;font-weight:700;display:none"></span>
+      ${canViewNetwork()?`
+      <button id="btn-network" onclick="toggleNetworkLayer()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="طبقة الشبكة">🌐 الشبكة</button>
+      ${canEditNetwork()?`
+      <button onclick="openAddNetLink()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="إضافة كابل/رابط">🔵 كابل/P2P</button>
+      <button onclick="openAddNetDevice()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="إضافة جهاز">📡 جهاز</button>
+      <button onclick="openNetworkPerms()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="صلاحيات الشبكة">🔐 صلاحيات الشبكة</button>
+      `:''}
+      `:''}
     </div>
     <div id="fld-map" style="height:490px;border-radius:10px;border:1px solid var(--br);margin-bottom:16px;z-index:1;position:relative;"></div>
 
@@ -6642,6 +6658,360 @@ function delTask(taskId){
   if(!confirm('حذف هذه المهمة؟')) return;
   fbDel('tasks/'+taskId);
   setTimeout(pgTasks,300);
+}
+
+
+// ═══════════════════════════════════════════════════════
+//  🌐 طبقة البنية التحتية للشبكة
+// ═══════════════════════════════════════════════════════
+
+let _netLayer = false;
+let _netLines  = [];  // خطوط الكابلات والـ P2P
+let _netMarkers = []; // أجهزة الشبكة
+let _drawingNet = false;
+let _netDrawPoints = [];
+let _netDrawMarkers = [];
+let _netDrawLine = null;
+
+// ── صلاحية الشبكة ──
+function canEditNetwork(){
+  if(!CU) return false;
+  if(CU.role==='manager') return true;
+  return !!(CU.perms?.network_edit);
+}
+function canViewNetwork(){
+  if(!CU) return false;
+  if(CU.role==='manager'||CU.role==='engineer') return true;
+  return !!(CU.perms?.network_view);
+}
+
+// ── تبديل طبقة الشبكة ──
+function toggleNetworkLayer(){
+  _netLayer = !_netLayer;
+  const btn = document.getElementById('btn-network');
+  if(btn){
+    btn.style.background    = _netLayer ? '#58a6ff22' : 'var(--sf)';
+    btn.style.color         = _netLayer ? '#58a6ff'   : 'var(--tx)';
+    btn.style.borderColor   = _netLayer ? '#58a6ff44' : 'var(--br)';
+  }
+  if(_netLayer) loadNetworkLayer();
+  else clearNetworkLayer();
+}
+
+function clearNetworkLayer(){
+  _netLines.forEach(l=>l.remove());   _netLines=[];
+  _netMarkers.forEach(m=>m.remove()); _netMarkers=[];
+}
+
+// ── تحميل عناصر الشبكة ──
+function loadNetworkLayer(){
+  if(!_map) return;
+  clearNetworkLayer();
+  FBDB.ref('cctv/network').once('value').then(snap=>{
+    if(!snap.val()) return;
+    const data = snap.val();
+
+    // كابلات وروابط P2P
+    if(data.links){
+      Object.values(data.links).forEach(link=>{
+        if(!link.points||link.points.length<2) return;
+        const isP2P   = link.type==='p2p';
+        const isFiber = link.type==='fiber';
+        const color   = isFiber?'#ff9500':isP2P?'#58a6ff':'#3fb950';
+        const dash    = isP2P?'8,5':isFiber?'none':'4,3';
+        const weight  = isFiber?3:isP2P?2.5:2;
+
+        const line = L.polyline(link.points,{
+          color, weight, opacity:0.85,
+          dashArray: dash==='none'?null:dash
+        }).addTo(_map);
+
+        line.bindPopup(`<div style="font-family:inherit;min-width:180px">
+          <div style="font-weight:700;font-size:15px;margin-bottom:6px">
+            ${isFiber?'🔵':'📡'} ${esc(link.name||'رابط')}
+          </div>
+          <div style="font-size:13px;color:#666;margin-bottom:4px">
+            النوع: <b>${esc(link.typeName||link.type)}</b>
+          </div>
+          ${link.device?`<div style="font-size:13px;color:#666;margin-bottom:4px">الجهاز: <b>${esc(link.device)}</b></div>`:''}
+          ${link.length?`<div style="font-size:13px;color:#666;margin-bottom:4px">الطول: <b>${esc(link.length)} م</b></div>`:''}
+          ${link.notes?`<div style="font-size:12px;color:#888;margin-top:4px">${esc(link.notes)}</div>`:''}
+          ${canEditNetwork()?`<div style="display:flex;gap:6px;margin-top:8px">
+            <button onclick="editNetLink('${link.id}')" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
+            <button onclick="delNetLink('${link.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
+          </div>`:''}
+        </div>`);
+        _netLines.push(line);
+      });
+    }
+
+    // أجهزة الشبكة
+    if(data.devices){
+      Object.values(data.devices).forEach(dev=>{
+        if(!dev.lat||!dev.lng) return;
+        const devIcons = {
+          switch:'🔀', router:'🌐', odf:'📦', ap:'📶',
+          p2p:'📡', nvr:'💾', server:'🖥️', other:'⚙️'
+        };
+        const ico = devIcons[dev.devType]||'⚙️';
+        const icon = L.divIcon({
+          html:`<div style="background:#1a2332;border:2px solid #58a6ff;border-radius:8px;
+            padding:4px 7px;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.5);
+            white-space:nowrap;color:#fff;font-family:Arial">${ico}</div>`,
+          className:'', iconAnchor:[16,16]
+        });
+        const marker = L.marker([dev.lat,dev.lng],{icon}).addTo(_map);
+        marker.bindPopup(`<div style="font-family:inherit;min-width:180px">
+          <div style="font-weight:700;font-size:15px;margin-bottom:6px">${ico} ${esc(dev.name)}</div>
+          ${dev.model?`<div style="font-size:13px;color:#666">الموديل: <b>${esc(dev.model)}</b></div>`:''}
+          ${dev.ip?`<div style="font-size:13px;color:#666">IP: <b style="direction:ltr">${esc(dev.ip)}</b></div>`:''}
+          ${dev.notes?`<div style="font-size:12px;color:#888;margin-top:4px">${esc(dev.notes)}</div>`:''}
+          ${canEditNetwork()?`<div style="display:flex;gap:6px;margin-top:8px">
+            <button onclick="editNetDevice('${dev.id}')" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
+            <button onclick="delNetDevice('${dev.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
+          </div>`:''}
+        </div>`);
+        _netMarkers.push(marker);
+      });
+    }
+  });
+}
+
+// ── إضافة رابط/كابل ──
+function openAddNetLink(){
+  if(!canEditNetwork()){ toast('لا صلاحية','err'); return; }
+  openModal(mhd('🔵 إضافة كابل / رابط شبكة')
+    +'<div class="fg">'
+    +'<div class="s2 field"><label>الاسم *</label><input id="nl-name" placeholder="كابل الحسينية-الرجيبة"></div>'
+    +'<div class="field"><label>النوع *</label>'
+    +'<select id="nl-type" onchange="onNetTypeChange()">'
+    +'<option value="fiber">🔵 كابل ضوئي (Fiber)</option>'
+    +'<option value="p2p">📡 رابط P2P لاسلكي</option>'
+    +'<option value="utp">🟢 كابل شبكي (UTP)</option>'
+    +'<option value="coax">🟡 كابل محوري (Coax)</option>'
+    +'</select></div>'
+    +'<div class="field" id="nl-device-row"><label>اسم الجهاز</label>'
+    +'<input id="nl-device" placeholder="Mimosa C5C, Mikrotik SXTsq..."></div>'
+    +'<div class="s2 field"><label>الطول التقريبي (متر)</label><input id="nl-length" type="number" placeholder="500"></div>'
+    +'<div class="s2 field"><label>ملاحظات</label><textarea id="nl-notes" rows="2"></textarea></div>'
+    +'</div>'
+    +'<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:10px;padding:12px;margin:10px 0;font-size:14px">'
+    +'📍 بعد الحفظ: اضغط على الخريطة لرسم مسار الكابل نقطة بنقطة، ثم اضغط <b>إنهاء الرسم</b>'
+    +'</div>'
+    +mft('▶️ التالي — ارسم المسار','startNetDraw()'));
+}
+
+function onNetTypeChange(){
+  const t = val('nl-type');
+  const row = document.getElementById('nl-device-row');
+  if(row) row.style.display = (t==='p2p') ? 'block' : 'none';
+}
+
+function startNetDraw(){
+  const name = val('nl-name');
+  if(!name){ toast('الاسم مطلوب','err'); return; }
+  window._pendingNetLink = {
+    id: gid(), name, type: val('nl-type'),
+    device: val('nl-device')||'',
+    length: val('nl-length')||'',
+    notes: val('nl-notes')||''
+  };
+  closeModal();
+  _drawingNet = true;
+  _netDrawPoints = []; _netDrawMarkers = [];
+  if(_netDrawLine){ _netDrawLine.remove(); _netDrawLine=null; }
+  _map.getContainer().style.cursor = 'crosshair';
+  toast('🖊️ انقر على الخريطة لرسم المسار — اضغط "إنهاء" عند الانتهاء','warn');
+
+  // زر إنهاء الرسم
+  const existing = document.getElementById('net-draw-finish');
+  if(existing) existing.remove();
+  const btn = document.createElement('button');
+  btn.id='net-draw-finish';
+  btn.innerHTML='✅ إنهاء الرسم';
+  btn.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#3fb950;color:#fff;border:none;border-radius:12px;padding:12px 28px;font-size:16px;font-family:inherit;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+  btn.onclick = finishNetDraw;
+  document.body.appendChild(btn);
+
+  // listener للرسم
+  if(!_map._netDrawHandler){
+    _map._netDrawHandler = (e)=>{
+      if(!_drawingNet) return;
+      _netDrawPoints.push([e.latlng.lat, e.latlng.lng]);
+      const dot = L.circleMarker(e.latlng,{radius:5,color:'#58a6ff',fillColor:'#58a6ff',fillOpacity:1}).addTo(_map);
+      _netDrawMarkers.push(dot);
+      if(_netDrawLine){ _netDrawLine.remove(); }
+      if(_netDrawPoints.length>1){
+        _netDrawLine = L.polyline(_netDrawPoints,{color:'#58a6ff',weight:2,dashArray:'6,4'}).addTo(_map);
+      }
+    };
+    _map.on('click', _map._netDrawHandler);
+  }
+}
+
+function finishNetDraw(){
+  _drawingNet = false;
+  _map.getContainer().style.cursor='';
+  const btn=document.getElementById('net-draw-finish'); if(btn) btn.remove();
+  if(_netDrawPoints.length<2){ toast('يجب رسم نقطتين على الأقل','err'); clearNetDraw(); return; }
+
+  const link = window._pendingNetLink;
+  link.points = _netDrawPoints;
+  link.typeName = {fiber:'كابل ضوئي',p2p:'رابط P2P',utp:'كابل شبكي',coax:'كابل محوري'}[link.type]||link.type;
+  fbSet('network/links/'+link.id, link);
+  logAct('شبكة — إضافة رابط', link.name);
+  clearNetDraw();
+  toast('✅ تم حفظ '+link.name);
+  loadNetworkLayer();
+}
+
+function clearNetDraw(){
+  _netDrawMarkers.forEach(m=>m.remove()); _netDrawMarkers=[];
+  if(_netDrawLine){ _netDrawLine.remove(); _netDrawLine=null; }
+  _netDrawPoints=[];
+  window._pendingNetLink=null;
+}
+
+// ── إضافة جهاز شبكة ──
+function openAddNetDevice(){
+  if(!canEditNetwork()){ toast('لا صلاحية','err'); return; }
+  openModal(mhd('📡 إضافة جهاز شبكة')
+    +'<div class="fg">'
+    +'<div class="s2 field"><label>اسم الجهاز *</label><input id="nd-name" placeholder="Switch الحسينية"></div>'
+    +'<div class="field"><label>النوع</label>'
+    +'<select id="nd-type">'
+    +'<option value="switch">🔀 Switch</option>'
+    +'<option value="router">🌐 Router</option>'
+    +'<option value="odf">📦 ODF / Splice Box</option>'
+    +'<option value="ap">📶 Access Point</option>'
+    +'<option value="p2p">📡 جهاز P2P</option>'
+    +'<option value="nvr">💾 NVR / DVR</option>'
+    +'<option value="server">🖥️ Server</option>'
+    +'<option value="other">⚙️ أخرى</option>'
+    +'</select></div>'
+    +'<div class="s2 field"><label>الموديل</label><input id="nd-model" placeholder="Mimosa C5C, Cisco..."></div>'
+    +'<div class="s2 field"><label>عنوان IP</label><input id="nd-ip" placeholder="192.168.1.1" style="direction:ltr"></div>'
+    +'<div class="s2 field"><label>ملاحظات</label><textarea id="nd-notes" rows="2"></textarea></div>'
+    +'</div>'
+    +'<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:10px;padding:10px;margin:10px 0;font-size:14px">'
+    +'📍 بعد الحفظ: انقر على الخريطة لتحديد موقع الجهاز'
+    +'</div>'
+    +mft('▶️ التالي — حدد الموقع','startNetDevicePlace()'));
+}
+
+function startNetDevicePlace(){
+  const name = val('nd-name');
+  if(!name){ toast('الاسم مطلوب','err'); return; }
+  window._pendingNetDevice = {
+    id:gid(), name, devType:val('nd-type'),
+    model:val('nd-model')||'', ip:val('nd-ip')||'', notes:val('nd-notes')||''
+  };
+  closeModal();
+  toast('📍 انقر على الخريطة لتحديد موقع الجهاز','warn');
+  _map.getContainer().style.cursor='crosshair';
+
+  const placeHandler = (e)=>{
+    _map.off('click', placeHandler);
+    _map.getContainer().style.cursor='';
+    const dev = window._pendingNetDevice;
+    dev.lat = e.latlng.lat; dev.lng = e.latlng.lng;
+    fbSet('network/devices/'+dev.id, dev);
+    logAct('شبكة — إضافة جهاز', dev.name);
+    toast('✅ تم حفظ '+dev.name);
+    window._pendingNetDevice=null;
+    loadNetworkLayer();
+  };
+  _map.once('click', placeHandler);
+}
+
+// ── حذف ──
+function delNetLink(id){ if(!confirm('حذف هذا الرابط؟')) return; fbDel('network/links/'+id); toast('تم الحذف'); loadNetworkLayer(); }
+function delNetDevice(id){ if(!confirm('حذف هذا الجهاز؟')) return; fbDel('network/devices/'+id); toast('تم الحذف'); loadNetworkLayer(); }
+
+// ── تعديل رابط ──
+function editNetLink(id){
+  FBDB.ref('cctv/network/links/'+id).once('value').then(snap=>{
+    const link=snap.val(); if(!link) return;
+    openModal(mhd('✏️ تعديل الرابط')
+      +'<div class="fg">'
+      +'<div class="s2 field"><label>الاسم</label><input id="nl-name" value="'+esc(link.name||'')+'"></div>'
+      +'<div class="field"><label>النوع</label><select id="nl-type">'
+      +'<option value="fiber" '+(link.type==='fiber'?'selected':'')+'>🔵 كابل ضوئي</option>'
+      +'<option value="p2p" '+(link.type==='p2p'?'selected':'')+'>📡 رابط P2P</option>'
+      +'<option value="utp" '+(link.type==='utp'?'selected':'')+'>🟢 كابل شبكي</option>'
+      +'<option value="coax" '+(link.type==='coax'?'selected':'')+'>🟡 كابل محوري</option>'
+      +'</select></div>'
+      +'<div class="field"><label>الجهاز</label><input id="nl-device" value="'+esc(link.device||'')+'"></div>'
+      +'<div class="s2 field"><label>الطول (م)</label><input id="nl-length" type="number" value="'+esc(link.length||'')+'"></div>'
+      +'<div class="s2 field"><label>ملاحظات</label><textarea id="nl-notes" rows="2">'+esc(link.notes||'')+'</textarea></div>'
+      +'</div>'
+      +mft('💾 حفظ','saveNetLinkEdit()'));
+    window._editNetLinkId = id;
+  });
+}
+
+function saveNetLinkEdit(){
+  const id = window._editNetLinkId;
+  if(!id) return;
+  fbUpdate('network/links/'+id,{
+    name:val('nl-name'), type:val('nl-type'),
+    device:val('nl-device'), length:val('nl-length'), notes:val('nl-notes')
+  });
+  closeModal(); toast('✅ تم التعديل'); loadNetworkLayer();
+}
+
+// ── تعديل جهاز ──
+function editNetDevice(id){
+  FBDB.ref('cctv/network/devices/'+id).once('value').then(snap=>{
+    const dev=snap.val(); if(!dev) return;
+    openModal(mhd('✏️ تعديل الجهاز')
+      +'<div class="fg">'
+      +'<div class="s2 field"><label>الاسم</label><input id="nd-name" value="'+esc(dev.name||'')+'"></div>'
+      +'<div class="s2 field"><label>الموديل</label><input id="nd-model" value="'+esc(dev.model||'')+'"></div>'
+      +'<div class="s2 field"><label>IP</label><input id="nd-ip" value="'+esc(dev.ip||'')+'" style="direction:ltr"></div>'
+      +'<div class="s2 field"><label>ملاحظات</label><textarea id="nd-notes" rows="2">'+esc(dev.notes||'')+'</textarea></div>'
+      +'</div>'
+      +mft('💾 حفظ','saveNetDeviceEdit("'+id+'")'));
+  });
+}
+
+function saveNetDeviceEdit(id){
+  fbUpdate('network/devices/'+id,{
+    name:val('nd-name'), model:val('nd-model'), ip:val('nd-ip'), notes:val('nd-notes')
+  });
+  closeModal(); toast('✅ تم التعديل'); loadNetworkLayer();
+}
+
+// ── صلاحيات الشبكة ──
+function openNetworkPerms(){
+  if(CU.role!=='manager'){ toast('المدير فقط','err'); return; }
+  const users = DB.users.filter(u=>u.active&&u.role!=='manager');
+  openModal(mhd('🔐 صلاحيات الشبكة')
+    +'<div style="font-size:14px;color:var(--mt);margin-bottom:12px">حدد من يستطيع مشاهدة وتعديل طبقة الشبكة</div>'
+    +'<div style="display:flex;flex-direction:column;gap:8px">'
+    +users.map(u=>`
+    <div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px">
+      <div style="flex:1"><b>${esc(u.name)}</b> <span style="color:var(--mt);font-size:12px">${ROLES[u.role]||u.role}</span></div>
+      <label style="display:flex;align-items:center;gap:4px;font-size:13px">
+        <input type="checkbox" id="nv_${u.uid||u.id}" ${u.perms?.network_view?'checked':''}>مشاهدة
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:13px">
+        <input type="checkbox" id="ne_${u.uid||u.id}" ${u.perms?.network_edit?'checked':''}>تعديل
+      </label>
+    </div>`).join('')
+    +'</div>'
+    +mft('💾 حفظ الصلاحيات','saveNetworkPerms()'));
+}
+
+function saveNetworkPerms(){
+  const users = DB.users.filter(u=>u.active&&u.role!=='manager');
+  users.forEach(u=>{
+    const uid = u.uid||u.id;
+    const view = document.getElementById('nv_'+uid)?.checked||false;
+    const edit = document.getElementById('ne_'+uid)?.checked||false;
+    fbUpdate('users/'+uid,{'perms/network_view':view,'perms/network_edit':edit});
+  });
+  closeModal(); toast('✅ تم حفظ صلاحيات الشبكة');
 }
 
 // ═══════════════════════════════════════════════════════
