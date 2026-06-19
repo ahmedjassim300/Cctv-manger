@@ -307,6 +307,18 @@ body.light {
 }
 
 /* باقي الأنماط */
+/* ===== SPLASH SCREEN ===== */
+#splash {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 9999; gap: 16px;
+}
+#splash .sp-logo { font-size: 64px; animation: spPulse 1.2s infinite; }
+#splash .sp-txt  { font-size: 20px; font-weight: 700; color: var(--bl); }
+#splash .sp-sub  { font-size: 14px; color: var(--mt); }
+@keyframes spPulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.08);opacity:.75} }
+
 #ls{height:100vh;display:flex;align-items:center;justify-content:center; background: var(--bg);}
 .lbox{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:36px;width:390px; max-width: 95%;}
 .llogo{text-align:center;margin-bottom:28px;}
@@ -419,7 +431,14 @@ tr:hover td{background:rgba(255,255,255,.025);}
 </head>
 <body>
 
-<div id="ls">
+<!-- Splash Screen — يظهر أثناء التحقق من الجلسة -->
+<div id="splash">
+  <div class="sp-logo">📹</div>
+  <div class="sp-txt">CCTV Manager</div>
+  <div class="sp-sub">جار التحقق من الجلسة...</div>
+</div>
+
+<div id="ls" style="display:none">
   <div class="lbox">
     <div class="llogo"><div class="ico">📹</div><h1>CCTV Manager</h1><p>نظام إدارة كاميرات المراقبة</p></div>
     <div id="lerr" class="ebox" style="display:none"></div>
@@ -443,6 +462,13 @@ tr:hover td{background:rgba(255,255,255,.025);}
     </div>
     <!-- وسط: شعار -->
     <div class="logo" style="font-size:17px;font-weight:700;color:var(--bl);flex-shrink:0">📹 CCTV</div>
+    <!-- وسط: بحث سريع -->
+    <div id="qs-wrap" style="flex:1.5;max-width:220px;position:relative">
+      <input id="qs-inp" placeholder="🔍 بحث سريع..." autocomplete="off"
+        style="width:100%;padding:6px 10px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px;font-family:inherit;outline:none;box-sizing:border-box"
+        oninput="quickSearch(this.value)" onblur="setTimeout(()=>$('qs-res').innerHTML='',200)">
+      <div id="qs-res" style="position:absolute;top:36px;right:0;left:0;background:var(--sf);border:1px solid var(--br);border-radius:10px;z-index:9000;max-height:240px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
+    </div>
     <!-- يمين: أزرار -->
     <div style="display:flex;align-items:center;gap:4px;flex:1;justify-content:flex-end">
       <span id="online-ind" style="font-size:13px">🟢</span>
@@ -636,14 +662,7 @@ const SW_T  = ['مُدار (Managed)','غير مُدار (Unmanaged)','هاب (H
 //  DATABASE
 // ============================================
 let DB = {
-  users:[
-    {id:'u1',username:'admin', pw:'admin123',role:'manager',   name:'المدير العام',        active:true,perms:null},
-    {id:'u2',username:'eng1',  pw:'eng123',  role:'engineer',  name:'م. أحمد الخالد',      active:true,perms:null},
-    {id:'u3',username:'tech1', pw:'tech123', role:'technician',name:'فني: سالم العمري',    active:true,perms:null},
-    {id:'u4',username:'field1',pw:'field123',role:'field',     name:'صاعود: محمد العتيبي',active:true,perms:null},
-    {id:'u5',username:'field2',pw:'field123',role:'field',     name:'صاعود: خالد القحطاني',active:true,perms:null},
-    {id:'u6',username:'tech2', pw:'tech123', role:'technician',name:'فني: عبدالله السلمي',active:true,perms:null},
-  ],
+  users:[], // يُحمَّل من Firebase — لا بيانات افتراضية هنا
   sites:['المستودع المركزي','مستودع البصرة','مستودع الموصل'],
   mainSite:'المستودع المركزي',
   inv:{},
@@ -812,7 +831,9 @@ function doLogin(){
   btn.disabled=true;
   btn.textContent='⏳ جار التحقق...';
   $('lerr').style.display='none';
-  FBAUTH.signInWithEmailAndPassword(email,pw).catch(err=>{
+  FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
+    return FBAUTH.signInWithEmailAndPassword(email,pw);
+  }).catch(err=>{
     const msgs={
       'auth/user-not-found':'❌ البريد غير موجود',
       'auth/wrong-password':'❌ كلمة المرور خاطئة',
@@ -869,6 +890,10 @@ loadBranding();
 FBAUTH.onAuthStateChanged(function(fbUser){
   if(_isLoggingOut) return; // تجاهل أي حدث أثناء تسجيل الخروج
   if(!fbUser){
+    // إخفاء Splash وإظهار شاشة الدخول
+    const splash = $('splash');
+    if(splash) splash.style.display='none';
+    $('ls').style.display='flex';
     const btn=$('login-btn');
     if(btn){ btn.disabled=false; btn.textContent='تسجيل الدخول'; }
     _loginAttempted = false;
@@ -897,6 +922,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
           };
           FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(()=>{
             CU={...newUser};
+            const splash=$('splash'); if(splash) splash.style.display='none';
             $('lload').style.display='none';
             $('lerr').style.display='none';
             $('ls').style.display='none';
@@ -909,6 +935,8 @@ FBAUTH.onAuthStateChanged(function(fbUser){
             fbStartSync();
           });
         } else {
+          const splash=$('splash'); if(splash) splash.style.display='none';
+          $('ls').style.display='flex';
           const e=$('lerr');
           e.textContent='❌ حسابك غير مسجّل في النظام. تواصل مع المدير';
           e.style.display='block';
@@ -920,6 +948,8 @@ FBAUTH.onAuthStateChanged(function(fbUser){
       return;
     }
     if(!userData.active){
+      const splash=$('splash'); if(splash) splash.style.display='none';
+      $('ls').style.display='flex';
       const e=$('lerr');
       e.textContent='⛔ حسابك معطّل، تواصل مع المدير';
       e.style.display='block';
@@ -929,6 +959,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
       return;
     }
     CU={...userData, uid:fbUser.uid, email:fbUser.email};
+    const splash=$('splash'); if(splash) splash.style.display='none';
     $('lload').style.display='none';
     $('lerr').style.display='none';
     $('ls').style.display='none';
@@ -946,10 +977,14 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     if(fab) fab.style.display='block';
     // إظهار فقاعة الدردشة
     showMsgBubble();
-    // طلب إذن الإشعارات
-    setTimeout(requestNotifPermission, 2000);
-    // طلب إذن GPS
-    setTimeout(requestGPSPermission, 4000);
+    // طلب إذن الإشعارات — مرة واحدة فقط
+    if(!localStorage.getItem('notif_perm_asked')){
+      setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 2000);
+    }
+    // طلب إذن GPS — مرة واحدة فقط
+    if(!localStorage.getItem('gps_perm_asked')){
+      setTimeout(()=>{ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 4000);
+    }
 
     // تحقق من الصيانة المتأخرة
     setTimeout(()=>{
@@ -1754,7 +1789,10 @@ function pgFaults(){
   const active = visibleFaults.filter(f=>f.status!=='resolved').length;
   let html=`<div class="ph">
     <div><div class="pt">⚠️ الأعطال</div><div class="ps">${active} نشط — ${visibleFaults.filter(f=>f.status==='resolved').length} محلول</div></div>
-    <button class="btn btn-rd" onclick="openAddFault()">🚨 إبلاغ عن عطل في موقع ميداني</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>
+      <button class="btn btn-rd" onclick="openAddFault()">🚨 إبلاغ عن عطل</button>
+    </div>
   </div>`;
 
   FAULT_ST.forEach(st=>{
@@ -1923,6 +1961,46 @@ function saveFault(){
   closeModal(); toast('تم إرسال البلاغ');
 }
 
+function printFaultsReport(){
+  const visibleFaults = getVisibleFaults();
+  const now = new Date().toLocaleString('ar-IQ');
+  const rows = visibleFaults.map(f=>`
+    <tr>
+      <td>${esc(f.location)}</td>
+      <td>${esc(f.pointId)}</td>
+      <td>${esc(f.camSN||'—')}</td>
+      <td>${esc(f.reason)}</td>
+      <td>${FAULT_ST.find(s=>s.k===f.status)?.l||f.status}</td>
+      <td>${esc(f.by)}</td>
+      <td>${esc(f.date)}</td>
+    </tr>`).join('');
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+  <title>تقرير الأعطال</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;color:#111;direction:rtl}
+    h2{text-align:center;margin-bottom:4px}
+    .sub{text-align:center;color:#666;margin-bottom:20px;font-size:13px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{background:#1f2937;color:#fff;padding:8px;text-align:right}
+    td{border:1px solid #ddd;padding:7px}
+    tr:nth-child(even){background:#f9f9f9}
+    @media print{button{display:none}}
+  </style></head><body>
+  <h2>📹 تقرير الأعطال — CCTV Manager</h2>
+  <div class="sub">تاريخ الطباعة: ${now} — إجمالي الأعطال: ${visibleFaults.length}</div>
+  <button onclick="window.print()" style="margin-bottom:16px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
+  <table>
+    <thead><tr>
+      <th>الموقع</th><th>النقطة</th><th>السيريال</th>
+      <th>السبب</th><th>الحالة</th><th>المُبلِّغ</th><th>التاريخ</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  </body></html>`);
+  win.document.close();
+}
+
 function updFaultStatus(f, ri, status){
   // تحقق من صلاحية الوصول للموقع
   if(!canAccessFault(f)){ toast('⛔ لا صلاحية لتعديل هذا العطل','err'); return; }
@@ -1933,10 +2011,18 @@ function updFaultStatus(f, ri, status){
   if(status==='resolved'){ upd.resolvedAt=ts(); upd._tsResolved=Date.now(); upd.resolvedBy=CU.name; upd.resolvedByRole=CU.role; }
   fbUpdate('faults/'+f.id, upd);
   logAct('تحديث عطل', f.location+'/'+f.pointId+' → '+(st?.l||status));
+  // إشعار موجّه: المدير فقط + صاحب البلاغ (وليس للجميع)
+  const msg = (st?.ico||'')+' عطل '+f.location+'/'+f.pointId+': '+(st?.l||status)+' — بواسطة '+CU.name;
   if(f.fieldSiteId){
-    pushFieldN((st?.ico||'')+' عطل '+f.location+'/'+f.pointId+': '+(st?.l||status), f.fieldSiteId, 'info');
+    pushFieldN(msg, f.fieldSiteId, 'info');
   } else {
-    pushN((st?.ico||'')+' عطل '+f.location+'/'+f.pointId+': '+(st?.l||status),'info');
+    // نُرسل إشعار للمدير فقط إذا كان المُحدِّث ليس المدير
+    const targets = DB.users.filter(u=>u.role==='manager'||(u.name===f.by&&u.uid!==CU.uid));
+    if(targets.length){
+      targets.forEach(u=> fbPush('notifs',{text:msg,type:'info',time:ts(),read:false,targetUid:u.uid||null,_ts:Date.now()}));
+    } else {
+      pushN(msg,'info');
+    }
   }
   toast('تم تحديث حالة العطل');
 }
@@ -4385,7 +4471,10 @@ function pgReports(){
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📊 التقارير والإحصائيات</div>
-    <button class="btn btn-bl" onclick="exportReportCSV()">⬇️ تصدير CSV</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" style="background:#238636;color:#fff" onclick="printFullReport(${totalFaults},${openF},${resolvedF},${highF},${avgSLA},${totalItems},${deployedItems},${totalCams})">🖨️ طباعة / PDF</button>
+      <button class="btn btn-bl" onclick="exportReportCSV()">⬇️ تصدير CSV</button>
+    </div>
   </div>
 
   <!-- SLA بارز -->
@@ -6650,7 +6739,9 @@ function openEditTask(taskId){
 
 function updTask(taskId, status){
   fbUpdate('tasks/'+taskId,{status, _tsUpdated:Date.now()});
-  if(status==='done') logAct('إنجاز مهمة','');
+  if(status==='done'){ logAct('إنجاز مهمة',''); toast('✅ تم إنجاز المهمة'); }
+  else if(status==='inprogress') toast('🔄 المهمة قيد التنفيذ');
+  else if(status==='pending') toast('⏳ تم إعادة المهمة للانتظار');
   setTimeout(pgTasks,300);
 }
 
@@ -7234,6 +7325,121 @@ function localNotif(title, body){
       new Notification(title||'CCTV Manager', {body:body||'', icon:'icon-192.png', dir:'rtl'});
     }
   }
+}
+
+// ============================================
+//  🔍 البحث السريع في الشريط العلوي
+// ============================================
+function quickSearch(q){
+  const res = $('qs-res');
+  q = q.trim();
+  if(!q){ res.style.display='none'; res.innerHTML=''; return; }
+  const ql = q.toLowerCase();
+
+  const results = [];
+
+  // بحث في الأعطال
+  (DB.faults||[]).forEach(f=>{
+    if((f.location+f.pointId+f.reason+f.camSN).toLowerCase().includes(ql)){
+      results.push({ico:'⚠️', label:`عطل: ${f.location} — ${f.pointId}`, sub:f.reason, action:`go('faults')`});
+    }
+  });
+
+  // بحث في المخزن
+  Object.values(DB.inv||{}).flat().forEach(it=>{
+    if((it.name+it.sn+(it.brand||'')).toLowerCase().includes(ql)){
+      results.push({ico:'📦', label:`مخزن: ${it.name}`, sub:`SN: ${it.sn||'—'}`, action:`go('inventory')`});
+    }
+  });
+
+  // بحث في المستخدمين
+  (DB.users||[]).forEach(u=>{
+    if((u.name+(u.email||'')).toLowerCase().includes(ql)){
+      results.push({ico:'👤', label:`مستخدم: ${u.name}`, sub:ROLES[u.role]||u.role, action:`go('users')`});
+    }
+  });
+
+  // بحث في المواقع الميدانية
+  (DB.fieldSites||[]).forEach(s=>{
+    if(s.name.toLowerCase().includes(ql)){
+      results.push({ico:'📍', label:`موقع ميداني: ${s.name}`, sub:`${s.cameras.length} كاميرا`, action:`go('fieldmap')`});
+    }
+  });
+
+  if(!results.length){
+    res.innerHTML=`<div style="padding:12px;text-align:center;color:var(--mt);font-size:13px">لا نتائج</div>`;
+  } else {
+    res.innerHTML = results.slice(0,8).map(r=>`
+      <div onclick="${r.action};$('qs-inp').value='';$('qs-res').style.display='none'"
+        style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--br);display:flex;gap:10px;align-items:center"
+        onmouseover="this.style.background='var(--br)'" onmouseout="this.style.background=''">
+        <span style="font-size:18px">${r.ico}</span>
+        <div>
+          <div style="font-size:13px;font-weight:600">${esc(r.label)}</div>
+          ${r.sub?`<div style="font-size:11px;color:var(--mt)">${esc(r.sub)}</div>`:''}
+        </div>
+      </div>`).join('');
+  }
+  res.style.display='block';
+}
+
+// ============================================
+//  🖨️ طباعة التقرير الكامل PDF
+// ============================================
+function printFullReport(totalFaults,openF,resolvedF,highF,avgSLA,totalItems,deployedItems,totalCams){
+  const now = new Date().toLocaleString('ar-IQ');
+  const topFaults = [...(DB.faults||[])].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)).slice(0,20);
+  const rows = topFaults.map(f=>`
+    <tr>
+      <td>${esc(f.location)}</td>
+      <td>${esc(f.pointId)}</td>
+      <td>${FAULT_ST.find(s=>s.k===f.status)?.l||f.status}</td>
+      <td>${esc(f.reason)}</td>
+      <td>${esc(f.by)}</td>
+      <td>${esc(f.date)}</td>
+    </tr>`).join('');
+
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+  <title>التقرير الكامل — CCTV Manager</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:28px;color:#111;direction:rtl;font-size:14px}
+    h1{text-align:center;color:#1d4ed8;margin-bottom:4px}
+    .sub{text-align:center;color:#666;margin-bottom:24px;font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+    .card{border:1px solid #ddd;border-radius:8px;padding:14px;text-align:center}
+    .card .val{font-size:28px;font-weight:700}
+    .card .lbl{font-size:12px;color:#666;margin-top:4px}
+    table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+    th{background:#1e3a5f;color:#fff;padding:8px;text-align:right}
+    td{border:1px solid #ddd;padding:6px}
+    tr:nth-child(even){background:#f5f5f5}
+    .sec{font-weight:700;font-size:15px;margin:20px 0 8px;color:#1d4ed8;border-bottom:2px solid #1d4ed8;padding-bottom:4px}
+    @media print{.no-print{display:none}}
+  </style></head><body>
+  <h1>📹 التقرير الكامل — CCTV Manager</h1>
+  <div class="sub">تاريخ: ${now} — المستخدم: ${esc(CU.name)}</div>
+  <button class="no-print" onclick="window.print()" style="margin-bottom:20px;padding:8px 24px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
+
+  <div class="sec">📊 ملخص إحصائي</div>
+  <div class="grid">
+    <div class="card"><div class="val" style="color:#2563eb">${totalFaults}</div><div class="lbl">إجمالي الأعطال</div></div>
+    <div class="card"><div class="val" style="color:#dc2626">${openF}</div><div class="lbl">أعطال مفتوحة</div></div>
+    <div class="card"><div class="val" style="color:#16a34a">${resolvedF}</div><div class="lbl">أعطال محلولة</div></div>
+    <div class="card"><div class="val" style="color:#d97706">${highF}</div><div class="lbl">أعطال عاجلة</div></div>
+    <div class="card"><div class="val" style="color:#7c3aed">${avgSLA}</div><div class="lbl">متوسط SLA (ساعة)</div></div>
+    <div class="card"><div class="val" style="color:#0891b2">${totalItems}</div><div class="lbl">مواد المخزن</div></div>
+    <div class="card"><div class="val" style="color:#059669">${deployedItems}</div><div class="lbl">مواد منصوبة</div></div>
+    <div class="card"><div class="val" style="color:#db2777">${totalCams}</div><div class="lbl">كاميرات ميدانية</div></div>
+  </div>
+
+  <div class="sec">⚠️ آخر 20 عطل</div>
+  <table>
+    <thead><tr><th>الموقع</th><th>النقطة</th><th>الحالة</th><th>السبب</th><th>المُبلِّغ</th><th>التاريخ</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  </body></html>`);
+  win.document.close();
 }
 </script>
 </body>
