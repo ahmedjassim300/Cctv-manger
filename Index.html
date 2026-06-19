@@ -307,6 +307,9 @@ body.light {
 }
 
 /* باقي الأنماط */
+/* ===== SKELETON LOADING ===== */
+@keyframes skPulse { 0%,100%{opacity:.4} 50%{opacity:.8} }
+
 /* ===== SPLASH SCREEN ===== */
 #splash {
   position: fixed; inset: 0; background: var(--bg);
@@ -478,6 +481,12 @@ tr:hover td{background:rgba(255,255,255,.025);}
     </div>
   </div>
   <div id="main"><div id="page"></div></div>
+
+  <!-- زر الرجوع لأعلى الصفحة -->
+  <button id="back-top-btn" onclick="document.getElementById('main').scrollTo({top:0,behavior:'smooth'})"
+    style="display:none;position:fixed;bottom:80px;left:16px;z-index:8000;background:var(--bl);color:#fff;border:none;border-radius:50%;width:42px;height:42px;font-size:20px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4);transition:opacity .3s">
+    ↑
+  </button>
 </div>
 
 <!-- فقاعة الدردشة Messenger -->
@@ -742,6 +751,20 @@ function closeModal(){ $('modal').classList.remove('open'); $('mbx').innerHTML='
 function mhd(t){ return `<div class="mhd"><h3>${esc(t)}</h3><button class="xb" onclick="closeModal()">×</button></div>`; }
 function mft(l,fn,cl='btn-bl'){ return `<div class="mft"><button class="btn btn-gy" onclick="closeModal()">إلغاء</button><button class="btn ${cl}" onclick="${fn}">${esc(l)}</button></div>`; }
 
+// ── نافذة تأكيد حذف جميلة بدلاً من confirm() المتصفح ──
+function confirmDel(msg, onYesFnStr){
+  openModal(`
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:48px;margin-bottom:12px">🗑️</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px">تأكيد الحذف</div>
+      <div style="color:var(--mt);font-size:14px;margin-bottom:20px">${msg}</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-rd" onclick="closeModal();${onYesFnStr}">🗑️ حذف نهائي</button>
+      </div>
+    </div>`);
+}
+
 // ============================================
 //  NOTIFICATIONS
 // ============================================
@@ -972,6 +995,17 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     fbInitDB();
     // بدء المزامنة الفورية
     fbStartSync();
+    // حماية: إذا بقي Splash ظاهراً أكثر من 10 ثوانٍ → خطأ في الاتصال
+    setTimeout(()=>{
+      const splash=$('splash');
+      if(splash && splash.style.display!=='none'){
+        splash.innerHTML=`
+          <div class="sp-logo">⚠️</div>
+          <div class="sp-txt" style="color:var(--rd)">انتهت مدة الانتظار</div>
+          <div class="sp-sub">تحقق من اتصالك بالإنترنت</div>
+          <button class="btn btn-rd" style="margin-top:16px" onclick="location.reload()">🔄 إعادة المحاولة</button>`;
+      }
+    }, 10000);
     // إظهار زر الويدجت العائم
     const fab = document.getElementById('quick-fab');
     if(fab) fab.style.display='block';
@@ -1031,11 +1065,22 @@ function fbInitDB(){
 // ═══════════════════════════════════════════════════════
 //  FIREBASE SYNC — مزامنة فورية مع قاعدة البيانات
 // ═══════════════════════════════════════════════════════
+// حماية من تكرار الـ listener
+let _syncRef = null;
+let _syncHandler = null;
+
 function fbStartSync(){
   // إذا offline — حمّل البيانات المحلية
   if(!navigator.onLine){ loadLocalDB(); }
 
-  FBDB.ref('cctv').on('value', snap=>{
+  // إلغاء أي listener سابق قبل إضافة جديد
+  if(_syncRef && _syncHandler){
+    _syncRef.off('value', _syncHandler);
+    _syncRef = null; _syncHandler = null;
+  }
+
+  _syncRef = FBDB.ref('cctv');
+  _syncHandler = _syncRef.on('value', snap=>{
     const data=snap.val()||{};
 
     // sites
@@ -1094,7 +1139,7 @@ function fbStartSync(){
       ? Object.values(data.fieldSites).map(fs=>({...fs, cameras:fs.cameras?Object.values(fs.cameras):[]}))
       : [];
     DB.users       = data.users       ? Object.values(data.users) : [];
-    DB.actlog      = data.actlog      ? Object.values(data.actlog).sort((a,b)=>(b._ts||0)-(a._ts||0)).slice(0,200) : [];
+    DB.actlog      = data.actlog      ? Object.values(data.actlog).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
     DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.siteInventory = data.siteInventory || {};
@@ -1114,7 +1159,39 @@ function fbStartSync(){
     else { try{ go(PAGE); }catch(e){} }
   }, err=>{
     console.error('Firebase sync error:', err);
-    toast('❌ خطأ في الاتصال بقاعدة البيانات','err');
+    // إظهار خطأ على Splash إذا كانت لا تزال ظاهرة
+    const splash=$('splash');
+    if(splash && splash.style.display!=='none'){
+      splash.innerHTML=`<div class="sp-logo">⚠️</div><div class="sp-txt" style="color:var(--rd)">فشل الاتصال بقاعدة البيانات</div><div class="sp-sub">${err.message||err.code||''}</div><button class="btn btn-rd" style="margin-top:16px" onclick="location.reload()">🔄 إعادة المحاولة</button>`;
+    } else {
+      toast('❌ خطأ في الاتصال بقاعدة البيانات','err');
+    }
+  });
+
+  // ── Listener منفصل للإشعارات — آخر 100 فقط من Firebase ──
+  FBDB.ref('cctv/notifs').limitToLast(100).on('value', snap=>{
+    if(!snap.exists()) return;
+    const myUid = CU?.uid||CU?.id;
+    const allNotifs = Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    DB.notifs = allNotifs.filter(n=>{
+      if(!CU || CU.role==='manager' || CU.role==='viewer') return true;
+      if(!n.allowedUsers) return true;
+      if(n.allowedUsers.includes('all')) return true;
+      if(n.allowedUsers.includes('manager_only')) return false;
+      return n.allowedUsers.includes(myUid);
+    });
+    // تحديث badge الإشعارات في الـ nav
+    const unread = DB.notifs.filter(n=>!n.read).length;
+    const nBtn = document.querySelector('.nb[onclick*="notifs"]');
+    if(nBtn) nBtn.innerHTML = `<span class="ic">🔔</span>الإشعارات${unread?` (${unread})`:''}`;
+    if(PAGE==='notifs') pgNotifs();
+  });
+
+  // ── Listener منفصل لسجل النشاط — آخر 200 فقط من Firebase ──
+  FBDB.ref('cctv/actlog').limitToLast(200).on('value', snap=>{
+    if(!snap.exists()) return;
+    DB.actlog = Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(PAGE==='actlog') pgActLog();
   });
 }
 
@@ -1170,12 +1247,23 @@ function buildNav(){
 }
 
 function go(page){
-  PAGE=page; buildNav(); $('page').innerHTML='';
-  ({dashboard:pgDash,inventory:pgInv,movements:pgMoves,faults:pgFaults,
-    notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
-    search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
-    performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-    branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks})[page]?.();
+  PAGE=page; buildNav();
+  // إظهار skeleton أثناء تحميل الصفحة
+  $('page').innerHTML=`
+    <div style="padding:16px;animation:fadeIn .3s">
+      <div style="height:32px;width:40%;background:var(--br);border-radius:8px;margin-bottom:16px;animation:skPulse 1.2s infinite"></div>
+      <div style="height:80px;background:var(--br);border-radius:10px;margin-bottom:12px;animation:skPulse 1.2s infinite .1s"></div>
+      <div style="height:80px;background:var(--br);border-radius:10px;margin-bottom:12px;animation:skPulse 1.2s infinite .2s"></div>
+      <div style="height:80px;background:var(--br);border-radius:10px;animation:skPulse 1.2s infinite .3s"></div>
+    </div>`;
+  // تحميل الصفحة في الـ frame التالي لإظهار الـ skeleton أولاً
+  requestAnimationFrame(()=>{
+    ({dashboard:pgDash,inventory:pgInv,movements:pgMoves,faults:pgFaults,
+      notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
+      search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
+      performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks})[page]?.();
+  });
 }
 
 // ============================================
@@ -1584,7 +1672,7 @@ function confirmBulkTransfer(src){
 
 function setMaintAt(i,site){ const s=site||ISITE; const item=DB.inv[s][i]; if(!item)return; fbSet('inv/'+fbKey(s)+'/'+item.id+'/status','maintenance'); toast('إرسال للصيانة','warn'); }
 function setMaint(i){ setMaintAt(i,ISITE); }
-function delItemAt(i,site){ if(!confirm('حذف نهائي؟'))return; const s=site||ISITE; const item=DB.inv[s][i]; if(!item)return; fbDel('inv/'+fbKey(s)+'/'+item.id); toast('تم الحذف','err'); }
+function delItemAt(i,site){ const s=site||ISITE; const item=DB.inv[s]?.[i]; if(!item)return; confirmDel('حذف المادة: '+item.name+'؟', `fbDel('inv/${fbKey(s)}/${item.id}');toast('تم الحذف','err')`); }
 function delItem(i){ delItemAt(i,ISITE); }
 
 function showItemForm(f){
@@ -1752,8 +1840,7 @@ function saveType(){
   closeModal(); toast('تم إضافة النوع');
 }
 function delType(k){
-  if(!confirm('حذف هذا النوع؟'))return;
-  fbDel('customTypes/'+k);
+  confirmDel('حذف هذا النوع نهائياً؟', `fbDel('customTypes/${k}')`);
 }
 
 // ============================================
@@ -2194,11 +2281,7 @@ async function saveUser(idx){
 async function delUser(i){
   const u = DB.users[i];
   if(!u) return;
-  if(!confirm('حذف المستخدم '+u.name+' نهائياً؟')) return;
-  // حذف من Realtime Database
-  logAct('حذف مستخدم', u.name+' — '+u.email);
-  fbDel('users/'+(u.uid||u.id));
-  toast('تم حذف المستخدم');
+  confirmDel('حذف المستخدم: '+u.name+'؟<br><small style="color:var(--rd)">هذا الإجراء لا يمكن التراجع عنه</small>', `(()=>{logAct('حذف مستخدم','${u.name} — ${u.email||''}');fbDel('users/${'${u.uid||u.id}'}');toast('تم حذف المستخدم')})()`);
   // ملاحظة: Firebase Auth يحتاج Admin SDK للحذف الكامل
 }
 
@@ -2559,12 +2642,8 @@ function renameSite(i){
   toast('تم التغيير');
 }
 function delSite(i){
-  if(!confirm('حذف الموقع؟')) return;
   const siteName = DB.sites[i];
-  const siteKey = window._sitesKeys && window._sitesKeys[siteName];
-  if(siteKey) fbDel('sites/'+siteKey);
-  fbDel('inv/'+fbKey(siteName));
-  toast('تم حذف المخزن','err');
+  confirmDel('حذف الموقع: '+siteName+' وجميع مخزونه؟', `(()=>{const siteKey=window._sitesKeys&&window._sitesKeys['${siteName}'];if(siteKey)fbDel('sites/'+siteKey);fbDel('inv/${fbKey(siteName||'')}');toast('تم حذف الموقع','err')})()`);
 }
 
 // ============================================
@@ -3374,10 +3453,7 @@ function delFieldSite(fsId){
   const fs=DB.fieldSites.find(x=>x.id===fsId);
   if(!fs) return;
   const camCount = fs.cameras ? fs.cameras.length : 0;
-  if(!confirm('حذف موقع "'+fs.name+'" وكل كاميراته ('+camCount+')؟')) return;
-  fbDel('fieldSites/'+fsId);
-  if(window._FSITE===fsId) window._FSITE='';
-  toast('تم الحذف','err');
+  confirmDel(`حذف موقع "${fs.name}" وجميع كاميراته (${camCount})؟`, `fbDel('fieldSites/${fsId}');if(window._FSITE==='${fsId}')window._FSITE='';toast('تم الحذف','err')`);
 }
 
 function openAddFieldCam(fsId){ showFieldCamForm(fsId,-1,null); }
@@ -3619,10 +3695,7 @@ function loadBoundaries(){
 }
 
 function deleteBoundary(id){
-  if(!confirm('حذف هذه الحدود؟')) return;
-  fbDel('boundaries/'+id);
-  loadBoundaries();
-  toast('تم الحذف');
+  confirmDel('حذف هذه الحدود نهائياً؟', `fbDel('boundaries/${id}');loadBoundaries();toast('تم الحذف')`);
 }
 
 // ── استيراد KML ──
@@ -4684,9 +4757,7 @@ function doneMaintain(id){
 }
 
 function delMaintain(id){
-  if(!confirm('حذف المهمة؟')) return;
-  fbDel('maintain/'+id);
-  toast('تم الحذف','err');
+  confirmDel('حذف مهمة الصيانة نهائياً؟', `fbDel('maintain/${id}');toast('تم الحذف','err')`);
 }
 
 
@@ -4793,12 +4864,7 @@ function uploadFaultPhoto(faultId, input){
 }
 
 function delFaultPhoto(faultId, idx){
-  if(!confirm('حذف الصورة؟')) return;
-  const f = DB.faults.find(x=>x.id===faultId);
-  const photos = (f?.photos||[]).filter((_,i)=>i!==idx);
-  fbUpdate('faults/'+faultId, {photos});
-  closeModal();
-  toast('تم الحذف','err');
+  confirmDel('حذف هذه الصورة نهائياً؟', `(()=>{const f=DB.faults.find(x=>x.id==='${faultId}');const photos=(f?.photos||[]).filter((_,i)=>i!==${idx});fbUpdate('faults/${faultId}',{photos});closeModal();toast('تم الحذف','err')})()`);
 }
 
 function viewPhoto(url){
@@ -4944,17 +5010,21 @@ function restoreBackup(input){
     try{
       const backup = JSON.parse(e.target.result);
       if(!backup.data){ toast('ملف غير صحيح','err'); return; }
-      if(!confirm('⚠️ هذا سيستبدل البيانات الحالية. هل أنت متأكد؟')) return;
-      // استعادة البيانات
-      const d = backup.data;
-      if(d.faults)    d.faults.forEach(f=>fbSet('faults/'+f.id,f));
-      if(d.moves)     d.moves.forEach(m=>fbSet('moves/'+m.id,m));
-      if(d.invoices)  d.invoices.forEach(i=>fbSet('invoices/'+i.id,i));
-      if(d.fieldSites) d.fieldSites.forEach(fs=>fbSet('fieldSites/'+fs.id,fs));
-      if(d.maintain)  d.maintain.forEach(t=>fbSet('maintain/'+t.id,t));
-      toast('✅ تم استعادة النسخة الاحتياطية');
-      logAct('استعادة نسخة احتياطية', backup.date);
-      setTimeout(()=>go(PAGE),2000);
+      confirmDel('⚠️ هذا سيستبدل البيانات الحالية بالنسخة الاحتياطية.<br><small style="color:var(--rd)">لا يمكن التراجع عن هذا الإجراء</small>',
+        `(()=>{const d=${JSON.stringify('__BACKUP__')};`
+        +`const b=JSON.parse(localStorage.getItem('__lastBackup__')||'{}');`
+        +`if(!b.data){toast('خطأ: البيانات غير موجودة','err');return;}`
+        +`const bd=b.data;`
+        +`if(bd.faults)bd.faults.forEach(f=>fbSet('faults/'+f.id,f));`
+        +`if(bd.moves)bd.moves.forEach(m=>fbSet('moves/'+m.id,m));`
+        +`if(bd.invoices)bd.invoices.forEach(i=>fbSet('invoices/'+i.id,i));`
+        +`if(bd.fieldSites)bd.fieldSites.forEach(fs=>fbSet('fieldSites/'+fs.id,fs));`
+        +`if(bd.maintain)bd.maintain.forEach(t=>fbSet('maintain/'+t.id,t));`
+        +`toast('✅ تم استعادة النسخة الاحتياطية');`
+        +`logAct('استعادة نسخة احتياطية',b.date);`
+        +`setTimeout(()=>go(PAGE),2000)})()`);
+      // حفظ البيانات مؤقتاً في localStorage ليصلها الـ callback
+      localStorage.setItem('__lastBackup__', e.target.result);
     }catch(e){ toast('خطأ في قراءة الملف','err'); }
   };
   reader.readAsText(file);
@@ -5659,12 +5729,24 @@ function syncOfflineQueue(){
 function cacheLocalDB(data){
   try{
     const mini = {
-      faults: data.faults||{},
-      notifs: data.notifs||{},
-      fieldSites: data.fieldSites||{},
-      maintain: data.maintain||{}
+      faults:     data.faults     ||{},
+      notifs:     data.notifs     ||{},
+      fieldSites: data.fieldSites ||{},
+      maintain:   data.maintain   ||{},
+      users:      data.users      ||{},
+      sites:      data.sites      ||[],
+      inv:        data.inv        ||{},
+      tasks:      data.tasks      ||{},
     };
-    localStorage.setItem('cctv_local_db', JSON.stringify(mini));
+    // تجنب تجاوز حد localStorage (5MB) — نحذف القديم إذا فشل
+    try{
+      localStorage.setItem('cctv_local_db', JSON.stringify(mini));
+    }catch(quota){
+      // إذا كان الحجم كبيراً، احفظ الأساسيات فقط
+      localStorage.setItem('cctv_local_db', JSON.stringify({
+        faults: data.faults||{}, fieldSites: data.fieldSites||{}, maintain: data.maintain||{}
+      }));
+    }
   }catch(e){}
 }
 
@@ -5672,13 +5754,23 @@ function cacheLocalDB(data){
 function loadLocalDB(){
   try{
     const local = JSON.parse(localStorage.getItem('cctv_local_db')||'{}');
-    if(local.faults) DB.faults = Object.values(local.faults).sort((a,b)=>(b._ts||0)-(a._ts||0));
-    if(local.notifs) DB.notifs = Object.values(local.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.faults)     DB.faults     = Object.values(local.faults).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.notifs)     DB.notifs     = Object.values(local.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0));
     if(local.fieldSites) DB.fieldSites = Object.values(local.fieldSites).map(fs=>({...fs,cameras:fs.cameras?Object.values(fs.cameras):[]}));
-    if(local.maintain) DB.maintain = Object.values(local.maintain);
+    if(local.maintain)   DB.maintain   = Object.values(local.maintain);
+    if(local.users)      DB.users      = Object.values(local.users);
+    if(local.sites)      DB.sites      = Array.isArray(local.sites) ? local.sites : Object.values(local.sites);
+    if(local.tasks)      DB.tasks      = Object.values(local.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.inv){
+      DB.inv={};
+      Object.entries(local.inv).forEach(([k,items])=>{
+        const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
+        DB.inv[siteName]=Object.values(items).filter(i=>!i.___init);
+      });
+    }
     toast('📴 عرض بيانات محفوظة — غير متصل','warn');
-    if(PAGE) go(PAGE);
-  }catch(e){}
+    if(PAGE) go(PAGE); else go('dashboard');
+  }catch(e){ console.warn('loadLocalDB error:',e); }
 }
 
 
@@ -5972,10 +6064,7 @@ function uploadDoc(){
 }
 
 function delDoc(id){
-  if(!confirm('حذف المستند نهائياً؟')) return;
-  fbDel('docs/'+id);
-  toast('تم الحذف','err');
-  pgDocs();
+  confirmDel('حذف المستند نهائياً؟', `fbDel('docs/${id}');toast('تم الحذف','err');pgDocs()`);
 }
 
 
@@ -6313,10 +6402,7 @@ function openEditSitePoint(siteId, ptId){
 }
 
 function delSitePoint(siteId, ptId){
-  if(!confirm('حذف النقطة وجميع عناصرها؟')) return;
-  fbDel('siteInventory/'+siteId+'/'+ptId);
-  toast('تم الحذف');
-  pgSiteInventory();
+  confirmDel('حذف النقطة وجميع عناصرها نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}');toast('تم الحذف');pgSiteInventory()`);
 }
 
 // ── إضافة عنصر جرد ──
@@ -6405,10 +6491,7 @@ function openEditSiteItem(siteId, ptId, itemId){
 }
 
 function delSiteItem(siteId, ptId, itemId){
-  if(!confirm('حذف هذا العنصر؟')) return;
-  fbDel('siteInventory/'+siteId+'/'+ptId+'/items/'+itemId);
-  toast('تم الحذف');
-  pgSiteInventory();
+  confirmDel('حذف هذا العنصر نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}/items/${itemId}');toast('تم الحذف');pgSiteInventory()`);
 }
 
 // ── تصدير الجرد ──
@@ -6746,9 +6829,7 @@ function updTask(taskId, status){
 }
 
 function delTask(taskId){
-  if(!confirm('حذف هذه المهمة؟')) return;
-  fbDel('tasks/'+taskId);
-  setTimeout(pgTasks,300);
+  confirmDel('حذف هذه المهمة نهائياً؟', `fbDel('tasks/${taskId}');setTimeout(pgTasks,300)`);
 }
 
 
@@ -7016,8 +7097,8 @@ function startNetDevicePlace(){
 }
 
 // ── حذف ──
-function delNetLink(id){ if(!confirm('حذف هذا الرابط؟')) return; fbDel('network/links/'+id); toast('تم الحذف'); loadNetworkLayer(); }
-function delNetDevice(id){ if(!confirm('حذف هذا الجهاز؟')) return; fbDel('network/devices/'+id); toast('تم الحذف'); loadNetworkLayer(); }
+function delNetLink(id){ confirmDel('حذف هذا الرابط نهائياً؟', `fbDel('network/links/${id}');toast('تم الحذف');loadNetworkLayer()`); }
+function delNetDevice(id){ confirmDel('حذف هذا الجهاز نهائياً؟', `fbDel('network/devices/${id}');toast('تم الحذف');loadNetworkLayer()`); }
 
 // ── تعديل رابط ──
 function editNetLink(id){
@@ -7327,12 +7408,23 @@ function localNotif(title, body){
   }
 }
 
+// ── زر الرجوع لأعلى الصفحة ──
+document.addEventListener('DOMContentLoaded',()=>{
+  const mainEl = document.getElementById('main');
+  const topBtn = document.getElementById('back-top-btn');
+  if(mainEl && topBtn){
+    mainEl.addEventListener('scroll',()=>{
+      topBtn.style.display = mainEl.scrollTop > 300 ? 'block' : 'none';
+    });
+  }
+});
+
 // ============================================
 //  🔍 البحث السريع في الشريط العلوي
 // ============================================
 function quickSearch(q){
   const res = $('qs-res');
-  q = q.trim();
+  q = (q||'').trim();
   if(!q){ res.style.display='none'; res.innerHTML=''; return; }
   const ql = q.toLowerCase();
 
@@ -7340,17 +7432,24 @@ function quickSearch(q){
 
   // بحث في الأعطال
   (DB.faults||[]).forEach(f=>{
-    if((f.location+f.pointId+f.reason+f.camSN).toLowerCase().includes(ql)){
-      results.push({ico:'⚠️', label:`عطل: ${f.location} — ${f.pointId}`, sub:f.reason, action:`go('faults')`});
+    const hay = ((f.location||'')+(f.pointId||'')+(f.reason||'')+(f.camSN||'')).toLowerCase();
+    if(hay.includes(ql)){
+      results.push({ico:'⚠️', label:`عطل: ${f.location} — ${f.pointId}`, sub:f.reason||'', action:`go('faults')`});
     }
   });
 
-  // بحث في المخزن
-  Object.values(DB.inv||{}).flat().forEach(it=>{
-    if((it.name+it.sn+(it.brand||'')).toLowerCase().includes(ql)){
-      results.push({ico:'📦', label:`مخزن: ${it.name}`, sub:`SN: ${it.sn||'—'}`, action:`go('inventory')`});
-    }
-  });
+  // بحث في المخزن — مع حماية من القيم الفارغة أو غير المهيأة
+  try{
+    Object.values(DB.inv||{}).forEach(siteItems=>{
+      (Array.isArray(siteItems)?siteItems:[]).forEach(it=>{
+        if(!it||!it.name) return;
+        const hay = ((it.name||'')+(it.sn||'')+(it.brand||'')).toLowerCase();
+        if(hay.includes(ql)){
+          results.push({ico:'📦', label:`مخزن: ${it.name}`, sub:`SN: ${it.sn||'—'}`, action:`go('inventory')`});
+        }
+      });
+    });
+  }catch(e){}
 
   // بحث في المستخدمين
   (DB.users||[]).forEach(u=>{
