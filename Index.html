@@ -616,8 +616,8 @@ window.onerror = function(msg, src, line, col, err) {
 // ============================================
 //  CONSTANTS
 // ============================================
-const ROLES = {manager:'مدير', engineer:'مهندس', technician:'فني', field:'صاعود', viewer:'السيد'};
-const RC    = {manager:'#f85149', engineer:'#58a6ff', technician:'#3fb950', field:'#d29922', viewer:'#bc8cff'};
+const ROLES = {manager:'مدير', admin:'إداري', engineer:'مهندس', technician:'فني', field:'صاعود', viewer:'السيد'};
+const RC    = {manager:'#f85149', admin:'#ff7b00', engineer:'#58a6ff', technician:'#3fb950', field:'#d29922', viewer:'#bc8cff'};
 
 const PERM_DEF = {
   inv      : 'عرض المخزن',
@@ -636,6 +636,7 @@ const PERM_DEF = {
 
 const DEF_PERMS = {
   manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1},
+  admin     : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1},
   engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1},
   technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1},
   field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1},
@@ -710,7 +711,7 @@ const allT = () => ({...BUILTIN,...DB.customTypes});
 
 function p(k){
   if(!CU) return false;
-  if(CU.role==='manager') return true;
+  if(CU.role==='manager' || CU.role==='admin') return true;
   const perms = CU.perms || DEF_PERMS[CU.role] || {};
   return !!perms[k];
 }
@@ -726,8 +727,18 @@ function canUserSeeFieldSite(site) {
 // فلترة المواقع الميدانية حسب صلاحيات المستخدم
 function getVisibleFieldSites() {
   if(!CU) return [];
-  if(CU.role === 'manager' || CU.role === 'viewer') return DB.fieldSites;
+  if(CU.role === 'manager' || CU.role === 'admin' || CU.role === 'viewer') return DB.fieldSites;
   return DB.fieldSites.filter(site => canUserSeeFieldSite(site));
+}
+
+// فلترة مواقع المخزن حسب صلاحيات المستخدم
+function getVisibleSites(){
+  if(!CU) return [];
+  if(CU.role==='manager'||CU.role==='admin'||CU.role==='engineer'||CU.role==='viewer') return DB.sites;
+  // فني / صاعود — يرى فقط مواقعه المصرح بها
+  const allowed = CU.perms?.allowedSites;
+  if(!allowed||!allowed.length) return [];
+  return DB.sites.filter(s=>allowed.includes(s));
 }
 
 // ============================================
@@ -1248,6 +1259,11 @@ function buildNav(){
 
 function go(page){
   PAGE=page; buildNav();
+  // إلغاء listener خريطة الفنيين عند مغادرة الصفحة
+  if(page!=='techmap' && window._techMapRef){
+    window._techMapRef.off();
+    window._techMapRef = null;
+  }
   // إظهار skeleton أثناء تحميل الصفحة
   $('page').innerHTML=`
     <div style="padding:16px;animation:fadeIn .3s">
@@ -1271,7 +1287,9 @@ function go(page){
 // ============================================
 function pgDash(){
   const ai=Object.values(DB.inv).flat();
-  const af=DB.faults.filter(f=>f.status!=='resolved');
+  // ✅ استخدام getVisibleFaults() لضمان الفلترة حسب الصلاحيات
+  const visibleFaults = getVisibleFaults();
+  const af = visibleFaults.filter(f=>f.status!=='resolved');
   const unread=DB.notifs.filter(n=>!n.read).length;
   const role=CU.role;
 
@@ -1291,7 +1309,7 @@ function pgDash(){
 
   let myTasksH='';
   if(role==='technician'||role==='field'){
-    const myFaults=af;
+    const myFaults=af; // مفلترة بالفعل حسب صلاحياته
     myTasksH=`
     <div class="panel">
       <div class="ptitle">📋 الأعطال النشطة — للمتابعة</div>
@@ -2219,11 +2237,12 @@ function showUserForm(u,idx){
   :`<div style="background:var(--bg);border-radius:7px;padding:9px 12px;font-size:17px;color:var(--mt);margin-bottom:12px">📧 ${esc(f.email||f.username||'')}</div>`}
   <div class="field"><label>الدور الوظيفي</label>
     <select id="urol">
-      <option value="manager"  ${f.role==='manager'  ?'selected':''}>مدير</option>
-      <option value="engineer" ${f.role==='engineer' ?'selected':''}>مهندس</option>
+      <option value="manager"   ${f.role==='manager'   ?'selected':''}>مدير</option>
+      <option value="admin"     ${f.role==='admin'     ?'selected':''}>🟠 إداري</option>
+      <option value="engineer"  ${f.role==='engineer'  ?'selected':''}>مهندس</option>
       <option value="technician"${f.role==='technician'?'selected':''}>فني</option>
-      <option value="field"    ${f.role==='field'    ?'selected':''}>صاعود</option>
-      <option value="viewer"   ${f.role==='viewer'   ?'selected':''}>👑 السيد</option>
+      <option value="field"     ${f.role==='field'     ?'selected':''}>صاعود</option>
+      <option value="viewer"    ${f.role==='viewer'    ?'selected':''}>👑 السيد</option>
     </select>
   </div>
   ${idx<0?`<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:7px;padding:9px 12px;font-size:12px;color:var(--bl);margin-bottom:12px">
@@ -2374,9 +2393,10 @@ function toggleUser(i){
 
 function openPerms(i){
   const u=DB.users[i];
-  if(u.role==='manager'){ toast('المدير لديه جميع الصلاحيات دائماً','warn'); return; }
+  if(u.role==='manager'||u.role==='admin'){ toast(ROLES[u.role]+' لديه جميع الصلاحيات دائماً','warn'); return; }
   const cur=u.perms||DEF_PERMS[u.role]||{};
   const isViewer=u.role==='viewer';
+  const isTechOrField = u.role==='technician'||u.role==='field';
   const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap'];
   const WRITE_PERMS =['addItem','updFault','importInv','users'];
   const PERM_LABELS ={
@@ -2394,19 +2414,33 @@ function openPerms(i){
       +'<label for="pm_'+k+'" style="flex:1;cursor:'+(locked?'default':'pointer')+';font-size:15px;'+(locked?'color:var(--mt)':'')+'">'
       +(PERM_LABELS[k]||k)+(locked?' 🔒':'')+'</label></div>';
   }
+
+  // قسم المواقع المصرح بها — للفني والصاعود فقط
+  const allowedSitesHTML = isTechOrField ? `
+    <div style="margin-top:14px;padding:12px;background:var(--bg);border-radius:10px;border:1px solid var(--br)">
+      <div style="font-size:13px;font-weight:700;color:var(--bl);margin-bottom:8px">📍 المواقع الميدانية المصرح بها</div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:8px">يرى الفني/الصاعود فقط أعطال ومعلومات هذه المواقع</div>
+      ${DB.fieldSites.map(fs=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;background:var(--sf);border-radius:6px;margin-bottom:4px">
+          <input type="checkbox" id="site_${fs.id}" ${(cur.allowedSites||[]).includes(fs.id)?'checked':''} style="width:16px;height:16px">
+          <label for="site_${fs.id}" style="font-size:14px;flex:1">${esc(fs.name)}</label>
+        </div>`).join('')}
+    </div>` : '';
+
   openModal(mhd('🔑 صلاحيات: '+esc(u.name)+' ('+ROLES[u.role]+')')
     +(isViewer
-      ?'<div style="background:#bc8cff18;border:1px solid #bc8cff44;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;color:#bc8cff">👑 <b>السيد</b> — يرى كل المواقع والبيانات. يمكنك هنا منحه صلاحيات التعديل أو سحبها.</div>'
-      :'<div style="font-size:14px;color:var(--mt);margin-bottom:14px">صلاحيات <b style=\"color:var(--tx)\">'+ROLES[u.role]+'</b> — يمكنك تخصيصها بشكل مستقل.</div>')
-    +'<div style="font-size:13px;font-weight:700;color:var(--gn);margin-bottom:6px">👁️ صلاحيات العرض والمشاهدة</div>'
+      ?'<div style="background:#bc8cff18;border:1px solid #bc8cff44;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;color:#bc8cff">👑 <b>السيد</b> — يرى كل المواقع والبيانات.</div>'
+      :'<div style="font-size:14px;color:var(--mt);margin-bottom:14px">صلاحيات <b style=\"color:var(--tx)\">'+ROLES[u.role]+'</b> — يمكنك تخصيصها.</div>')
+    +'<div style="font-size:13px;font-weight:700;color:var(--gn);margin-bottom:6px">👁️ صلاحيات العرض</div>'
     +READ_PERMS.map(k=>permRow(k)).join('')
-    +'<div style="font-size:13px;font-weight:700;color:var(--yl);margin:12px 0 6px">⚙️ صلاحيات الإجراءات (إضافة / تعديل / حذف)</div>'
+    +'<div style="font-size:13px;font-weight:700;color:var(--yl);margin:12px 0 6px">⚙️ صلاحيات الإجراءات</div>'
     +WRITE_PERMS.map(k=>permRow(k)).join('')
+    +allowedSitesHTML
     +'<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">'
     +'<button class="btn btn-sm btn-gy" onclick="resetPerms('+i+')">↩️ إعادة للافتراضي</button>'
     +'<button class="btn btn-sm" style="background:#3fb95022;border:1px solid #3fb95044;color:var(--gn)" onclick="grantAll('+i+')">✅ منح الكل</button>'
     +'<button class="btn btn-sm btn-rd" onclick="revokeAll('+i+')">⛔ سحب الكل</button></div>'
-    +mft('💾 حفظ الصلاحيات','savePerms('+i+')'));
+    +mft('💾 حفظ الصلاحيات','savePerms('+i+')', 'btn-gn'));
 }
 
 function savePerms(i){
@@ -2416,7 +2450,14 @@ function savePerms(i){
     const el=document.getElementById('pm_'+k);
     perms[k]=k==='notifs'?true:(el?el.checked:false);
   });
-  const u2=DB.users[i]; if(u2) fbUpdate('users/'+(u2.uid||u2.id),{perms});
+  // حفظ المواقع الميدانية المصرح بها للفني والصاعود
+  const u2=DB.users[i];
+  if(u2&&(u2.role==='technician'||u2.role==='field')){
+    perms.allowedSites = DB.fieldSites
+      .filter(fs=>document.getElementById('site_'+fs.id)?.checked)
+      .map(fs=>fs.id);
+  }
+  if(u2) fbUpdate('users/'+(u2.uid||u2.id),{perms});
   closeModal(); toast('✅ تم حفظ الصلاحيات');
 }
 function resetPerms(i){ const u=DB.users[i]; if(u) fbUpdate('users/'+(u.uid||u.id),{perms:null}); closeModal(); toast('تم إعادة الصلاحيات للافتراضي'); }
@@ -4325,8 +4366,9 @@ function doSearch(q){
   q=q.toLowerCase();
   const res=[];
 
-  // البحث في المخزن
-  DB.sites.forEach(site=>{
+  // البحث في المخزن — فقط المواقع المصرح بها
+  const visibleSites = getVisibleSites();
+  visibleSites.forEach(site=>{
     (DB.inv[site]||[]).forEach(it=>{
       if([it.name,it.serial,it.type,it.currentSite].some(x=>x&&x.toLowerCase().includes(q))){
         res.push({type:'inv',icon:'📦',title:it.name,sub:it.type+' — '+it.currentSite,badge:it.status,id:it.id});
@@ -4334,29 +4376,33 @@ function doSearch(q){
     });
   });
 
-  // البحث في الأعطال
-  DB.faults.forEach(f=>{
+  // البحث في الأعطال — فقط المصرح بها
+  getVisibleFaults().forEach(f=>{
     if([f.location,f.pointId,f.reason,f.desc,f.by].some(x=>x&&x.toLowerCase().includes(q))){
       res.push({type:'fault',icon:'⚠️',title:f.location+' — '+f.pointId,sub:f.reason,badge:f.status,id:f.id});
     }
   });
 
-  // البحث في الحركات
-  DB.moves.forEach(m=>{
-    if([m.name,m.from,m.to,m.by].some(x=>x&&x.toLowerCase().includes(q))){
-      res.push({type:'move',icon:'🔄',title:m.name,sub:m.from+' ← '+m.to,badge:m.date,id:m.id});
-    }
-  });
+  // البحث في الحركات — فقط إذا لديه صلاحية moves
+  if(p('moves')){
+    DB.moves.forEach(m=>{
+      if([m.name,m.from,m.to,m.by].some(x=>x&&x.toLowerCase().includes(q))){
+        res.push({type:'move',icon:'🔄',title:m.name,sub:m.from+' ← '+m.to,badge:m.date,id:m.id});
+      }
+    });
+  }
 
-  // البحث في الفواتير
-  DB.invoices.forEach(inv=>{
-    if([inv.supplier,inv.num,inv.site,inv.notes].some(x=>x&&x.toLowerCase().includes(q))){
-      res.push({type:'invoice',icon:'🧾',title:inv.supplier,sub:'فاتورة رقم: '+inv.num,badge:inv.date,id:inv.id});
-    }
-  });
+  // البحث في الفواتير — فقط إذا لديه صلاحية invoices
+  if(p('invoices')){
+    DB.invoices.forEach(inv=>{
+      if([inv.supplier,inv.num,inv.site,inv.notes].some(x=>x&&x.toLowerCase().includes(q))){
+        res.push({type:'invoice',icon:'🧾',title:inv.supplier,sub:'فاتورة رقم: '+inv.num,badge:inv.date,id:inv.id});
+      }
+    });
+  }
 
-  // البحث في المواقع الميدانية والكاميرات
-  DB.fieldSites.forEach(fs=>{
+  // البحث في المواقع الميدانية — فقط المصرح بها
+  getVisibleFieldSites().forEach(fs=>{
     if(fs.name.toLowerCase().includes(q)||fs.desc?.toLowerCase().includes(q)){
       res.push({type:'field',icon:'📍',title:fs.name,sub:fs.desc||'',badge:fs.cameras.length+' كاميرا',id:fs.id});
     }
@@ -4506,14 +4552,15 @@ function pgActLog(){
 //  📊 التقارير والإحصائيات + ⏱️ SLA
 // ═══════════════════════════════════════════════════════
 function pgReports(){
-  // ── إحصائيات الأعطال ──
-  const totalFaults = DB.faults.length;
-  const openF   = DB.faults.filter(f=>f.status==='open').length;
-  const resolvedF = DB.faults.filter(f=>f.status==='resolved').length;
-  const highF   = DB.faults.filter(f=>f.priority==='high').length;
+  // ✅ استخدام الأعطال المصرح بها فقط
+  const visibleFaults = getVisibleFaults();
+  const totalFaults = visibleFaults.length;
+  const openF      = visibleFaults.filter(f=>f.status==='open').length;
+  const resolvedF  = visibleFaults.filter(f=>f.status==='resolved').length;
+  const highF      = visibleFaults.filter(f=>f.priority==='high').length;
 
   // ── SLA: حساب متوسط وقت الحل ──
-  const resolvedWithTime = DB.faults.filter(f=>f.status==='resolved'&&f.resolvedAt&&f._ts&&f.date);
+  const resolvedWithTime = visibleFaults.filter(f=>f.status==='resolved'&&f.resolvedAt&&f._ts&&f.date);
   let avgSLA = 0;
   if(resolvedWithTime.length){
     const total = resolvedWithTime.reduce((sum,f)=>{
@@ -4526,20 +4573,20 @@ function pgReports(){
 
   // ── أكثر المواقع أعطالاً ──
   const byLoc = {};
-  DB.faults.forEach(f=>{ byLoc[f.location]=(byLoc[f.location]||0)+1; });
+  visibleFaults.forEach(f=>{ byLoc[f.location]=(byLoc[f.location]||0)+1; });
   const topLocs = Object.entries(byLoc).sort((a,b)=>b[1]-a[1]).slice(0,5);
 
   // ── أكثر الأسباب تكراراً ──
   const byReason = {};
-  DB.faults.forEach(f=>{ byReason[f.reason]=(byReason[f.reason]||0)+1; });
+  visibleFaults.forEach(f=>{ byReason[f.reason]=(byReason[f.reason]||0)+1; });
   const topReasons = Object.entries(byReason).sort((a,b)=>b[1]-a[1]).slice(0,5);
 
-  // ── إحصائيات المخزن ──
+  // ── إحصائيات المخزن — فقط المواقع المصرح بها ──
   let totalItems=0, deployedItems=0, warehouseItems=0;
-  DB.sites.forEach(s=>{ (DB.inv[s]||[]).forEach(it=>{ totalItems++; if(it.status==='deployed') deployedItems++; if(it.status==='warehouse') warehouseItems++; }); });
+  getVisibleSites().forEach(s=>{ (DB.inv[s]||[]).forEach(it=>{ totalItems++; if(it.status==='deployed') deployedItems++; if(it.status==='warehouse') warehouseItems++; }); });
 
-  // ── إحصائيات الكاميرات الميدانية ──
-  const totalCams = DB.fieldSites.reduce((s,fs)=>s+fs.cameras.length,0);
+  // ── إحصائيات الكاميرات الميدانية — فقط المواقع المصرح بها ──
+  const totalCams = getVisibleFieldSites().reduce((s,fs)=>s+fs.cameras.length,0);
 
   $('page').innerHTML=`
   <div class="ph">
@@ -5299,49 +5346,58 @@ function dismissGPSDialog(){
 
 // صفحة مواقع الفنيين للمدير
 function pgTechMap(){
-  if(CU.role !== 'manager'){ $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ للمدير فقط</div>'; return; }
+  if(CU.role!=='manager'&&CU.role!=='admin'&&CU.role!=='engineer'){
+    $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ غير مصرح</div>'; return;
+  }
 
   $('page').innerHTML=`
-  <div class="ph"><div class="pt">🗺️ مواقع الفنيين</div>
-    <button class="btn btn-sm btn-gy" onclick="pgTechMap()">🔄 تحديث</button>
+  <div class="ph"><div class="pt">🗺️ مواقع الفنيين — مباشر</div>
+    <span style="font-size:12px;color:var(--gn);margin-top:2px">🟢 يتحدث تلقائياً</span>
   </div>
   <div id="tech-locations" style="padding:0 16px">
     <div style="text-align:center;color:var(--mt);padding:20px">⏳ جار التحميل...</div>
   </div>`;
 
-  // جلب مواقع الفنيين من Firebase
-  FBDB.ref('cctv/techLocations').once('value').then(snap=>{
-    const locs = snap.val();
+  // إلغاء أي listener سابق
+  if(window._techMapRef) window._techMapRef.off();
+
+  // listener بالوقت الحقيقي
+  window._techMapRef = FBDB.ref('cctv/techLocations');
+  window._techMapRef.on('value', snap=>{
     const el = document.getElementById('tech-locations');
+    if(!el) { window._techMapRef.off(); return; } // الصفحة تغيرت
+    const locs = snap.val();
     if(!locs||!Object.keys(locs).length){
       el.innerHTML='<div style="text-align:center;padding:40px;color:var(--mt)">لا فنيين نشطين الآن</div>';
       return;
     }
     const now = Date.now();
-    el.innerHTML = Object.values(locs).map(loc=>{
-      const mins = Math.round((now - (loc._ts||0))/(1000*60));
-      const isRecent = mins < 10;
-      return `
-      <div class="panel" style="margin-bottom:10px;border-right:3px solid ${isRecent?'var(--gn)':'var(--mt)'}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div>
-            <div style="font-weight:700">${esc(loc.name)}</div>
-            <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
+    el.innerHTML = Object.values(locs)
+      .sort((a,b)=>(b._ts||0)-(a._ts||0))
+      .map(loc=>{
+        const mins = Math.round((now - (loc._ts||0))/(1000*60));
+        const isRecent = mins < 10;
+        return `
+        <div class="panel" style="margin-bottom:10px;border-right:3px solid ${isRecent?'var(--gn)':'var(--mt)'}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div>
+              <div style="font-weight:700">${esc(loc.name)}</div>
+              <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
+            </div>
+            <span style="font-size:11px;background:${isRecent?'#3fb95022':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
+              ${isRecent?'🟢 نشط':'⚫ منذ '+mins+' د'}
+            </span>
           </div>
-          <span style="font-size:11px;background:${isRecent?'#3fb95022':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
-            ${isRecent?'🟢 نشط':'⚫ منذ '+mins+' د'}
-          </span>
-        </div>
-        <div style="font-size:12px;color:var(--mt);margin-bottom:8px">
-          📍 ${loc.lat?.toFixed(5)}, ${loc.lng?.toFixed(5)}
-          ${loc.accuracy?` | دقة: ${loc.accuracy}م`:''}
-        </div>
-        <div style="font-size:11px;color:var(--mt);margin-bottom:8px">🕐 آخر تحديث: ${esc(loc.updatedAt||'')}</div>
-        <a href="https://maps.google.com/?q=${loc.lat},${loc.lng}" target="_blank" class="btn btn-sm btn-bl">
-          🗺️ فتح في الخريطة
-        </a>
-      </div>`;
-    }).join('');
+          <div style="font-size:12px;color:var(--mt);margin-bottom:8px">
+            📍 ${loc.lat?.toFixed(5)}, ${loc.lng?.toFixed(5)}
+            ${loc.accuracy?` | دقة: ${loc.accuracy}م`:''}
+          </div>
+          <div style="font-size:11px;color:var(--mt);margin-bottom:8px">🕐 آخر تحديث: ${esc(loc.updatedAt||'')}</div>
+          <a href="https://maps.google.com/?q=${loc.lat},${loc.lng}" target="_blank" class="btn btn-sm btn-bl">
+            🗺️ فتح في الخريطة
+          </a>
+        </div>`;
+      }).join('');
   });
 }
 
@@ -5780,14 +5836,26 @@ function loadLocalDB(){
 // ═══════════════════════════════════════════════════════
 function canAccessFault(f){
   if(!CU) return false;
-  if(CU.role === 'manager') return true;
-  if(CU.role === 'viewer') return true; // السيد يرى كل شيء لكن لا يعدل
-  // عطل بدون موقع ميداني — يراه من لديه صلاحية faults
-  if(!f.fieldSiteId) return p('faults');
-  // عطل مرتبط بموقع — يراه فقط من لديه وصول للموقع
-  const site = DB.fieldSites.find(s => s.id === f.fieldSiteId);
-  if(!site) return false;
-  return canUserSeeFieldSite(site);
+  if(CU.role==='manager' || CU.role==='admin') return true;
+  if(CU.role==='viewer') return true; // السيد يرى كل شيء لكن لا يعدل
+
+  // عطل مرتبط بموقع ميداني — يراه فقط من لديه وصول لذلك الموقع
+  if(f.fieldSiteId){
+    const site = DB.fieldSites.find(s => s.id === f.fieldSiteId);
+    if(!site) return false;
+    return canUserSeeFieldSite(site);
+  }
+
+  // عطل بدون موقع ميداني (موقع مخزن عادي)
+  // الفني والصاعود يرون فقط أعطال المواقع المصرح لهم
+  if(CU.role==='technician' || CU.role==='field'){
+    if(!CU.perms?.allowedSites) return false; // إذا ما في مواقع محددة لا يرى شيء
+    const allowed = CU.perms.allowedSites; // مصفوفة أسماء المواقع المصرح بها
+    return allowed.includes(f.location);
+  }
+
+  // المهندس يرى كل الأعطال
+  return p('faults');
 }
 
 function getVisibleFaults(){
@@ -7357,11 +7425,11 @@ async function requestNotifPermission(){
     const perm = await Notification.requestPermission();
     if(perm !== 'granted'){ toast('الإشعارات غير مسموحة','warn'); return; }
     toast('⏳ جار تفعيل الإشعارات...','warn');
-    // تسجيل service worker من المسار الصحيح داخل المجلد
     let swReg = null;
     try {
       swReg = await navigator.serviceWorker.register('/Cctv-manger/firebase-messaging-sw.js', {scope: '/Cctv-manger/'});
       await navigator.serviceWorker.ready;
+      window._swReg = swReg;
     } catch(swErr) {
       console.warn('SW register failed, using default:', swErr);
     }
@@ -7369,17 +7437,33 @@ async function requestNotifPermission(){
     if(swReg) tokenOptions.serviceWorkerRegistration = swReg;
     const token = await FBMSG.getToken(tokenOptions);
     if(token && CU){
-      await fbSet('users/'+CU.uid+'/fcmToken', token);
+      await fbSet('users/'+(CU.uid||CU.id)+'/fcmToken', token);
+      // حفظ التوكن محلياً للمقارنة لاحقاً
+      localStorage.setItem('fcm_token', token);
       toast('✅ الإشعارات مفعّلة');
       console.log('✅ FCM Token:', token);
     } else {
-      toast('❌ فشل الحصول على التوكن','err');
+      toast('❌ فشل الحصول على التوكن — تأكد من إعدادات الإشعارات','err');
       console.warn('No token or CU:', token, CU);
     }
   } catch(e) {
-    toast('❌ خطأ: '+e.message,'err');
+    toast('❌ خطأ FCM: '+e.message,'err');
     console.error('FCM error:', e);
   }
+}
+
+// تجديد FCM Token تلقائياً عند تغييره
+if(FBMSG){
+  FBMSG.onTokenRefresh(async ()=>{
+    try{
+      const newToken = await FBMSG.getToken({ vapidKey: VAPID_KEY });
+      if(newToken && CU){
+        await fbSet('users/'+(CU.uid||CU.id)+'/fcmToken', newToken);
+        localStorage.setItem('fcm_token', newToken);
+        console.log('🔄 FCM Token refreshed:', newToken);
+      }
+    }catch(e){ console.warn('Token refresh error:', e); }
+  });
 }
 
 // استقبال الإشعارات عندما التطبيق مفتوح
