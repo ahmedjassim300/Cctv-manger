@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-title" content="CCTV Manager">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
-:root{--bg:#0d1117;--sf:#161b22;--br:#30363d;--tx:#e6edf3;--mt:#7d8590;--bl:#58a6ff;--gn:#3fb950;--rd:#f85149;--yl:#d29922;--pu:#bc8cff;}
+:root{--bg:#f0f2f5;--sf:#ffffff;--br:#d0d7de;--tx:#1f2328;--mt:#656d76;--bl:#0969da;--gn:#1a7f37;--rd:#d1242f;--yl:#9a6700;--pu:#8250df;}
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;font-size:17px;}
 body { overflow-x: hidden; font-size: 17px; }
@@ -261,18 +261,6 @@ body { overflow-x: hidden; font-size: 17px; }
 .dash-tile .t-badge { position: absolute; top: 10px; left: 10px; font-size: 11px; background: var(--rd); color: #fff; border-radius: 10px; padding: 2px 7px; font-weight: 700; }
 
 /* ===== Light Theme ===== */
-body.light {
-    --bg: #f0f2f5;
-    --sf: #ffffff;
-    --br: #d0d7de;
-    --tx: #1c2128;
-    --mt: #636c76;
-    --bl: #0969da;
-    --gn: #1a7f37;
-    --rd: #cf222e;
-    --yl: #9a6700;
-    --pu: #8250df;
-}
 
 .sb-bot { flex-shrink: 0; }
 .sb-bot .btn { padding: 6px 12px; font-size: 12px; }
@@ -466,17 +454,16 @@ tr:hover td{background:rgba(255,255,255,.025);}
     <!-- وسط: شعار -->
     <div class="logo" style="font-size:17px;font-weight:700;color:var(--bl);flex-shrink:0">📹 CCTV</div>
     <!-- وسط: بحث سريع -->
-    <div id="qs-wrap" style="flex:1.5;max-width:220px;position:relative">
+    <div id="qs-wrap" style="flex:1.5;max-width:220px;position:relative;z-index:9100">
       <input id="qs-inp" placeholder="🔍 بحث سريع..." autocomplete="off"
         style="width:100%;padding:6px 10px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px;font-family:inherit;outline:none;box-sizing:border-box"
-        oninput="quickSearch(this.value)" onblur="setTimeout(()=>$('qs-res').innerHTML='',200)">
-      <div id="qs-res" style="position:absolute;top:36px;right:0;left:0;background:var(--sf);border:1px solid var(--br);border-radius:10px;z-index:9000;max-height:240px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div>
+        oninput="quickSearch(this.value)" onblur="setTimeout(()=>{$('qs-res').style.display='none';$('qs-res').innerHTML=''},250)">
+      <div id="qs-res" style="position:fixed;top:52px;background:var(--sf);border:1px solid var(--br);border-radius:10px;z-index:9100;width:280px;max-height:320px;overflow-y:auto;display:none;box-shadow:0 8px 32px rgba(0,0,0,.5)"></div>
     </div>
     <!-- يمين: أزرار -->
     <div style="display:flex;align-items:center;gap:4px;flex:1;justify-content:flex-end">
       <span id="online-ind" style="font-size:13px">🟢</span>
       <button onclick="go('dashboard')" style="background:none;border:none;cursor:pointer;font-size:20px;padding:4px 5px" title="لوحة التحكم">🏠</button>
-      <button id="theme-btn" onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;font-size:20px;padding:4px 5px" title="تغيير المظهر">🌙</button>
       <button onclick="openAppMenu()" style="background:none;border:none;cursor:pointer;font-size:22px;padding:4px 6px;color:var(--tx)" title="القائمة">☰</button>
     </div>
   </div>
@@ -635,12 +622,12 @@ const PERM_DEF = {
 };
 
 const DEF_PERMS = {
-  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1},
-  admin     : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1},
-  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1},
-  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1},
-  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1},
-  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1},
+  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1},
+  admin     : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:1,downloadDocs:1},
+  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
+  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
+  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0},
 };
 
 const FAULT_ST = [
@@ -918,7 +905,7 @@ function doLogout(){
 let _loginAttempted = false;
 let _isLoggingOut = false;
 // تحميل الثيم عند البدء
-loadTheme();
+// وضع مضيء دائماً — لا حاجة لتحميل الثيم
 loadBranding();
 
 FBAUTH.onAuthStateChanged(function(fbUser){
@@ -1026,9 +1013,14 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     if(!localStorage.getItem('notif_perm_asked')){
       setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 2000);
     }
-    // طلب إذن GPS — مرة واحدة فقط
+    // طلب إذن GPS — مرة واحدة فقط + تشغيل تلقائي للفنيين
     if(!localStorage.getItem('gps_perm_asked')){
       setTimeout(()=>{ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 4000);
+    } else if((CU.role==='technician'||CU.role==='field') && _gpsWatcher===null){
+      // إذا سبق منح الإذن، شغّل التتبع مباشرة بدون طلب
+      setTimeout(()=>{
+        if(navigator.geolocation) startGPSTracking();
+      }, 2000);
     }
 
     // تحقق من الصيانة المتأخرة
@@ -2139,32 +2131,45 @@ function doUpdFault(ri, status){
 // ============================================
 //  NOTIFICATIONS
 // ============================================
-function pgNotifs(){
-  const unread=DB.notifs.filter(n=>!n.read).length;
+function pgNotifs(showAll=false){
+  const unread=DB.notifs.filter(n=>!n.read);
+  const displayed = showAll ? DB.notifs : unread;
   $('page').innerHTML=`
   <div class="ph">
-    <div><div class="pt">🔔 الإشعارات</div>${unread?`<div class="ps">${unread} غير مقروءة</div>`:''}</div>
+    <div><div class="pt">🔔 الإشعارات</div>${unread.length?`<div class="ps">${unread.length} غير مقروءة</div>`:''}</div>
     <div style="display:flex;gap:9px;flex-wrap:wrap">
-      ${unread?`<button class="btn btn-gy" onclick="markAllN()">✓ تحديد الكل</button>`:''}
-      ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openSendN()">📢 إرسال إشعار</button>`:''}
+      ${unread.length?`<button class="btn btn-gy" onclick="markAllN()">✓ قراءة الكل</button>`:''}
+      <button class="btn btn-gy" onclick="pgNotifs(${!showAll})">${showAll?'عرض غير المقروءة فقط':'📋 عرض الكل'}</button>
+      ${CU.role==='manager'||CU.role==='admin'?`<button class="btn btn-bl" onclick="openSendN()">📢 إرسال إشعار</button>`:''}
     </div>
   </div>
-  ${DB.notifs.length===0?`<div class="panel" style="text-align:center;padding:50px;color:var(--mt)">لا إشعارات</div>`:
-    DB.notifs.map((n,i)=>`
+  ${displayed.length===0?`<div class="panel" style="text-align:center;padding:50px;color:var(--mt)">
+    ${showAll?'لا إشعارات':'✅ لا إشعارات غير مقروءة'}
+  </div>`:
+    displayed.map((n,i)=>`
     <div class="ni${n.read?' rd':''}"
       style="border-right-color:${n.type==='error'?'var(--rd)':n.type==='info'?'var(--bl)':'var(--gn)'}"
-      onclick="markN(${i})">
+      onclick="markN(${DB.notifs.indexOf(n)})">
       <div style="flex:1">
         <div style="font-weight:${n.read?400:700}">${esc(n.text)}</div>
         <div style="font-size:11px;color:var(--mt);margin-top:3px">${esc(n.time)}</div>
       </div>
       ${!n.read?`<div style="width:8px;height:8px;border-radius:50%;background:var(--bl);flex-shrink:0"></div>`:''}
-      <button onclick="event.stopPropagation();delN(${i})" style="background:none;border:none;color:var(--mt);cursor:pointer;font-size:19px;padding:0;line-height:1">×</button>
+      <button onclick="event.stopPropagation();delN(${DB.notifs.indexOf(n)})" style="background:none;border:none;color:var(--mt);cursor:pointer;font-size:19px;padding:0;line-height:1">×</button>
     </div>`).join('')}`;
 }
 
-function markN(i){ if(DB.notifs[i]) fbUpdate('notifs/'+DB.notifs[i].id,{read:true}); }
-function markAllN(){ DB.notifs.forEach(n=>fbUpdate('notifs/'+n.id,{read:true})); }
+function markN(i){
+  if(DB.notifs[i]){
+    fbUpdate('notifs/'+DB.notifs[i].id,{read:true});
+    // إخفاء الإشعار فوراً من الواجهة بعد القراءة
+    setTimeout(pgNotifs, 300);
+  }
+}
+function markAllN(){
+  DB.notifs.filter(n=>!n.read).forEach(n=>fbUpdate('notifs/'+n.id,{read:true}));
+  setTimeout(pgNotifs, 300);
+}
 function delN(i){ if(DB.notifs[i]) fbDel('notifs/'+DB.notifs[i].id); }
 function openSendN(){
   openModal(`${mhd('📢 إرسال إشعار للفريق')}
@@ -2393,16 +2398,22 @@ function toggleUser(i){
 
 function openPerms(i){
   const u=DB.users[i];
-  if(u.role==='manager'||u.role==='admin'){ toast(ROLES[u.role]+' لديه جميع الصلاحيات دائماً','warn'); return; }
+  if(u.role==='manager'){ toast('المدير لديه جميع الصلاحيات دائماً','warn'); return; }
+  // صلاحيات الإداري يغيرها المدير فقط
+  if(u.role==='admin' && CU.role!=='manager'){
+    toast('⛔ فقط المدير يستطيع تغيير صلاحيات الإداري','err'); return;
+  }
+  if(CU.role==='admin') return; // الإداري لا يغير صلاحيات أحد
   const cur=u.perms||DEF_PERMS[u.role]||{};
   const isViewer=u.role==='viewer';
   const isTechOrField = u.role==='technician'||u.role==='field';
-  const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap'];
+  const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','docs','downloadDocs'];
   const WRITE_PERMS =['addItem','updFault','importInv','users'];
   const PERM_LABELS ={
     inv:'عرض المخزن', faults:'عرض الأعطال', notifs:'الإشعارات',
     invoices:'عرض الفواتير', moves:'عرض حركة المواد', sites:'عرض المواقع والمخازن',
     types:'عرض أنواع المواد', fieldmap:'خريطة المواقع الميدانية',
+    docs:'عرض المستندات', downloadDocs:'تحميل المستندات',
     addItem:'إضافة وتعديل المواد', updFault:'تحديث حالة الأعطال',
     importInv:'استيراد الفواتير', users:'إدارة المستخدمين'
   };
@@ -6028,12 +6039,22 @@ function sendChat(){
 //  📁 إدارة المستندات والعقود
 // ═══════════════════════════════════════════════════════
 function pgDocs(){
+  // فقط المدير والإداري ومن يمنحهم المدير صلاحية
+  const canViewDocs = CU.role==='manager'||CU.role==='admin'||CU.perms?.docs;
+  if(!canViewDocs){
+    $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">🔒</div><div style="margin-top:12px">غير مصرح بعرض المستندات</div></div>';
+    return;
+  }
+  const canDownload = CU.role==='manager'||CU.role==='admin'||CU.perms?.downloadDocs;
+  const canUpload   = CU.role==='manager'||CU.role==='admin';
+  const canDelete   = CU.role==='manager'||CU.role==='admin';
+
   FBDB.ref('cctv/docs').once('value').then(snap=>{
     const docs = snap.val() ? Object.values(snap.val()).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     $('page').innerHTML=`
     <div class="ph">
       <div class="pt">📁 المستندات والعقود</div>
-      ${p('inv')||CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddDoc()">+ رفع مستند</button>`:''}
+      ${canUpload?`<button class="btn btn-bl" onclick="openAddDoc()">+ رفع مستند</button>`:''}
     </div>
     <div style="padding:0 16px">
       ${docs.length?`
@@ -6043,14 +6064,17 @@ function pgDocs(){
         ).join('')}
       </div>
       <div id="docs-list">
-        ${renderDocsList(docs)}
+        ${renderDocsList(docs, canDownload, canDelete)}
       </div>`
       :'<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">📁</div><div style="margin-top:12px">لا مستندات بعد</div></div>'}
     </div>`;
   });
 }
 
-function renderDocsList(docs){
+function renderDocsList(docs, canDownload, canDelete){
+  // دعم استدعاء بدون معاملات (من filterDocs)
+  if(canDownload===undefined) canDownload = CU.role==='manager'||CU.role==='admin'||CU.perms?.downloadDocs;
+  if(canDelete===undefined)   canDelete   = CU.role==='manager'||CU.role==='admin';
   const icons = {عقد:'📄',تقرير:'📊',تصريح:'📋',صورة:'🖼️',أخرى:'📎'};
   return docs.map(d=>`
   <div class="panel" style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
@@ -6061,8 +6085,8 @@ function renderDocsList(docs){
       ${d.notes?`<div style="font-size:11px;color:var(--mt)">${esc(d.notes)}</div>`:''}
     </div>
     <div style="display:flex;gap:5px">
-      <a href="${d.url}" download="${esc(d.name)}" class="btn btn-sm btn-bl">⬇️</a>
-      ${CU.role==='manager'?`<button class="btn btn-sm btn-rd" onclick="delDoc('${d.id}')">🗑</button>`:''}
+      ${canDownload?`<a href="${d.url}" target="_blank" download="${esc(d.name)}" class="btn btn-sm btn-bl">⬇️</a>`:'<span style="font-size:11px;color:var(--mt);padding:4px 8px">👁️ عرض فقط</span>'}
+      ${canDelete?`<button class="btn btn-sm btn-rd" onclick="delDoc('${d.id}')">🗑</button>`:''}
     </div>
   </div>`).join('');
 }
@@ -6193,14 +6217,8 @@ function openUserMenu(){
   <div style="display:flex;flex-direction:column;gap:8px">
     <button onclick="closeModal();openQRScanner()" class="btn btn-gy btn-fw" style="justify-content:flex-start;gap:12px;font-size:17px">📸 مسح QR</button>
     <button onclick="closeModal();requestNotifPermission()" class="btn btn-gy btn-fw" style="justify-content:flex-start;gap:12px;font-size:17px">🔔 تفعيل الإشعارات</button>
-    <button onclick="closeModal();toggleTheme()" class="btn btn-gy btn-fw" style="justify-content:flex-start;gap:12px;font-size:17px" id="theme-menu-btn">🌙 تغيير المظهر</button>
     <button onclick="closeModal();doLogout()" class="btn btn-rd btn-fw" style="justify-content:flex-start;gap:12px;font-size:17px;margin-top:8px">🚪 تسجيل الخروج</button>
   </div>`);
-  // تحديث نص الثيم
-  setTimeout(()=>{
-    const btn = document.getElementById('theme-menu-btn');
-    if(btn) btn.textContent = (document.body.classList.contains('light')?'🌙 وضع داكن':'☀️ وضع مضيء');
-  },50);
 }
 
 
@@ -6566,21 +6584,45 @@ function delSiteItem(siteId, ptId, itemId){
 function exportSiteInventory(siteId, siteName){
   FBDB.ref('cctv/siteInventory/'+siteId).once('value').then(snap=>{
     const points = snap.val() ? Object.values(snap.val()) : [];
-    let csv = '\uFEFF';
-    csv += 'الموقع,النقطة,العنصر,الكمية,الرقم التسلسلي,الحالة,ملاحظات,التاريخ\n';
+
+    // بناء مصفوفة البيانات
+    const headers = ['الموقع','النقطة','العنصر','الكمية','الرقم التسلسلي','الحالة','ملاحظات','التاريخ'];
+    const rows = [headers];
     points.forEach(pt=>{
       const items = pt.items ? Object.values(pt.items) : [];
       items.forEach(item=>{
-        csv += [siteName, pt.name, item.name, item.qty||1, item.serial||'', item.status||'', item.notes||'', item.date||'']
-          .map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')+'\n';
+        rows.push([
+          siteName, pt.name||'', item.name||'', item.qty||1,
+          item.serial||'', item.status||'', item.notes||'', item.date||''
+        ]);
       });
     });
-    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+
+    if(rows.length === 1){ toast('لا يوجد بيانات للتصدير','warn'); return; }
+
+    // بناء HTML Table يفتحه Excel بشكل صحيح كجداول
+    let html = '<html dir="rtl" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">';
+    html += '<head><meta charset="utf-8">';
+    html += '<style>table{border-collapse:collapse}th,td{border:1px solid #999;padding:6px 10px;font-family:Arial;font-size:12px}th{background:#1e3a5f;color:#fff;font-weight:bold}tr:nth-child(even) td{background:#f0f4f8}</style>';
+    html += '</head><body><table>';
+    rows.forEach((row, ri)=>{
+      html += '<tr>';
+      row.forEach(cell=>{
+        if(ri===0) html += `<th>${cell}</th>`;
+        else html += `<td>${cell}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</table></body></html>';
+
+    const blob = new Blob(['\uFEFF'+html], {type:'application/vnd.ms-excel;charset=utf-8'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href=url; a.download='جرد_'+siteName+'_'+new Date().toISOString().split('T')[0]+'.csv';
-    a.click(); URL.revokeObjectURL(url);
-    toast('✅ تم التصدير');
+    a.href = url;
+    a.download = 'جرد_'+siteName+'_'+new Date().toISOString().split('T')[0]+'.xls';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ تم التصدير كجدول Excel');
   });
 }
 
@@ -7255,23 +7297,6 @@ function saveNetworkPerms(){
 }
 
 // ═══════════════════════════════════════════════════════
-//  🌙 THEME TOGGLE
-// ═══════════════════════════════════════════════════════
-function toggleTheme(){
-  const isLight = document.body.classList.toggle('light');
-  localStorage.setItem('theme', isLight ? 'light' : 'dark');
-  document.getElementById('theme-btn').textContent = isLight ? '☀️' : '🌙';
-}
-function loadTheme(){
-  const t = localStorage.getItem('theme');
-  if(t === 'light'){
-    document.body.classList.add('light');
-    const btn = document.getElementById('theme-btn');
-    if(btn) btn.textContent = '☀️';
-  }
-}
-
-// ═══════════════════════════════════════════════════════
 //  PWA — Service Worker & Notifications
 // ═══════════════════════════════════════════════════════
 if('serviceWorker' in navigator){
@@ -7313,11 +7338,13 @@ function requestGPSPermission(){
     pos=>{
       toast('✅ تم تفعيل GPS');
       if(CU && (CU.uid||CU.id)){
-        fbUpdate('users/'+(CU.uid||CU.id),{
-          lastLat: pos.coords.latitude,
-          lastLng: pos.coords.longitude,
-          lastLocTime: Date.now()
-        });
+        // تحديث الموقع الفوري
+        updateTechLocation(pos);
+        // تشغيل التتبع المستمر للفنيين والصواعيد تلقائياً
+        if((CU.role==='technician'||CU.role==='field') && _gpsWatcher===null){
+          startGPSTracking();
+          toast('📍 تتبع الموقع المستمر مفعّل','warn');
+        }
       }
     },
     err=>{
