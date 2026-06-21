@@ -1496,6 +1496,9 @@ function pgInv(){
     return ok&&(!ITYP||item.type===ITYP)&&(!ISTS||item.status===ISTS);
   });
 
+  // ── المواقع الميدانية المرتبطة بهذا المستودع ──
+  const linkedFieldSites = !isMain ? DB.fieldSites.filter(fs=>fs.warehouse===ISITE) : [];
+
   $('page').innerHTML=`
   <div class="ph">
     <div>
@@ -1561,7 +1564,68 @@ function pgInv(){
     <tbody>
       ${renderInvRows(isMain,allItems,items,AT)}
     </tbody>
-  </table></div>`;
+  </table></div>
+  <div id="linked-fieldsites" style="padding:0 0 20px">
+    ${linkedFieldSites.length?'<div style="text-align:center;color:var(--mt);padding:12px">⏳ جار تحميل بيانات المواقع...</div>':''}
+  </div>`;
+
+  // جلب وعرض المواقع الميدانية المرتبطة
+  if(linkedFieldSites.length){
+    Promise.all(linkedFieldSites.map(fs=>
+      FBDB.ref('cctv/siteInventory/'+fs.id).once('value').then(snap=>({fs, points: snap.val()?Object.values(snap.val()):[]}))
+    )).then(results=>{
+      const el=document.getElementById('linked-fieldsites');
+      if(!el) return;
+      let html=`<div style="font-size:14px;font-weight:700;color:var(--bl);margin-bottom:8px;padding:10px 0 4px;border-top:2px solid var(--br)">
+        🗺️ المواقع الميدانية المرتبطة بـ ${esc(ISITE)}</div>`;
+      results.forEach(({fs, points})=>{
+        const allPtItems=points.flatMap(pt=>pt.items?Object.values(pt.items):[]);
+        const working=allPtItems.filter(i=>i.status==='يعمل').length;
+        const broken=allPtItems.filter(i=>i.status==='معطل').length;
+        html+=`<div class="panel" style="margin-bottom:8px;border-right:3px solid var(--bl)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div>
+              <span style="font-weight:700">📍 ${esc(fs.name)}</span>
+              <span style="font-size:11px;color:var(--mt);margin-right:8px">${allPtItems.length} عنصر</span>
+              ${working?`<span style="font-size:11px;color:var(--gn)">✅ ${working}</span>`:''}
+              ${broken?`<span style="font-size:11px;color:var(--rd);margin-right:4px">❌ ${broken}</span>`:''}
+            </div>
+            <button class="btn btn-sm btn-gy" onclick="window._invSite='${fs.id}';go('siteinv')">📋 الجرد التفصيلي</button>
+          </div>
+          ${allPtItems.length?`
+          <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr style="background:var(--bg)">
+              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">النقطة</th>
+              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">العنصر</th>
+              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الكمية</th>
+              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">S/N</th>
+              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الحالة</th>
+            </tr></thead>
+            <tbody>
+              ${points.flatMap(pt=>{
+                const ptItems=pt.items?Object.values(pt.items):[];
+                return ptItems.map(it=>`<tr style="border-bottom:1px solid var(--br)">
+                  <td style="padding:5px 8px;color:var(--mt)">${esc(pt.name||'—')}</td>
+                  <td style="padding:5px 8px;font-weight:500">${esc(it.name||'—')}</td>
+                  <td style="padding:5px 8px;text-align:center">${it.qty||1}</td>
+                  <td style="padding:5px 8px;font-size:11px;color:var(--mt)">${esc(it.serial||'—')}</td>
+                  <td style="padding:5px 8px">
+                    <span style="font-size:11px;padding:2px 7px;border-radius:5px;
+                      background:${it.status==='يعمل'?'#1a7f3722':it.status==='معطل'?'#d1242f22':it.status==='صيانة'?'#9a670022':'var(--bg)'};
+                      color:${it.status==='يعمل'?'var(--gn)':it.status==='معطل'?'var(--rd)':it.status==='صيانة'?'var(--yl)':'var(--mt)'}">
+                      ${esc(it.status||'—')}
+                    </span>
+                  </td>
+                </tr>`);
+              }).join('')}
+            </tbody>
+          </table></div>`
+          :`<div style="text-align:center;color:var(--mt);font-size:13px;padding:10px">لا عناصر مسجلة في هذا الموقع</div>`}
+        </div>`;
+      });
+      el.innerHTML=html;
+    });
+  }
 }
 window.ISTS_SITE='';
 
