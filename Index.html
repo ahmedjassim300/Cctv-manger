@@ -3099,6 +3099,7 @@ function renderAllFieldSites(sites) {
           <div>
             <div style="font-weight:700;font-size:17px;margin-bottom:4px">📍 ${esc(fs.name)}</div>
             ${fs.desc?`<div style="font-size:12px;color:var(--mt)">${esc(fs.desc)}</div>`:''}
+            ${fs.warehouse?`<div style="font-size:11px;color:var(--bl);margin-top:3px">🏭 ${esc(fs.warehouse)}</div>`:''}
           </div>
           ${CU.role === 'manager' ? `<div style="display:flex;gap:5px;flex-shrink:0">
             <button class="btn btn-sm btn-pu" onclick="event.stopPropagation();openSitePermissions('${fs.id}')">👥 صلاحيات</button>
@@ -3631,29 +3632,55 @@ function fmFitAll(){
 function openAddFieldSite(){ showFieldSiteForm(null); }
 function openEditFieldSite(fsId){ const fs=DB.fieldSites.find(x=>x.id===fsId); if(fs) showFieldSiteForm(fs); }
 function showFieldSiteForm(fs){
+  const allUsers = DB.users.filter(u=>u.role!=='manager');
   openModal(`${mhd(fs?'تعديل الموقع الميداني':'موقع ميداني جديد')}
   <div class="field"><label>اسم الموقع *</label>
-    <input id="fsn" value="${esc(fs?.name||'')}" placeholder="مثال: مجمع الرشيد، مشروع طريق الكرادة، فرع المنصور..."></div>
+    <input id="fsn" value="${esc(fs?.name||'')}" placeholder="مثال: موقع الحسينية، ميناء أم قصر..."></div>
   <div class="field"><label>وصف / ملاحظات</label>
     <textarea id="fsd" placeholder="العنوان أو تفاصيل إضافية...">${esc(fs?.desc||'')}</textarea></div>
+  <div class="field"><label>🏭 المستودع المرتبط به</label>
+    <select id="fs-warehouse">
+      <option value="">— غير مرتبط —</option>
+      ${DB.sites.map(s=>`<option value="${esc(s)}" ${fs?.warehouse===s?'selected':''}>${isMainSite(s)?'🏭':'🏪'} ${esc(s)}</option>`).join('')}
+    </select>
+    <div style="font-size:11px;color:var(--mt);margin-top:4px">المواد المنصوبة في هذا الموقع ستُحسب ضمن المستودع المرتبط</div>
+  </div>
   <div class="field" style="margin-top:14px">
-    <label style="color:var(--gn)">👥 ملاحظة مهمة:</label>
-    <div style="font-size:12px;color:var(--mt);padding:8px;background:var(--bg);border-radius:7px">
-      بعد إضافة الموقع، يمكنك تحديد المستخدمين المسموح لهم برؤيته من خلال زر <b>"👥 صلاحيات"</b> الموجود بجانب الموقع.
+    <label style="font-weight:700;color:var(--bl)">👥 المستخدمون المصرح لهم برؤية هذا الموقع</label>
+    <div style="font-size:11px;color:var(--mt);margin-bottom:8px">إذا لم تحدد أحداً لن يراه أي شخص غير المدير</div>
+    <div style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+      ${allUsers.length?allUsers.map(u=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg);border-radius:7px">
+          <input type="checkbox" id="fsu_${u.uid||u.id}"
+            ${(fs?.allowedUsers||[]).includes(u.uid||u.id)?'checked':''}
+            style="width:16px;height:16px">
+          <label for="fsu_${u.uid||u.id}" style="flex:1;font-size:14px">
+            ${esc(u.name)}
+            <span style="font-size:11px;color:${RC[u.role]||'var(--mt)'};margin-right:4px">${ROLES[u.role]||u.role}</span>
+          </label>
+        </div>`).join('')
+      :'<div style="color:var(--mt);font-size:13px;padding:8px">لا يوجد مستخدمون بعد</div>'}
     </div>
   </div>
   ${mft(fs?'💾 حفظ':'➕ إضافة',`saveFieldSite('${fs?.id||''}')`)}`);
 }
+
 function saveFieldSite(fsId){
   const nm=val('fsn'); if(!nm){ toast('أدخل اسم الموقع','err'); return; }
+  const warehouse = val('fs-warehouse')||'';
+  const allowedUsers = DB.users
+    .filter(u=>u.role!=='manager')
+    .map(u=>u.uid||u.id)
+    .filter(uid=>document.getElementById('fsu_'+uid)?.checked);
+
   if(fsId){
-    fbUpdate('fieldSites/'+fsId,{name:nm,desc:val('fsd')});
-    toast('تم التحديث');
+    fbUpdate('fieldSites/'+fsId,{name:nm, desc:val('fsd'), warehouse, allowedUsers});
+    toast('✅ تم التحديث');
   } else {
     const id=gid();
-    fbSet('fieldSites/'+id,{id,name:nm,desc:val('fsd'),cameras:{},allowedUsers:[]});
+    fbSet('fieldSites/'+id,{id,name:nm,desc:val('fsd'),cameras:{},allowedUsers,warehouse});
     pushN('📍 موقع ميداني جديد: '+nm);
-    toast('تم إضافة الموقع');
+    toast('✅ تم إضافة الموقع');
   }
   closeModal();
 }
@@ -6469,12 +6496,15 @@ function pgSiteInventory(){
     return;
   }
 
-  // اختر الموقع الافتراضي
   const selSite = window._invSite || sites[0].id;
   window._invSite = selSite;
   const site = sites.find(s=>s.id===selSite) || sites[0];
 
-  // تحميل نقاط الجرد من Firebase
+  // المستودع المرتبط بالموقع
+  const linkedWarehouse = site.warehouse || '';
+  const whItems = linkedWarehouse ? (DB.inv[linkedWarehouse]||[]) : [];
+  const deployedHere = whItems.filter(it=>it.installedAt&&it.currentSite===linkedWarehouse&&it.status==='deployed');
+
   FBDB.ref('cctv/siteInventory/'+site.id).once('value').then(snap=>{
     const points = snap.val() ? Object.values(snap.val()).sort((a,b)=>(a.order||0)-(b.order||0)) : [];
     const totalItems = points.reduce((s,pt)=>(s + (pt.items ? Object.values(pt.items).length : 0)), 0);
@@ -6491,20 +6521,37 @@ function pgSiteInventory(){
           <span style="color:var(--gn)">✅ ${working} يعمل</span>
           <span style="color:var(--rd)">❌ ${broken} معطل</span>
         </div>
+        ${linkedWarehouse?`<div style="font-size:12px;color:var(--bl);margin-top:4px">🏭 مرتبط بـ: ${esc(linkedWarehouse)} (${deployedHere.length} عنصر منصوب)</div>`:'<div style="font-size:11px;color:var(--mt);margin-top:4px">⚠️ غير مرتبط بمستودع — عدّل الموقع لتحديد المستودع</div>'}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openEditFieldSite('${site.id}')">⚙️ ربط مستودع</button>`:''}
         ${canAccessFault({fieldSiteId:site.id})?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
         <button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>
       </div>
     </div>
 
-    <!-- تبويبات المواقع -->
+    <!-- تبويبات المواقع مع المستودع الأب -->
     <div class="tabs" style="margin-bottom:14px">
       ${sites.map(s=>`
         <button class="tb${s.id===site.id?' act':''}" onclick="window._invSite='${s.id}';pgSiteInventory()">
           📍 ${esc(s.name)}
+          ${s.warehouse?`<span style="font-size:10px;opacity:.6;display:block">🏭 ${esc(s.warehouse)}</span>`:''}
         </button>`).join('')}
     </div>
+
+    <!-- المواد المنصوبة من المستودع في هذا الموقع -->
+    ${linkedWarehouse&&deployedHere.length?`
+    <div class="panel" style="margin-bottom:12px;border-right:3px solid var(--bl)">
+      <div style="font-weight:700;margin-bottom:8px;color:var(--bl)">📦 مواد منصوبة من ${esc(linkedWarehouse)}</div>
+      ${deployedHere.map(it=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--br)">
+          <div>
+            <span style="font-size:13px;font-weight:600">${esc(it.name||it.serial)}</span>
+            ${it.installedAt?`<span style="font-size:11px;color:var(--mt);margin-right:6px">@ ${esc(it.installedAt)}</span>`:''}
+          </div>
+          ${badge(it.status)}
+        </div>`).join('')}
+    </div>`:''}
 
     <!-- النقاط -->
     <div id="inv-points">
