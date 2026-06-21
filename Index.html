@@ -833,7 +833,13 @@ function pushFieldN(text, fieldSiteId, type='info'){
 function badge(s){
   const fs=FAULT_ST.find(x=>x.k===s);
   if(fs) return `<span class="badge" style="background:${fs.c}22;color:${fs.c}">${fs.ico} ${fs.l}</span>`;
-  const M={warehouse:{l:'في المخزن',c:'#58a6ff'},deployed:{l:'منصوبة',c:'#3fb950'},maintenance:{l:'صيانة',c:'#d29922'}};
+  const M={
+    warehouse  :{l:'في المخزن',   c:'#0969da'},
+    deployed   :{l:'منصوب',       c:'#1a7f37'},
+    maintenance:{l:'صيانة',       c:'#9a6700'},
+    consumed   :{l:'مصروف',       c:'#656d76'},
+    returned   :{l:'راجع للمخزن', c:'#8250df'},
+  };
   const x=M[s]||{l:s,c:'#7d8590'};
   return `<span class="badge" style="background:${x.c}22;color:${x.c}">${x.l}</span>`;
 }
@@ -1146,6 +1152,12 @@ function fbStartSync(){
     DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
     DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.siteInventory = data.siteInventory || {};
+    // تحميل روابط المستودعات الأب
+    if(data.siteParents){
+      window._siteParents = data.siteParents
+        ? Object.fromEntries(Object.entries(data.siteParents).map(([k,v])=>[decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/')),v]))
+        : {};
+    }
     // تحديث صفحة المهام إذا كانت مفتوحة
     if(PAGE==='tasks') pgTasks();
 
@@ -1158,8 +1170,22 @@ function fbStartSync(){
 
     if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
     try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); cacheLocalDB(data); }catch(e){}
-    if(!PAGE) { try{ go('dashboard'); }catch(e){} }
-    else { try{ go(PAGE); }catch(e){} }
+
+    // إخفاء Splash فوراً عند أول تحميل للبيانات
+    const splash=$('splash');
+    if(splash && splash.style.display!=='none') splash.style.display='none';
+
+    // تحميل الصفحة فقط إذا كانت هذه أول مزامنة أو إذا لا توجد صفحة مفتوحة
+    if(!PAGE || !window._firstSyncDone) {
+      window._firstSyncDone = true;
+      try{ go(PAGE||'dashboard'); }catch(e){}
+    } else {
+      // تحديث فقط الأجزاء الديناميكية بدون إعادة رسم الصفحة كاملة
+      try{ buildNav(); }catch(e){}
+      // إذا كانت الصفحة المفتوحة تعرض بيانات متغيرة — حدّثها
+      const dynamicPages = ['dashboard','faults','notifs','urgent','actlog','tasks','techmap'];
+      if(dynamicPages.includes(PAGE)) try{ go(PAGE); }catch(e){}
+    }
   }, err=>{
     console.error('Firebase sync error:', err);
     // إظهار خطأ على Splash إذا كانت لا تزال ظاهرة
@@ -1171,7 +1197,15 @@ function fbStartSync(){
     }
   });
 
-  // ── Listener منفصل للإشعارات — آخر 100 فقط من Firebase ──
+  // ── Listener دائم لمواقع الفنيين — يعمل طالما التطبيق مفتوح ──
+  FBDB.ref('cctv/techLocations').on('value', snap=>{
+    DB.techLocations = snap.val() || {};
+    // تحديث صفحة مواقع الفنيين إذا كانت مفتوحة
+    if(PAGE==='techmap'){
+      const el = document.getElementById('tech-locations');
+      if(el) renderTechLocations(DB.techLocations);
+    }
+  });
   FBDB.ref('cctv/notifs').limitToLast(100).on('value', snap=>{
     if(!snap.exists()) return;
     const myUid = CU?.uid||CU?.id;
@@ -1499,7 +1533,10 @@ function pgInv(){
     <select onchange="ISTS=this.value;pgInv()">
       <option value="">كل الحالات</option>
       <option value="warehouse"${ISTS==='warehouse'?' selected':''}>في المخزن</option>
-      <option value="deployed"${ISTS==='deployed'?' selected':''}>منصوبة</option>
+      <option value="deployed"${ISTS==='deployed'?' selected':''}>منصوب</option>
+      <option value="maintenance"${ISTS==='maintenance'?' selected':''}>صيانة</option>
+      <option value="consumed"${ISTS==='consumed'?' selected':''}>مصروف</option>
+      <option value="returned"${ISTS==='returned'?' selected':''}>راجع للمخزن</option>
       <option value="maintenance"${ISTS==='maintenance'?' selected':''}>صيانة</option>
     </select>
     ${isMain?`<select onchange="ISTS_SITE=this.value;pgInv()" id="site-filter">
@@ -1581,33 +1618,58 @@ function openEditItemAt(i,site){ _ei=i; _es=site; _eit=DB.inv[site][i]; showItem
 function openMoveItem(i,site){
   const s=site||ISITE;
   const item=DB.inv[s][i];
-  const isOut=item.status==='warehouse';
-  const dests=isOut?DB.sites.filter(x=>x!==s):DB.sites;
-  openModal(`${mhd(isOut?'🔼 صرف من المخزن':'🔽 إيداع في المخزن')}
+  const isOut=item.status==='warehouse'||item.status==='returned';
+  const dests=DB.sites.filter(x=>x!==s);
+  openModal(`${mhd(isOut?'🔼 صرف / نصب من المخزن':'🔽 إيداع / إعادة للمخزن')}
   <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px">
-    <div style="font-weight:700">${allT()[item.type]?.icon} ${esc(item.name||item.serial||'—')}</div>
+    <div style="font-weight:700">${allT()[item.type]?.icon||''} ${esc(item.name||item.serial||'—')}</div>
     <div style="font-size:12px;color:var(--mt);margin-top:4px">${esc([item.serial,item.model,item.mfr].filter(Boolean).join(' | '))}</div>
     <div style="margin-top:8px">${badge(item.status)}</div>
   </div>
-  <div class="field"><label>${isOut?'الموقع الوجهة':'إيداع في موقع'}</label>
-    <select id="mds">${dests.map(d=>`<option>${esc(d)}</option>`).join('')}</select></div>
-  <div class="field"><label>ملاحظات</label><textarea id="mnt" placeholder="سبب الصرف..."></textarea></div>
-  ${mft(isOut?'🔼 تأكيد الصرف':'🔽 تأكيد الإيداع',`confirmMove(${i},'${s}',${isOut})`,isOut?'btn-rd':'btn-gn')}`);
+  <div class="field"><label>الحالة الجديدة</label>
+    <select id="mv-status">
+      ${isOut
+        ? `<option value="deployed">✅ منصوب في موقع</option>
+           <option value="consumed">🔘 مصروف (استهلاكي)</option>`
+        : `<option value="warehouse">📦 راجع للمخزن</option>
+           <option value="returned">↩️ راجع بعطل/تلف</option>`}
+    </select>
+  </div>
+  <div class="field"><label>${isOut?'الموقع الوجهة / اسم النقطة المنصوب بها':'المستودع الوجهة'}</label>
+    <select id="mds">${dests.map(d=>`<option value="${esc(d)}">${isMainSite(d)?'🏭 ':'🏪 '}${esc(d)}</option>`).join('')}</select></div>
+  ${isOut?`<div class="field"><label>اسم النقطة المنصوب بها (اختياري)</label>
+    <input id="mv-point" placeholder="مثال: كاميرا بوابة رئيسية، NVR غرفة الموزع..."></div>`:''}
+  <div class="field"><label>ملاحظات</label><textarea id="mnt" placeholder="سبب الصرف أو الإعادة..."></textarea></div>
+  ${mft(isOut?'🔼 تأكيد':'🔽 تأكيد',`confirmMove(${i},'${s}',${isOut})`,isOut?'btn-rd':'btn-gn')}`);
 }
 
 function confirmMove(i,src,isOut){
   const item=DB.inv[src][i], dest=val('mds'), notes=val('mnt');
+  const newStatus = val('mv-status') || (isOut?'deployed':'warehouse');
+  const installPoint = val('mv-point')||'';
   if(!item){ closeModal(); return; }
-  fbPush('moves',{name:(allT()[item.type]?.icon||'')+' '+(item.name||item.serial||''),
-    dir:isOut?'out':'in',from:src,to:dest,by:CU.name,date:ts(),notes,_ts:Date.now()});
+  const icon = allT()[item.type]?.icon||'';
+  fbPush('moves',{
+    name:icon+' '+(item.name||item.serial||''),
+    dir:isOut?'out':'in', from:src, to:dest,
+    by:CU.name, date:ts(), notes,
+    status:newStatus, point:installPoint, _ts:Date.now()
+  });
   if(isOut){
     fbDel('inv/'+fbKey(src)+'/'+item.id);
-    fbSet('inv/'+fbKey(dest)+'/'+item.id,{...item,status:'deployed',currentSite:dest});
+    fbSet('inv/'+fbKey(dest)+'/'+item.id,{
+      ...item, status:newStatus, currentSite:dest,
+      installedAt:installPoint||dest, movedAt:ts()
+    });
   } else {
-    fbSet('inv/'+fbKey(src)+'/'+item.id,{...item,status:'warehouse',currentSite:src});
+    fbSet('inv/'+fbKey(src)+'/'+item.id,{
+      ...item, status:newStatus, currentSite:src,
+      installedAt:'', returnedAt:ts()
+    });
   }
-  pushN((isOut?'🔼 صرف':'🔽 إيداع')+' — '+src+' → '+dest);
-  closeModal(); toast(isOut?'تم الصرف':'تم الإيداع');
+  const statusLabel = {deployed:'منصوب',consumed:'مصروف',warehouse:'في المخزن',returned:'راجع'}[newStatus]||newStatus;
+  pushN((isOut?'🔼 صرف':'🔽 إيداع')+' — '+statusLabel+' — '+(item.name||item.serial)+' → '+dest);
+  closeModal(); toast(isOut?'✅ تم الصرف':'✅ تم الإيداع');
 }
 
 function openTransferItem(i,site){
@@ -1699,6 +1761,16 @@ function showItemForm(f){
     <div class="field"><label>الرقم التسلسلي (SN)</label><input id="fsr" value="${esc(f.serial)}" placeholder="SN-XXXXX"></div>
     <div class="field"><label>الموديل</label><input id="fmd" value="${esc(f.model)}" placeholder="رقم أو اسم الموديل"></div>
     <div class="field"><label>الشركة الصانعة</label><input id="fmf" value="${esc(f.mfr)}" placeholder="Hikvision / Dahua / Cisco..."></div>
+    <div class="field"><label>الحالة</label>
+      <select id="fst-status">
+        <option value="warehouse" ${(f.status||'warehouse')==='warehouse'?'selected':''}>📦 في المخزن</option>
+        <option value="deployed"  ${f.status==='deployed'?'selected':''}>✅ منصوب في موقع</option>
+        <option value="consumed"  ${f.status==='consumed'?'selected':''}>🔘 مصروف</option>
+        <option value="returned"  ${f.status==='returned'?'selected':''}>↩️ راجع للمخزن</option>
+        <option value="maintenance" ${f.status==='maintenance'?'selected':''}>🔧 صيانة</option>
+      </select></div>
+    <div class="field"><label>موقع النصب / النقطة (إذا منصوب)</label>
+      <input id="finstalled" value="${esc(f.installedAt||'')}" placeholder="مثال: كاميرا بوابة ميناء أم قصر، عمود 5..."></div>
   </div>
   <div id="xf"></div>
   ${mft('💾 حفظ','saveItem()')}`);
@@ -1790,9 +1862,12 @@ function saveItem(){
   const t=val('fty'), nm=val('fnm'), sr=val('fsr');
   if(!nm&&!sr){ toast('أدخل الاسم أو السيريال','err'); return; }
   const prev=_eit||{};
+  const newStatus = val('fst-status')||prev.status||'warehouse';
+  const installedAt = val('finstalled')||prev.installedAt||'';
   const item={id:prev.id||gid(),type:t,name:nm,serial:sr,
     model:val('fmd'),mfr:val('fmf'),
-    status:prev.status||'warehouse',addedBy:CU.name,addedAt:prev.addedAt||ts(),currentSite:_es};
+    status:newStatus,installedAt,
+    addedBy:CU.name,addedAt:prev.addedAt||ts(),currentSite:_es,_ts:Date.now()};
   if(t==='camera')    Object.assign(item,{cT:val('fcT'),rs:val('frs'),ln:val('fln'),an:val('fan'),dc:val('fdc'),lat:val('flat'),lng:val('flng'),dir:val('fdir')||'⊙ عام'});
   if(t==='nvr')       Object.assign(item,{ch:val('fch'),st:val('fst'),ip:val('fip'),fw:val('ffw')});
   if(t==='switch_dev')Object.assign(item,{po:val('fpo'),sw:val('fsw'),sp:val('fsp'),ip:val('fip'),poe:chk('fpoe')});
@@ -2637,47 +2712,126 @@ function confirmImport(){
 }
 
 // ============================================
-//  SITES
+//  SITES — نظام المستودعات الهرمي
 // ============================================
 function pgSites(){
+  if(!p('sites')&&CU.role!=='manager'&&CU.role!=='admin'){
+    $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ غير مصرح</div>'; return;
+  }
+  // بناء هيكل هرمي — المستودع الرئيسي ثم الفرعية مع تعريف الأب
+  const warehouses = DB.sites.map((s,i)=>({
+    name:s, isMain:i===0,
+    parent: window._siteParents?.[s]||null,
+    count:(DB.inv[s]||[]).length
+  }));
+  const mainWh = warehouses[0];
+  const subWh  = warehouses.slice(1).filter(w=>!w.parent||w.parent===mainWh?.name);
+  const deepWh = warehouses.slice(1).filter(w=>w.parent&&w.parent!==mainWh?.name);
+
+  function whRow(w,indent=0){
+    const i = DB.sites.indexOf(w.name);
+    const children = warehouses.filter(x=>x.parent===w.name);
+    return `
+    <div style="border-right:3px solid ${w.isMain?'var(--bl)':'var(--br)'};padding-right:12px;margin-right:${indent*20}px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg);border-radius:10px">
+        <div>
+          <span style="font-size:18px;margin-left:8px">${w.isMain?'🏭':indent?'📦':'🏪'}</span>
+          <span style="font-weight:${w.isMain?700:500}">${esc(w.name)}</span>
+          ${w.isMain?`<span style="font-size:11px;color:var(--bl);margin-right:6px">رئيسي</span>`:''}
+          ${w.parent?`<span style="font-size:11px;color:var(--mt);margin-right:6px">← ${esc(w.parent)}</span>`:''}
+          <span style="font-size:12px;color:var(--mt);margin-right:6px">(${w.count} عنصر)</span>
+        </div>
+        <div style="display:flex;gap:6px">
+          ${!w.isMain?`<button class="btn btn-sm btn-gy" onclick="openEditWarehouse('${esc(w.name)}',${i})">⚙️</button>`:''}
+          ${!w.isMain&&w.count===0?`<button class="btn btn-sm btn-rd" onclick="delSite(${i})">حذف</button>`:''}
+        </div>
+      </div>
+      ${children.map(c=>whRow(c,indent+1)).join('')}
+    </div>`;
+  }
+
   $('page').innerHTML=`
-  <div class="ph"><div class="pt">📍 المواقع والمخازن (${DB.sites.length})</div></div>
-  <div class="panel" style="max-width:520px">
-    <div style="background:var(--bg);border-radius:7px;padding:11px;margin-bottom:16px;font-size:17px;color:var(--mt)">
-      💡 كل موقع له مخزن مستقل. الأصناف تنتقل عبر الصرف من صفحة المخزن.
-    </div>
-    <div style="display:flex;gap:9px;margin-bottom:18px">
-      <input id="nst" placeholder="اسم الموقع الجديد..." style="flex:1" onkeydown="if(event.key==='Enter')addSite()">
-      <button class="btn btn-bl" onclick="addSite()">+ إضافة</button>
-    </div>
-    ${DB.sites.map((s,i)=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--br)">
-      <div>
-        <span style="font-size:18px;margin-left:8px">${i===0?'🏭':'📍'}</span>
-        <span style="font-weight:${i===0?700:400}">${esc(s)}</span>
-        ${i===0?`<span style="font-size:11px;color:var(--bl);margin-right:8px">رئيسي</span>`:''}
-        <span style="font-size:12px;color:var(--mt);margin-right:6px">${(DB.inv[s]||[]).length} عنصر</span>
-      </div>
-      <div style="display:flex;gap:6px">
-        ${i>0?`
-          <button class="btn btn-sm btn-gy" onclick="renameSite(${i})">✏️</button>
-          ${(DB.inv[s]||[]).length===0
-            ?`<button class="btn btn-sm btn-rd" onclick="delSite(${i})">حذف</button>`
-            :`<span style="font-size:11px;color:var(--mt)">يحتوي أصناف</span>`}
-        `:''}
-      </div>
-    </div>`).join('')}
+  <div class="ph">
+    <div><div class="pt">🏭 المستودعات والمخازن</div><div class="ps">${DB.sites.length} مستودع</div></div>
+    ${CU.role==='manager'||CU.role==='admin'?`<button class="btn btn-bl" onclick="openAddWarehouse()">+ مستودع جديد</button>`:''}
+  </div>
+  <div style="padding:0 16px">
+    ${mainWh?whRow(mainWh,0):''}
+    ${warehouses.slice(1).filter(w=>!w.parent).map(w=>whRow(w,0)).join('')}
+    ${warehouses.slice(1).filter(w=>w.parent&&!warehouses.find(x=>x.name===w.parent)).map(w=>whRow(w,0)).join('')}
   </div>`;
 }
-function addSite(){
-  const n=val('nst');
-  if(!n){ toast('أدخل الاسم','err'); return; }
-  if(DB.sites.includes(n)){ toast('موجود مسبقاً','err'); return; }
-  // ترقيم تسلسلي لضمان الترتيب بعد الرئيسي
-  const siteNum = String(Date.now()).slice(-6);
-  fbSet('sites/'+siteNum+'_site', n);
+
+function openAddWarehouse(){
+  openModal(`${mhd('🏪 إضافة مستودع جديد')}
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="field"><label>اسم المستودع *</label>
+      <input id="wh-name" placeholder="مثال: مستودع كربلاء، مستودع الموصل..."></div>
+    <div class="field"><label>المستودع الأب (اختياري)</label>
+      <select id="wh-parent">
+        <option value="">— مستقل (تابع للرئيسي) —</option>
+        ${DB.sites.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+      </select></div>
+  </div>
+  ${mft('+ إضافة','doAddWarehouse()','btn-bl')}`);
+}
+
+function doAddWarehouse(){
+  const n = val('wh-name').trim();
+  const parent = val('wh-parent');
+  if(!n){ toast('أدخل اسم المستودع','err'); return; }
+  if(DB.sites.includes(n)){ toast('المستودع موجود مسبقاً','err'); return; }
+  const key = String(Date.now());
+  fbSet('sites/'+key+'_site', n);
   fbSet('inv/'+fbKey(n)+'/___init',{___init:true});
-  toast('تم الإضافة');
+  if(parent){
+    if(!window._siteParents) window._siteParents={};
+    window._siteParents[n]=parent;
+    fbSet('siteParents/'+fbKey(n), parent);
+  }
+  closeModal(); toast('✅ تم إضافة المستودع: '+n);
+  logAct('إضافة مستودع', n+(parent?' ← '+parent:''));
+}
+
+function openEditWarehouse(name, i){
+  openModal(`${mhd('⚙️ تعديل: '+esc(name))}
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="field"><label>الاسم الجديد</label>
+      <input id="wh-edit-name" value="${esc(name)}"></div>
+    <div class="field"><label>المستودع الأب</label>
+      <select id="wh-edit-parent">
+        <option value="">— مستقل —</option>
+        ${DB.sites.filter(s=>s!==name).map(s=>`<option value="${esc(s)}" ${(window._siteParents?.[name]===s)?'selected':''}>${esc(s)}</option>`).join('')}
+      </select></div>
+  </div>
+  ${mft('💾 حفظ',`doEditWarehouse('${esc(name)}',${i})`,'btn-bl')}`);
+}
+
+function doEditWarehouse(oldName, i){
+  const newName = val('wh-edit-name').trim();
+  const newParent = val('wh-edit-parent');
+  if(!newName){ toast('أدخل الاسم','err'); return; }
+
+  // تحديث الأب
+  if(!window._siteParents) window._siteParents={};
+  if(newParent) {
+    window._siteParents[newName]=newParent;
+    fbSet('siteParents/'+fbKey(newName), newParent);
+  } else {
+    delete window._siteParents[oldName];
+    fbDel('siteParents/'+fbKey(oldName));
+  }
+
+  // إعادة تسمية إذا تغير الاسم
+  if(newName!==oldName){
+    const oldItems=DB.inv[oldName]||[];
+    oldItems.forEach(it=>fbSet('inv/'+fbKey(newName)+'/'+it.id,{...it,currentSite:newName}));
+    fbDel('inv/'+fbKey(oldName));
+    const siteKey=window._sitesKeys?.[oldName];
+    if(siteKey) fbSet('sites/'+siteKey, newName);
+    if(ISITE===oldName) ISITE=newName;
+  }
+  closeModal(); toast('✅ تم التحديث');
 }
 function renameSite(i){
   const nv=prompt('الاسم الجديد:',DB.sites[i]);
@@ -5360,7 +5514,6 @@ function pgTechMap(){
   if(CU.role!=='manager'&&CU.role!=='admin'&&CU.role!=='engineer'){
     $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ غير مصرح</div>'; return;
   }
-
   $('page').innerHTML=`
   <div class="ph"><div class="pt">🗺️ مواقع الفنيين — مباشر</div>
     <span style="font-size:12px;color:var(--gn);margin-top:2px">🟢 يتحدث تلقائياً</span>
@@ -5368,48 +5521,45 @@ function pgTechMap(){
   <div id="tech-locations" style="padding:0 16px">
     <div style="text-align:center;color:var(--mt);padding:20px">⏳ جار التحميل...</div>
   </div>`;
+  // اعرض البيانات المحفوظة مباشرة إذا كانت موجودة
+  if(DB.techLocations) renderTechLocations(DB.techLocations);
+  // إلغاء listener المنفصل القديم إذا كان موجوداً
+  if(window._techMapRef){ window._techMapRef.off(); window._techMapRef=null; }
+}
 
-  // إلغاء أي listener سابق
-  if(window._techMapRef) window._techMapRef.off();
-
-  // listener بالوقت الحقيقي
-  window._techMapRef = FBDB.ref('cctv/techLocations');
-  window._techMapRef.on('value', snap=>{
-    const el = document.getElementById('tech-locations');
-    if(!el) { window._techMapRef.off(); return; } // الصفحة تغيرت
-    const locs = snap.val();
-    if(!locs||!Object.keys(locs).length){
-      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--mt)">لا فنيين نشطين الآن</div>';
-      return;
-    }
-    const now = Date.now();
-    el.innerHTML = Object.values(locs)
-      .sort((a,b)=>(b._ts||0)-(a._ts||0))
-      .map(loc=>{
-        const mins = Math.round((now - (loc._ts||0))/(1000*60));
-        const isRecent = mins < 10;
-        return `
-        <div class="panel" style="margin-bottom:10px;border-right:3px solid ${isRecent?'var(--gn)':'var(--mt)'}">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div>
-              <div style="font-weight:700">${esc(loc.name)}</div>
-              <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
-            </div>
-            <span style="font-size:11px;background:${isRecent?'#3fb95022':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
-              ${isRecent?'🟢 نشط':'⚫ منذ '+mins+' د'}
-            </span>
-          </div>
-          <div style="font-size:12px;color:var(--mt);margin-bottom:8px">
-            📍 ${loc.lat?.toFixed(5)}, ${loc.lng?.toFixed(5)}
-            ${loc.accuracy?` | دقة: ${loc.accuracy}م`:''}
-          </div>
-          <div style="font-size:11px;color:var(--mt);margin-bottom:8px">🕐 آخر تحديث: ${esc(loc.updatedAt||'')}</div>
-          <a href="https://maps.google.com/?q=${loc.lat},${loc.lng}" target="_blank" class="btn btn-sm btn-bl">
-            🗺️ فتح في الخريطة
-          </a>
-        </div>`;
-      }).join('');
-  });
+function renderTechLocations(locs){
+  const el = document.getElementById('tech-locations');
+  if(!el) return;
+  const now = Date.now();
+  const locList = Object.values(locs||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
+  if(!locList.length){
+    el.innerHTML='<div style="text-align:center;padding:40px;color:var(--mt)">لا فنيين نشطين الآن</div>';
+    return;
+  }
+  el.innerHTML = locList.map(loc=>{
+    const mins = Math.round((now - (loc._ts||0))/(1000*60));
+    const isRecent = mins < 10;
+    return `
+    <div class="panel" style="margin-bottom:10px;border-right:3px solid ${isRecent?'var(--gn)':'var(--mt)'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <div style="font-weight:700">${esc(loc.name)}</div>
+          <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
+        </div>
+        <span style="font-size:11px;background:${isRecent?'#1a7f3722':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
+          ${isRecent?'🟢 نشط':'⚫ منذ '+mins+' د'}
+        </span>
+      </div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:8px">
+        📍 ${loc.lat?.toFixed(5)||'—'}, ${loc.lng?.toFixed(5)||'—'}
+        ${loc.accuracy?` | دقة: ${loc.accuracy}م`:''}
+      </div>
+      <div style="font-size:11px;color:var(--mt);margin-bottom:8px">🕐 آخر تحديث: ${esc(loc.updatedAt||'')}</div>
+      <a href="https://maps.google.com/?q=${loc.lat},${loc.lng}" target="_blank" class="btn btn-sm btn-bl">
+        🗺️ فتح في الخريطة
+      </a>
+    </div>`;
+  }).join('');
 }
 
 
@@ -7479,8 +7629,8 @@ async function requestNotifPermission(){
   }
 }
 
-// تجديد FCM Token تلقائياً عند تغييره
-if(FBMSG){
+// تجديد FCM Token تلقائياً عند تغييره (Firebase v8 compat)
+if(FBMSG && typeof FBMSG.onTokenRefresh === 'function'){
   FBMSG.onTokenRefresh(async ()=>{
     try{
       const newToken = await FBMSG.getToken({ vapidKey: VAPID_KEY });
