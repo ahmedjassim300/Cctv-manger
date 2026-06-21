@@ -623,7 +623,7 @@ const PERM_DEF = {
 
 const DEF_PERMS = {
   manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1},
-  admin     : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:1,downloadDocs:1},
+  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0},
   engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
   technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
   field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
@@ -698,7 +698,8 @@ const allT = () => ({...BUILTIN,...DB.customTypes});
 
 function p(k){
   if(!CU) return false;
-  if(CU.role==='manager' || CU.role==='admin') return true;
+  if(CU.role==='manager') return true; // المدير فقط يملك كل الصلاحيات
+  // الإداري وباقي الأدوار — يعتمدون على الصلاحيات المحددة من المدير
   const perms = CU.perms || DEF_PERMS[CU.role] || {};
   return !!perms[k];
 }
@@ -706,9 +707,10 @@ function p(k){
 // دالة للتحقق مما إذا كان المستخدم الحالي مسموح له برؤية موقع معين
 function canUserSeeFieldSite(site) {
   if(!CU) return false;
-  if(CU.role === 'manager') return true; // المدير يرى كل شيء
-  if(!site.allowedUsers || site.allowedUsers.length === 0) return false; // إذا لم يحدد أحد، لا يراه أحد
-  const myUid = CU.uid||CU.id; return site.allowedUsers.some(u=>u===myUid);
+  if(CU.role==='manager') return true;
+  if(!site.allowedUsers || site.allowedUsers.length===0) return false;
+  const myUid = CU.uid||CU.id;
+  return site.allowedUsers.some(u=>u===myUid);
 }
 
 // فلترة المواقع الميدانية حسب صلاحيات المستخدم
@@ -721,8 +723,8 @@ function getVisibleFieldSites() {
 // فلترة مواقع المخزن حسب صلاحيات المستخدم
 function getVisibleSites(){
   if(!CU) return [];
-  if(CU.role==='manager'||CU.role==='admin'||CU.role==='engineer'||CU.role==='viewer') return DB.sites;
-  // فني / صاعود — يرى فقط مواقعه المصرح بها
+  if(CU.role==='manager'||CU.role==='engineer'||CU.role==='viewer') return DB.sites;
+  // الإداري والفني والصاعود — يرون فقط المواقع المصرح بها من المدير
   const allowed = CU.perms?.allowedSites;
   if(!allowed||!allowed.length) return [];
   return DB.sites.filter(s=>allowed.includes(s));
@@ -1506,6 +1508,7 @@ function pgInv(){
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${p('addItem')?`<button class="btn btn-bl" onclick="openAddItem()">+ إضافة عنصر</button>`:''}
+      ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openAddWarehouse()">🏪+ مستودع جديد</button>`:''}
       ${p('moves')&&!isMain?`<button class="btn btn-gy" onclick="openTransfer()">🔁 ترحيل للرئيسي</button>`:''}
     </div>
   </div>
@@ -1513,9 +1516,11 @@ function pgInv(){
   <div class="tabs">
     ${DB.sites.map(s=>{
       const cnt=isMainSite(s)?allItems.length:(DB.inv[s]||[]).length;
+      const parent=window._siteParents?.[s];
       return `<button class="tb${ISITE===s?' act':''}" onclick="ISITE='${esc(s)}';pgInv()">
-        ${isMainSite(s)?'🏭':'🏪'} ${esc(s)}
-        ${isMainSite(s)?`<span style="opacity:.7;font-size:10px">(${cnt} كل)</span>`:`<span style="opacity:.7;font-size:10px">(${(DB.inv[s]||[]).length})</span>`}
+        ${isMainSite(s)?'🏭':parent?'📦':'🏪'} ${esc(s)}
+        ${parent?`<span style="font-size:10px;opacity:.6;display:block">← ${esc(parent)}</span>`:''}
+        <span style="opacity:.7;font-size:10px">(${isMainSite(s)?cnt:(DB.inv[s]||[]).length})</span>
       </button>`;
     }).join('')}
   </div>
@@ -2474,11 +2479,8 @@ function toggleUser(i){
 function openPerms(i){
   const u=DB.users[i];
   if(u.role==='manager'){ toast('المدير لديه جميع الصلاحيات دائماً','warn'); return; }
-  // صلاحيات الإداري يغيرها المدير فقط
-  if(u.role==='admin' && CU.role!=='manager'){
-    toast('⛔ فقط المدير يستطيع تغيير صلاحيات الإداري','err'); return;
-  }
-  if(CU.role==='admin') return; // الإداري لا يغير صلاحيات أحد
+  // فقط المدير يستطيع تعديل صلاحيات أي شخص بما فيهم الإداري
+  if(CU.role!=='manager'){ toast('⛔ فقط المدير يستطيع تعديل الصلاحيات','err'); return; }
   const cur=u.perms||DEF_PERMS[u.role]||{};
   const isViewer=u.role==='viewer';
   const isTechOrField = u.role==='technician'||u.role==='field';
@@ -2899,7 +2901,7 @@ function pgFieldMap(){
       </div>
     </div>
     ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
-    <button class="btn btn-gy" onclick="exportMapImage()">📸 تصدير صورة</button>
+    ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportMapImage()">📸 تصدير صورة</button>`:''}
   </div>
 
   ${visibleSites.length===0
