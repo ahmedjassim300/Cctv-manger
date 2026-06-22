@@ -913,7 +913,31 @@ function doLogout(){
 let _loginAttempted = false;
 let _isLoggingOut = false;
 // تحميل الثيم عند البدء
-// وضع مضيء دائماً — لا حاجة لتحميل الثيم
+// ── زر الرجوع في المتصفح/الجهاز ──
+window.addEventListener('popstate', function(e){
+  if(PAGE && PAGE !== 'dashboard'){
+    history.pushState(null, '', location.href);
+    go('dashboard');
+  } else {
+    // على dashboard — تأكيد الخروج
+    _confirmExit();
+  }
+});
+// دفع state أولي لتفعيل popstate
+history.pushState(null, '', location.href);
+
+function _confirmExit(){
+  openModal(`
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:48px;margin-bottom:12px">🚪</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px">هل تريد الخروج؟</div>
+      <div style="color:var(--mt);font-size:14px;margin-bottom:20px">سيتم إغلاق التطبيق</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-gy" onclick="closeModal()">لا، ابق</button>
+        <button class="btn btn-rd" onclick="closeModal();doLogout()">نعم، اخرج</button>
+      </div>
+    </div>`);
+}
 loadBranding();
 
 FBAUTH.onAuthStateChanged(function(fbUser){
@@ -1514,6 +1538,7 @@ function pgInv(){
       ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openAddWarehouse()">🏪+ مستودع جديد</button>`:''}
       ${p('moves')&&!isMain?`<button class="btn btn-gy" onclick="openTransfer()">🔁 ترحيل للرئيسي</button>`:''}
       ${CU.role==='manager'&&linkedFieldSites.length?`<button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>`:''}
+      <button class="btn btn-gy" onclick="exportFilteredInv()">⬇️ تصدير Excel</button>
     </div>
   </div>
 
@@ -1553,6 +1578,10 @@ function pgInv(){
       ${DB.sites.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}
     </select>`:''}
   </div>
+  <div style="padding:6px 16px;font-size:13px;color:var(--mt);display:flex;justify-content:space-between">
+    <span>📋 يعرض <b style="color:var(--tx)">${items.length}</b> من ${(isMain?Object.values(DB.inv).flat():sItems).length} عنصر</span>
+    ${ITYP||ISTS||ISQ?`<button style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px" onclick="ISQ='';ITYP='';ISTS='';pgInv()">✕ مسح الفلاتر</button>`:''}
+  </div>
 
   <div class="tw"><table>
     <thead><tr>
@@ -1579,56 +1608,65 @@ function pgInv(){
       if(!el) return;
       let html=`<div style="font-size:14px;font-weight:700;color:var(--bl);margin-bottom:8px;padding:10px 0 4px;border-top:2px solid var(--br)">
         🗺️ المواقع الميدانية المرتبطة بـ ${esc(ISITE)}</div>`;
-      results.forEach(({fs, points})=>{
+      results.forEach(({fs, points},idx)=>{
         const allPtItems=points.flatMap(pt=>pt.items?Object.values(pt.items):[]);
         const working=allPtItems.filter(i=>i.status==='يعمل').length;
         const broken=allPtItems.filter(i=>i.status==='معطل').length;
-        html+=`<div class="panel" style="margin-bottom:8px;border-right:3px solid var(--bl)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        const colId=`fs-col-${idx}`;
+        html+=`
+        <div class="panel" style="margin-bottom:8px;border-right:3px solid var(--bl);padding:0">
+          <!-- رأس مطوي -->
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer"
+            onclick="const el=document.getElementById('${colId}');el.style.display=el.style.display==='none'?'block':'none'">
             <div>
               <span style="font-weight:700">📍 ${esc(fs.name)}</span>
               <span style="font-size:11px;color:var(--mt);margin-right:8px">${allPtItems.length} عنصر</span>
               ${working?`<span style="font-size:11px;color:var(--gn)">✅ ${working}</span>`:''}
               ${broken?`<span style="font-size:11px;color:var(--rd);margin-right:4px">❌ ${broken}</span>`:''}
             </div>
-            <button class="btn btn-sm btn-gy" onclick="window._invSite='${fs.id}';go('siteinv')">📋 الجرد التفصيلي</button>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn btn-sm btn-gy" onclick="event.stopPropagation();window._invSite='${fs.id}';go('siteinv')">📋 الجرد</button>
+              <span style="font-size:16px;color:var(--mt)">▼</span>
+            </div>
           </div>
-          ${allPtItems.length?`
-          <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
-            <thead><tr style="background:var(--bg)">
-              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">النقطة</th>
-              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">العنصر</th>
-              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الكمية</th>
-              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">S/N</th>
-              <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الحالة</th>
-            </tr></thead>
-            <tbody>
-              ${points.flatMap(pt=>{
-                const ptItems=pt.items?Object.values(pt.items):[];
-                return ptItems.map(it=>`<tr style="border-bottom:1px solid var(--br)">
-                  <td style="padding:5px 8px;color:var(--mt)">${esc(pt.name||'—')}</td>
-                  <td style="padding:5px 8px;font-weight:500">${esc(it.name||'—')}</td>
-                  <td style="padding:5px 8px;text-align:center">${it.qty||1}</td>
-                  <td style="padding:5px 8px;font-size:11px;color:var(--mt)">${esc(it.serial||'—')}</td>
-                  <td style="padding:5px 8px">
-                    <span style="font-size:11px;padding:2px 7px;border-radius:5px;
-                      background:${it.status==='يعمل'?'#1a7f3722':it.status==='معطل'?'#d1242f22':it.status==='صيانة'?'#9a670022':'var(--bg)'};
-                      color:${it.status==='يعمل'?'var(--gn)':it.status==='معطل'?'var(--rd)':it.status==='صيانة'?'var(--yl)':'var(--mt)'}">
-                      ${esc(it.status||'—')}
-                    </span>
-                  </td>
-                </tr>`);
-              }).join('')}
-            </tbody>
-          </table></div>`
-          :`<div style="text-align:center;color:var(--mt);font-size:13px;padding:10px">لا عناصر مسجلة في هذا الموقع</div>`}
+          <!-- المحتوى المطوي -->
+          <div id="${colId}" style="display:none;padding:0 14px 12px">
+            ${allPtItems.length?`
+            <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
+              <thead><tr style="background:var(--bg)">
+                <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">النقطة</th>
+                <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">العنصر</th>
+                <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الكمية</th>
+                <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">S/N</th>
+                <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الحالة</th>
+              </tr></thead>
+              <tbody>
+                ${points.flatMap(pt=>{
+                  const ptItems=pt.items?Object.values(pt.items):[];
+                  return ptItems.map(it=>`<tr style="border-bottom:1px solid var(--br)">
+                    <td style="padding:5px 8px;color:var(--mt)">${esc(pt.name||'—')}</td>
+                    <td style="padding:5px 8px;font-weight:500">${esc(it.name||'—')}</td>
+                    <td style="padding:5px 8px;text-align:center">${it.qty||1}</td>
+                    <td style="padding:5px 8px;font-size:11px;color:var(--mt)">${esc(it.serial||'—')}</td>
+                    <td style="padding:5px 8px">
+                      <span style="font-size:11px;padding:2px 7px;border-radius:5px;
+                        background:${it.status==='يعمل'?'#1a7f3722':it.status==='معطل'?'#d1242f22':it.status==='صيانة'?'#9a670022':'var(--bg)'};
+                        color:${it.status==='يعمل'?'var(--gn)':it.status==='معطل'?'var(--rd)':it.status==='صيانة'?'var(--yl)':'var(--mt)'}">
+                        ${esc(it.status||'—')}
+                      </span>
+                    </td>
+                  </tr>`);
+                }).join('')}
+              </tbody>
+            </table></div>`
+            :`<div style="text-align:center;color:var(--mt);font-size:13px;padding:10px">لا عناصر مسجلة</div>`}
+          </div>
         </div>`;
       });
       el.innerHTML=html;
     });
   }
 }
-window.ISTS_SITE='';
 
 function renderInvRows(isMain,allItems,items,AT){
   const isMainV=isMain;
@@ -2896,8 +2934,8 @@ function pgSites(){
           <span style="font-size:12px;color:var(--mt);margin-right:6px">(${w.count} عنصر)</span>
         </div>
         <div style="display:flex;gap:6px">
-          ${!w.isMain?`<button class="btn btn-sm btn-gy" onclick="openEditWarehouse('${esc(w.name)}',${i})">⚙️</button>`:''}
-          ${!w.isMain&&w.count===0?`<button class="btn btn-sm btn-rd" onclick="delSite(${i})">حذف</button>`:''}
+          ${CU.role==='manager'&&!w.isMain?`<button class="btn btn-sm btn-gy" onclick="openEditWarehouse('${esc(w.name)}',${i})">⚙️</button>`:''}
+          ${CU.role==='manager'&&!w.isMain&&w.count===0?`<button class="btn btn-sm btn-rd" onclick="delSite(${i})">حذف</button>`:''}
         </div>
       </div>
       ${children.map(c=>whRow(c,indent+1)).join('')}
@@ -3341,19 +3379,19 @@ function renderFieldSiteDetail(fs){
             <span style="color:var(--gn)">👥 متاح لـ:</span> ${esc(allowedUsersNames)}
           </div>` : ''}
       </div>
-      ${p('fieldmap') ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${CU.role==='manager' ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-bl btn-sm" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>
-        ${CU.role === 'manager' ? `
-          <button class="btn btn-sm btn-pu" onclick="openSitePermissions('${fs.id}')">👥 صلاحيات</button>
-          <button class="btn btn-sm btn-gy" onclick="openEditFieldSite('${fs.id}')">✏️</button>
-        ` : ''}
+        <button class="btn btn-sm btn-pu" onclick="openSitePermissions('${fs.id}')">👥 صلاحيات</button>
+        <button class="btn btn-sm btn-gy" onclick="openEditFieldSite('${fs.id}')">✏️</button>
+      </div>` : p('addItem') ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-bl btn-sm" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>
       </div>` : ''}
     </div>
   </div>
   ${fs.cameras.length===0
     ?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">
         لا توجد كاميرات منصوبة
-        ${p('fieldmap')?`<br><button class="btn btn-bl btn-sm" style="margin-top:14px" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>`:''}
+        ${CU.role==='manager'||p('addItem')?`<br><button class="btn btn-bl btn-sm" style="margin-top:14px" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>`:''}
       </div>`
     :`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
       ${fs.cameras.map((c,ci)=>{
@@ -3372,9 +3410,9 @@ function renderFieldSiteDetail(fs){
           <div style="font-size:12px;color:var(--mt);margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.installDesc||c.camType||'—')}</div>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:11px;color:${hasGPS?'var(--gn)':'var(--rd)'}">${hasGPS?'📍 GPS':'❌ بدون GPS'}</span>
-            ${p('fieldmap')?`<div style="display:flex;gap:4px" onclick="event.stopPropagation()">
+            ${CU.role==='manager'||p('addItem')?`<div style="display:flex;gap:4px" onclick="event.stopPropagation()">
               <button class="btn btn-sm btn-gy" style="padding:5px 8px;font-size:13px" onclick="openEditFieldCam('${fs.id}',${ci})">✏️</button>
-              <button class="btn btn-sm btn-rd" style="padding:5px 8px;font-size:13px" onclick="delFieldCam('${fs.id}',${ci})">🗑</button>
+              ${CU.role==='manager'?`<button class="btn btn-sm btn-rd" style="padding:5px 8px;font-size:13px" onclick="delFieldCam('${fs.id}',${ci})">🗑</button>`:''}
             </div>`:''}
           </div>
         </div>`;
@@ -5009,6 +5047,45 @@ function pgReports(){
       </div>`).join('')}
     </div>
   </div>`;
+}
+
+function exportFilteredInv(){
+  const AT=allT();
+  const sItems = isMainSite(ISITE) ? Object.values(DB.inv).flat() : (DB.inv[ISITE]||[]);
+  const items = sItems.filter(item=>{
+    const q=(ISQ||'').toLowerCase();
+    const ok=!q||[item.name,item.serial,item.model,item.mfr].some(v=>v?.toLowerCase().includes(q));
+    return ok&&(!ITYP||item.type===ITYP)&&(!ISTS||item.status===ISTS);
+  });
+  if(!items.length){ toast('لا مواد للتصدير بالفلتر الحالي','warn'); return; }
+
+  const filterDesc=[
+    ISITE?`المستودع: ${ISITE}`:'',
+    ITYP?`النوع: ${AT[ITYP]?.label||ITYP}`:'',
+    ISTS?`الحالة: ${ISTS}`:'',
+    ISQ?`بحث: ${ISQ}`:'',
+  ].filter(Boolean).join(' | ');
+
+  const rows=[['#','الاسم','النوع','السيريال','الموديل','الشركة','الحالة','موقع النصب','المستودع','التاريخ']];
+  items.forEach((it,i)=>{
+    rows.push([i+1,it.name||'',AT[it.type]?.label||it.type||'',it.serial||'',it.model||'',it.mfr||'',it.status||'',it.installedAt||'',it.currentSite||ISITE,it.addedAt||'']);
+  });
+
+  let html='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#0969da}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:6px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}@media print{.np{display:none}}</style></head><body>';
+  html+=`<h2>📦 ${esc(ISITE)}</h2><p style="color:#666;font-size:12px">${filterDesc||'كل المواد'} — ${items.length} عنصر — ${new Date().toLocaleString('ar-IQ')}</p>`;
+  html+=`<button class="np" onclick="window.print()" style="margin-bottom:12px;padding:6px 20px;background:#0969da;color:#fff;border:none;border-radius:6px;cursor:pointer">🖨️ طباعة / PDF</button>`;
+  html+='<table><thead><tr>'+rows[0].map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+  rows.slice(1).forEach(r=>{html+='<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>';});
+  html+='</tbody></table></body></html>';
+
+  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`مخزن_${ISITE}${ITYP?'_'+(AT[ITYP]?.label||ITYP):''}${ISTS?'_'+ISTS:''}_${new Date().toISOString().split('T')[0]}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(`✅ تم تصدير ${items.length} عنصر`);
 }
 
 function exportReportCSV(){
@@ -6676,7 +6753,7 @@ function pgSiteInventory(){
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openEditFieldSite('${site.id}')">⚙️ ربط مستودع</button>`:''}
-        ${canAccessFault({fieldSiteId:site.id})?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
+        ${CU.role==='manager'||p('addItem')?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
         <button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>
       </div>
     </div>
@@ -6722,7 +6799,7 @@ function renderSitePoint(pt, siteId){
   const working = items.filter(i=>i.status==='يعمل').length;
   const broken  = items.filter(i=>i.status==='معطل').length;
   const maint   = items.filter(i=>i.status==='صيانة').length;
-  const canEdit = canAccessFault({fieldSiteId: siteId});
+  const canEdit = CU.role==='manager' || p('addItem');
   const pid = 'pt-'+pt.id;
 
   return `<div class="panel" style="margin-bottom:10px;padding:0;overflow:hidden">
@@ -6842,27 +6919,36 @@ function delSitePoint(siteId, ptId){
 }
 
 // ── إضافة عنصر جرد ──
-function openAddSiteItem(siteId, ptId){
-  openModal(`${mhd('📦 إضافة عنصر')}
+function openAddSiteItem(siteId, ptId, editItem){
+  const f = editItem || {};
+  // جلب أنواع المواد من المخزن لإعادة الاستخدام
+  const AT_TYPES = Object.entries(allT()).map(([k,v])=>`<option value="${k}" ${f.itemType===k?'selected':''}>${v.icon} ${v.label}</option>`).join('');
+  openModal(`${mhd(editItem?'✏️ تعديل عنصر':'📦 إضافة عنصر')}
   <div style="display:flex;flex-direction:column;gap:10px">
-    <div class="field"><label>اسم العنصر *</label><input id="si-name" placeholder="كاميرا dome، جهاز قدرة، عاكس كهربائي..."></div>
-    <div class="field"><label>الكمية</label><input id="si-qty" type="number" value="1" min="1"></div>
-    <div class="field"><label>الرقم التسلسلي</label><input id="si-serial" placeholder="SN-XXXXX"></div>
+    <div class="field"><label>نوع المادة (للربط بالمخزن)</label>
+      <select id="si-type">
+        <option value="">— اختر النوع —</option>
+        ${AT_TYPES}
+      </select>
+    </div>
+    <div class="field"><label>اسم العنصر *</label><input id="si-name" value="${esc(f.name||'')}" placeholder="كاميرا dome، راك، NVR..."></div>
+    <div class="field"><label>الكمية</label><input id="si-qty" type="number" value="${f.qty||1}" min="1"></div>
+    <div class="field"><label>الرقم التسلسلي</label><input id="si-serial" value="${esc(f.serial||'')}" placeholder="SN-XXXXX"></div>
     <div class="field"><label>الحالة</label>
       <select id="si-status">
-        <option value="يعمل">✅ يعمل</option>
-        <option value="معطل">❌ معطل</option>
-        <option value="صيانة">🔧 صيانة</option>
+        <option value="يعمل" ${(f.status||'يعمل')==='يعمل'?'selected':''}>✅ يعمل</option>
+        <option value="معطل" ${f.status==='معطل'?'selected':''}>❌ معطل</option>
+        <option value="صيانة" ${f.status==='صيانة'?'selected':''}>🔧 صيانة</option>
       </select>
     </div>
     <div class="field"><label>صورة</label>
       <input type="file" id="si-photo" accept="image/*" style="color:var(--tx)">
     </div>
-    <div class="field"><label>ملاحظات</label><textarea id="si-notes" rows="2" placeholder="أي ملاحظات..."></textarea></div>
+    <div class="field"><label>ملاحظات</label><textarea id="si-notes" rows="2">${esc(f.notes||'')}</textarea></div>
   </div>
   <div class="mft" style="margin-top:14px">
     <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
-    <button class="btn btn-bl" onclick="saveSiteItem('${siteId}','${ptId}')">💾 حفظ</button>
+    <button class="btn btn-bl" onclick="saveSiteItem('${siteId}','${ptId}'${editItem?`,'${editItem.id}'`:''})" >💾 حفظ</button>
   </div>`);
 }
 
@@ -6875,6 +6961,7 @@ function saveSiteItem(siteId, ptId, itemId){
     const id = itemId || gid();
     const data = {
       id, name,
+      itemType: val('si-type')||'',
       qty: parseInt(val('si-qty'))||1,
       serial: val('si-serial')||'',
       status: val('si-status')||'يعمل',
