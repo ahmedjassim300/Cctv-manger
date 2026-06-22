@@ -716,7 +716,7 @@ function canUserSeeFieldSite(site) {
 // فلترة المواقع الميدانية حسب صلاحيات المستخدم
 function getVisibleFieldSites() {
   if(!CU) return [];
-  if(CU.role === 'manager' || CU.role === 'admin' || CU.role === 'viewer') return DB.fieldSites;
+  if(CU.role === 'manager' || CU.role === 'viewer') return DB.fieldSites;
   return DB.fieldSites.filter(site => canUserSeeFieldSite(site));
 }
 
@@ -2285,7 +2285,7 @@ function pgNotifs(showAll=false){
     <div style="display:flex;gap:9px;flex-wrap:wrap">
       ${unread.length?`<button class="btn btn-gy" onclick="markAllN()">✓ قراءة الكل</button>`:''}
       <button class="btn btn-gy" onclick="pgNotifs(${!showAll})">${showAll?'عرض غير المقروءة فقط':'📋 عرض الكل'}</button>
-      ${CU.role==='manager'||CU.role==='admin'?`<button class="btn btn-bl" onclick="openSendN()">📢 إرسال إشعار</button>`:''}
+      ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openSendN()">📢 إرسال إشعار</button>`:''}
     </div>
   </div>
   ${displayed.length===0?`<div class="panel" style="text-align:center;padding:50px;color:var(--mt)">
@@ -2869,7 +2869,7 @@ async function doSyncFieldItems(warehouseName){
   setTimeout(()=>pgInv(), 800);
 }
 function pgSites(){
-  if(!p('sites')&&CU.role!=='manager'&&CU.role!=='admin'){
+  if(!p('sites')&&CU.role!=='manager'){
     $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ غير مصرح</div>'; return;
   }
   // بناء هيكل هرمي — المستودع الرئيسي ثم الفرعية مع تعريف الأب
@@ -2907,7 +2907,7 @@ function pgSites(){
   $('page').innerHTML=`
   <div class="ph">
     <div><div class="pt">🏭 المستودعات والمخازن</div><div class="ps">${DB.sites.length} مستودع</div></div>
-    ${CU.role==='manager'||CU.role==='admin'?`<button class="btn btn-bl" onclick="openAddWarehouse()">+ مستودع جديد</button>`:''}
+    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddWarehouse()">+ مستودع جديد</button>`:''}
   </div>
   <div style="padding:0 16px">
     ${mainWh?whRow(mainWh,0):''}
@@ -5692,7 +5692,7 @@ function dismissGPSDialog(){
 
 // صفحة مواقع الفنيين للمدير
 function pgTechMap(){
-  if(CU.role!=='manager'&&CU.role!=='admin'&&CU.role!=='engineer'){
+  if(CU.role!=='manager'&&CU.role!=='engineer'&&!p('fieldmap')){
     $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ غير مصرح</div>'; return;
   }
   $('page').innerHTML=`
@@ -6178,8 +6178,8 @@ function loadLocalDB(){
 // ═══════════════════════════════════════════════════════
 function canAccessFault(f){
   if(!CU) return false;
-  if(CU.role==='manager' || CU.role==='admin') return true;
-  if(CU.role==='viewer') return true; // السيد يرى كل شيء لكن لا يعدل
+  if(CU.role==='manager') return true;
+  if(CU.role==='viewer') return true;
 
   // عطل مرتبط بموقع ميداني — يراه فقط من لديه وصول لذلك الموقع
   if(f.fieldSiteId){
@@ -6370,15 +6370,15 @@ function sendChat(){
 //  📁 إدارة المستندات والعقود
 // ═══════════════════════════════════════════════════════
 function pgDocs(){
-  // فقط المدير والإداري ومن يمنحهم المدير صلاحية
-  const canViewDocs = CU.role==='manager'||CU.role==='admin'||CU.perms?.docs;
+  // المدير فقط دائماً، أو من يمنحه المدير صلاحية
+  const canViewDocs = CU.role==='manager' || CU.perms?.docs;
   if(!canViewDocs){
     $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">🔒</div><div style="margin-top:12px">غير مصرح بعرض المستندات</div></div>';
     return;
   }
-  const canDownload = CU.role==='manager'||CU.role==='admin'||CU.perms?.downloadDocs;
-  const canUpload   = CU.role==='manager'||CU.role==='admin';
-  const canDelete   = CU.role==='manager'||CU.role==='admin';
+  const canDownload = CU.role==='manager' || CU.perms?.downloadDocs;
+  const canUpload   = CU.role==='manager';
+  const canDelete   = CU.role==='manager';
 
   FBDB.ref('cctv/docs').once('value').then(snap=>{
     const docs = snap.val() ? Object.values(snap.val()).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
@@ -6403,9 +6403,8 @@ function pgDocs(){
 }
 
 function renderDocsList(docs, canDownload, canDelete){
-  // دعم استدعاء بدون معاملات (من filterDocs)
-  if(canDownload===undefined) canDownload = CU.role==='manager'||CU.role==='admin'||CU.perms?.downloadDocs;
-  if(canDelete===undefined)   canDelete   = CU.role==='manager'||CU.role==='admin';
+  if(canDownload===undefined) canDownload = CU.role==='manager' || CU.perms?.downloadDocs;
+  if(canDelete===undefined)   canDelete   = CU.role==='manager';
   const icons = {عقد:'📄',تقرير:'📊',تصريح:'📋',صورة:'🖼️',أخرى:'📎'};
   return docs.map(d=>`
   <div class="panel" style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
@@ -6516,7 +6515,7 @@ function openAppMenu(){
     {id:'actlog',    ic:'📋', lb:'سجل النشاط',         perm:'users'},
     {id:'performance',ic:'🏆',lb:'أداء الفنيين',       perm:'users'},
     {id:'chat',      ic:'💬', lb:'الدردشة',            perm:null},
-    {id:'docs',      ic:'📁', lb:'المستندات',          perm:null},
+    {id:'docs',      ic:'📁', lb:'المستندات',          perm:'docs'},
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
     {id:'siteinv',   ic:'📦', lb:'جرد الموجودات الثابتة', perm:'fieldmap'},
