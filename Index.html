@@ -1348,15 +1348,19 @@ function pgDash(){
   let statsH='';
   if(p('inv')){
     statsH+=`
-    <div class="sc"><div class="si" style="background:#58a6ff22">🏪</div>
+    <div class="sc" onclick="go('inventory')" style="cursor:pointer" title="فتح المخزن">
+      <div class="si" style="background:#0969da22">🏪</div>
       <div><div class="sn" style="color:var(--bl)">${ai.length}</div><div class="sl">إجمالي المخزن</div></div></div>
-    <div class="sc"><div class="si" style="background:#3fb95022">📡</div>
+    <div class="sc" onclick="ISTS='deployed';go('inventory')" style="cursor:pointer" title="عرض المنصوبات">
+      <div class="si" style="background:#1a7f3722">📡</div>
       <div><div class="sn" style="color:var(--gn)">${ai.filter(i=>i.status==='deployed').length}</div><div class="sl">منصوبة</div></div></div>`;
   }
   statsH+=`
-    <div class="sc"><div class="si" style="background:#f8514922">⚠️</div>
+    <div class="sc" onclick="go('faults')" style="cursor:pointer" title="فتح الأعطال">
+      <div class="si" style="background:#d1242f22">⚠️</div>
       <div><div class="sn" style="color:var(--rd)">${af.length}</div><div class="sl">أعطال نشطة</div></div></div>
-    <div class="sc"><div class="si" style="background:#d2992222">🔔</div>
+    <div class="sc" onclick="go('notifs')" style="cursor:pointer" title="فتح الإشعارات">
+      <div class="si" style="background:#9a670022">🔔</div>
       <div><div class="sn" style="color:var(--yl)">${unread}</div><div class="sl">إشعارات</div></div></div>`;
 
   let myTasksH='';
@@ -1614,28 +1618,27 @@ function pgInv(){
         const broken=allPtItems.filter(i=>i.status==='معطل').length;
         const colId=`fs-col-${idx}`;
         html+=`
-        <div class="panel" style="margin-bottom:8px;border-right:3px solid var(--bl);padding:0">
-          <!-- رأس مطوي -->
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer"
-            onclick="const el=document.getElementById('${colId}');el.style.display=el.style.display==='none'?'block':'none'">
-            <div>
-              <span style="font-weight:700">📍 ${esc(fs.name)}</span>
-              <span style="font-size:11px;color:var(--mt);margin-right:8px">${allPtItems.length} عنصر</span>
-              ${working?`<span style="font-size:11px;color:var(--gn)">✅ ${working}</span>`:''}
-              ${broken?`<span style="font-size:11px;color:var(--rd);margin-right:4px">❌ ${broken}</span>`:''}
+        <div class="panel" style="margin-bottom:8px;padding:0;overflow:hidden;border-right:3px solid var(--bl)">
+          <div onclick="const b=document.getElementById('${colId}');const a=document.getElementById('${colId}-arr');const open=b.style.display!=='none';b.style.display=open?'none':'block';a.style.transform=open?'':'rotate(90deg)'"
+            style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;user-select:none">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span id="${colId}-arr" style="font-size:16px;transition:transform .25s;color:var(--mt)">▶</span>
+              <div>
+                <span style="font-weight:700">📍 ${esc(fs.name)}</span>
+                <span style="font-size:11px;color:var(--mt);margin-right:8px">${allPtItems.length} عنصر</span>
+                ${working?`<span style="font-size:11px;color:var(--gn)">✅ ${working}</span>`:''}
+                ${broken?`<span style="font-size:11px;color:var(--rd);margin-right:4px">❌ ${broken}</span>`:''}
+              </div>
             </div>
-            <div style="display:flex;gap:6px;align-items:center">
-              <button class="btn btn-sm btn-gy" onclick="event.stopPropagation();window._invSite='${fs.id}';go('siteinv')">📋 الجرد</button>
-              <span style="font-size:16px;color:var(--mt)">▼</span>
-            </div>
+            <button class="btn btn-sm btn-gy" onclick="event.stopPropagation();window._invSite='${fs.id}';go('siteinv')">📋 الجرد</button>
           </div>
-          <!-- المحتوى المطوي -->
-          <div id="${colId}" style="display:none;padding:0 14px 12px">
+          <div id="${colId}" style="display:none;padding:0 14px 12px;border-top:1px solid var(--br)">
             ${allPtItems.length?`
-            <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
+            <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;font-size:12px;border-collapse:collapse">
               <thead><tr style="background:var(--bg)">
                 <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">النقطة</th>
                 <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">العنصر</th>
+                <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">النوع</th>
                 <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الكمية</th>
                 <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">S/N</th>
                 <th style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--br)">الحالة</th>
@@ -1646,12 +1649,13 @@ function pgInv(){
                   return ptItems.map(it=>`<tr style="border-bottom:1px solid var(--br)">
                     <td style="padding:5px 8px;color:var(--mt)">${esc(pt.name||'—')}</td>
                     <td style="padding:5px 8px;font-weight:500">${esc(it.name||'—')}</td>
+                    <td style="padding:5px 8px;font-size:11px">${it.itemType?allT()[it.itemType]?.icon+' '+allT()[it.itemType]?.label:'—'}</td>
                     <td style="padding:5px 8px;text-align:center">${it.qty||1}</td>
                     <td style="padding:5px 8px;font-size:11px;color:var(--mt)">${esc(it.serial||'—')}</td>
                     <td style="padding:5px 8px">
                       <span style="font-size:11px;padding:2px 7px;border-radius:5px;
-                        background:${it.status==='يعمل'?'#1a7f3722':it.status==='معطل'?'#d1242f22':it.status==='صيانة'?'#9a670022':'var(--bg)'};
-                        color:${it.status==='يعمل'?'var(--gn)':it.status==='معطل'?'var(--rd)':it.status==='صيانة'?'var(--yl)':'var(--mt)'}">
+                        background:${it.status==='يعمل'?'#1a7f3722':it.status==='معطل'?'#d1242f22':'#9a670022'};
+                        color:${it.status==='يعمل'?'var(--gn)':it.status==='معطل'?'var(--rd)':'var(--yl)'}">
                         ${esc(it.status||'—')}
                       </span>
                     </td>
@@ -1659,7 +1663,7 @@ function pgInv(){
                 }).join('')}
               </tbody>
             </table></div>`
-            :`<div style="text-align:center;color:var(--mt);font-size:13px;padding:10px">لا عناصر مسجلة</div>`}
+            :`<div style="text-align:center;color:var(--mt);font-size:13px;padding:12px">لا عناصر مسجلة</div>`}
           </div>
         </div>`;
       });
@@ -6990,14 +6994,21 @@ function openEditSiteItem(siteId, ptId, itemId){
   FBDB.ref('cctv/siteInventory/'+siteId+'/'+ptId+'/items/'+itemId).once('value').then(snap=>{
     const item = snap.val();
     if(!item) return;
+    const AT_TYPES = Object.entries(allT()).map(([k,v])=>`<option value="${k}" ${item.itemType===k?'selected':''}>${v.icon} ${v.label}</option>`).join('');
     openModal(`${mhd('✏️ تعديل العنصر')}
     <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="field"><label>نوع المادة (للربط بالمخزن)</label>
+        <select id="si-type">
+          <option value="" ${!item.itemType?'selected':''}>— اختر النوع —</option>
+          ${AT_TYPES}
+        </select>
+      </div>
       <div class="field"><label>اسم العنصر *</label><input id="si-name" value="${esc(item.name)}"></div>
       <div class="field"><label>الكمية</label><input id="si-qty" type="number" value="${item.qty||1}" min="1"></div>
       <div class="field"><label>الرقم التسلسلي</label><input id="si-serial" value="${esc(item.serial||'')}"></div>
       <div class="field"><label>الحالة</label>
         <select id="si-status">
-          <option value="يعمل" ${item.status==='يعمل'?'selected':''}>✅ يعمل</option>
+          <option value="يعمل" ${(item.status||'يعمل')==='يعمل'?'selected':''}>✅ يعمل</option>
           <option value="معطل" ${item.status==='معطل'?'selected':''}>❌ معطل</option>
           <option value="صيانة" ${item.status==='صيانة'?'selected':''}>🔧 صيانة</option>
         </select>
