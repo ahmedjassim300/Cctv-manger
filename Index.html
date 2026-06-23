@@ -1678,14 +1678,28 @@ function renderInvRows(isMain,allItems,items,AT){
   const isMainV=isMain;
   let showItems=isMainV
     ? allItems.filter(item=>{
-        const q=ISQ.toLowerCase();
+        const q=(ISQ||'').toLowerCase();
         const ok=!q||[item.name,item.serial,item.model,item.mfr].some(v=>v?.toLowerCase().includes(q));
         const sf=window.ISTS_SITE||'';
         return ok&&(!ITYP||item.type===ITYP)&&(!ISTS||item.status===ISTS)&&(!sf||item.currentSite===sf);
       })
     : items;
+
   if(!showItems.length) return `<tr class="erow"><td colspan="9">لا توجد عناصر مطابقة</td></tr>`;
-  return showItems.map((item)=>{
+
+  // ── فصل المواد: في المخزن (عادي) + منصوبة (مطوية حسب الموقع) ──
+  const warehouseItems = showItems.filter(i=>i.status==='warehouse'||i.status==='maintenance'||i.status==='returned');
+  const deployedItems  = showItems.filter(i=>i.status==='deployed'||i.status==='consumed');
+
+  // مجموعات المنصوبة حسب الموقع
+  const deployedGroups = {};
+  deployedItems.forEach(item=>{
+    const loc = item.installedAt || item.currentSite || 'غير محدد';
+    if(!deployedGroups[loc]) deployedGroups[loc]=[];
+    deployedGroups[loc].push(item);
+  });
+
+  function itemRow(item){
     const realSite=item.currentSite||ISITE;
     const realIdx=(DB.inv[realSite]||[]).indexOf(item);
     return `<tr
@@ -1700,9 +1714,9 @@ function renderInvRows(isMain,allItems,items,AT){
         <span style="font-size:11px;color:var(--mt);margin-right:5px">${AT[item.type]?.label||item.type}</span>
       </td>
       <td><div class="tm">${esc(item.name||item.serial||'—')}</div>
-      ${item.name&&item.serial?`<div class="ts">${esc(item.serial)}</div>`:''}</td>
+        ${item.name&&item.serial?`<div class="ts">${esc(item.serial)}</div>`:''}</td>
       <td><div>${esc(item.model||'—')}</div><div class="ts">${esc(item.mfr||'')}</div></td>
-      <td style="font-size:12px;color:var(--mt);max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(itemDet(item))}</td>
+      <td style="font-size:12px;color:var(--mt);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(itemDet(item))}</td>
       <td>${badge(item.status)}</td>
       ${isMainV?`<td><span style="font-size:11px;color:var(--mt)">${esc(realSite)}</span></td>`:''}
       <td style="font-size:12px;color:var(--mt)">${esc(item.addedBy||'')}</td>
@@ -1715,7 +1729,53 @@ function renderInvRows(isMain,allItems,items,AT){
         <button class="btn btn-sm btn-rd" onclick="delItemAt(${realIdx},'${realSite}')">🗑</button>
       </div></td>`:''}
     </tr>`;
-  }).join('');
+  }
+
+  let html = '';
+
+  // ── المواد في المخزن — جدول عادي ──
+  if(warehouseItems.length){
+    html += warehouseItems.map(itemRow).join('');
+  }
+
+  // ── المواد المنصوبة — مطوية حسب الموقع ──
+  if(deployedItems.length){
+    const colspan = isMainV ? 8 : 7;
+    // فاصل
+    html += `<tr><td colspan="${colspan+1}" style="padding:0">
+      <div style="margin:6px 0;border-top:2px dashed var(--br)"></div>
+    </td></tr>`;
+
+    Object.entries(deployedGroups).forEach(([loc, locItems], gi)=>{
+      const gid = 'dep-grp-'+gi;
+      html += `<tr id="${gid}-hdr" onclick="toggleDepGroup('${gid}')" style="cursor:pointer;background:var(--bg)">
+        <td colspan="${colspan+1}" style="padding:10px 14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="${gid}-arr" style="font-size:15px;transition:transform .2s;color:var(--mt)">▶</span>
+            <span style="font-weight:700;font-size:14px">📍 ${esc(loc)}</span>
+            <span style="font-size:12px;color:var(--mt)">${locItems.length} عنصر منصوب</span>
+            <span style="font-size:11px;background:#1a7f3722;color:var(--gn);padding:2px 8px;border-radius:10px">منصوب</span>
+          </div>
+        </td>
+      </tr>
+      <tr id="${gid}-body" style="display:none"><td colspan="${colspan+1}" style="padding:0 0 4px">
+        <table style="width:100%;border-collapse:collapse">
+          ${locItems.map(itemRow).join('')}
+        </table>
+      </td></tr>`;
+    });
+  }
+
+  return html;
+}
+
+function toggleDepGroup(gid){
+  const body = document.getElementById(gid+'-body');
+  const arr  = document.getElementById(gid+'-arr');
+  if(!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'table-row';
+  if(arr) arr.style.transform = open ? '' : 'rotate(90deg)';
 }
 
 function itemDet(i){
@@ -6819,18 +6879,28 @@ function pgSiteInventory(){
         </button>`).join('')}
     </div>
 
-    <!-- المواد المنصوبة من المستودع في هذا الموقع -->
     ${linkedWarehouse&&deployedHere.length?`
-    <div class="panel" style="margin-bottom:12px;border-right:3px solid var(--bl)">
-      <div style="font-weight:700;margin-bottom:8px;color:var(--bl)">📦 مواد منصوبة من ${esc(linkedWarehouse)}</div>
-      ${deployedHere.map(it=>`
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--br)">
+    <div class="panel" style="margin-bottom:12px;padding:0;overflow:hidden;border-right:3px solid var(--bl)">
+      <div onclick="const b=document.getElementById('dep-wh-list');const a=document.getElementById('dep-wh-arr');const open=b.style.display!=='none';b.style.display=open?'none':'block';a.style.transform=open?'':'rotate(90deg)'"
+        style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;user-select:none">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="dep-wh-arr" style="font-size:16px;transition:transform .25s;color:var(--mt)">▶</span>
           <div>
-            <span style="font-size:13px;font-weight:600">${esc(it.name||it.serial)}</span>
-            ${it.installedAt?`<span style="font-size:11px;color:var(--mt);margin-right:6px">@ ${esc(it.installedAt)}</span>`:''}
+            <span style="font-weight:700">📦 مواد منصوبة من ${esc(linkedWarehouse)}</span>
+            <span style="font-size:11px;color:var(--mt);margin-right:8px">${deployedHere.length} عنصر</span>
           </div>
-          ${badge(it.status)}
-        </div>`).join('')}
+        </div>
+      </div>
+      <div id="dep-wh-list" style="display:none;padding:0 14px 12px;border-top:1px solid var(--br)">
+        ${deployedHere.map(it=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--br)">
+            <div>
+              <span style="font-size:13px;font-weight:600">${esc(it.name||it.serial)}</span>
+              ${it.installedAt?`<span style="font-size:11px;color:var(--mt);margin-right:6px">@ ${esc(it.installedAt)}</span>`:''}
+            </div>
+            ${badge(it.status)}
+          </div>`).join('')}
+      </div>
     </div>`:''}
 
     <!-- النقاط -->
