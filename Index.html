@@ -6854,7 +6854,13 @@ function pgSiteInventory(){
   // المستودع المرتبط بالموقع
   const linkedWarehouse = site.warehouse || '';
   const whItems = linkedWarehouse ? (DB.inv[linkedWarehouse]||[]) : [];
-  const deployedHere = whItems.filter(it=>it.installedAt&&it.currentSite===linkedWarehouse&&it.status==='deployed');
+  // فقط المواد المنصوبة في هذا الموقع الميداني تحديداً (بـ fieldSiteId أو installedAt)
+  const deployedHere = whItems.filter(it=>
+    it.status==='deployed' && (
+      it.fieldSiteId === site.id ||
+      (it.installedAt && it.installedAt.startsWith(site.name))
+    )
+  );
 
   FBDB.ref('cctv/siteInventory/'+site.id).once('value').then(snap=>{
     const points = snap.val() ? Object.values(snap.val()).sort((a,b)=>(a.order||0)-(b.order||0)) : [];
