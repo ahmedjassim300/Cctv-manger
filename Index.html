@@ -543,6 +543,12 @@ const FBAUTH = firebase.auth();
 const FBDB   = firebase.database();
 let FBMSG = null;
 
+// ✅ تفعيل حفظ الجلسة دائماً — مرة واحدة عند البدء قبل أي عملية
+FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.warn('persistence:',e));
+
+// ══ تمكين كاش Firebase المحلي للعمل offline وتسريع التحميل ══
+try { FBDB.ref().keepSynced(false); } catch(e){}
+
 // ══ تفعيل الوضع الأوفلاين — Firebase يخزن البيانات محلياً ويتزامن عند الاتصال ══
 try {
   FBDB.ref('.info/connected').on('value', snap => {
@@ -860,9 +866,7 @@ function doLogin(){
   btn.disabled=true;
   btn.textContent='⏳ جار التحقق...';
   $('lerr').style.display='none';
-  FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
-    return FBAUTH.signInWithEmailAndPassword(email,pw);
-  }).catch(err=>{
+  FBAUTH.signInWithEmailAndPassword(email,pw).catch(err=>{
     const msgs={
       'auth/user-not-found':'❌ البريد غير موجود',
       'auth/wrong-password':'❌ كلمة المرور خاطئة',
@@ -941,9 +945,10 @@ function _confirmExit(){
 loadBranding();
 
 FBAUTH.onAuthStateChanged(function(fbUser){
-  if(_isLoggingOut) return; // تجاهل أي حدث أثناء تسجيل الخروج
+  if(_isLoggingOut) return;
   if(!fbUser){
-    // إخفاء Splash وإظهار شاشة الدخول
+    // مسح كاش المستخدم عند الخروج
+    localStorage.removeItem('cctv_cu_cache');
     const splash = $('splash');
     if(splash) splash.style.display='none';
     $('ls').style.display='flex';
@@ -952,6 +957,34 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     _loginAttempted = false;
     return;
   }
+
+  // ✅ محاولة تحميل بيانات المستخدم من الكاش أولاً لتسريع الدخول
+  const cachedUser = localStorage.getItem('cctv_cu_cache');
+  if(cachedUser){
+    try{
+      const parsed = JSON.parse(cachedUser);
+      if(parsed && parsed.uid === fbUser.uid && parsed.active !== false){
+        // دخول فوري من الكاش
+        CU = parsed;
+        const splash=$('splash'); if(splash) splash.style.display='none';
+        $('ls').style.display='none';
+        $('app').style.display='flex';
+        const av=$('sav');
+        av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#f85149';
+        $('snm').textContent=CU.name;
+        $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#f85149';
+        fbInitDB(); fbStartSync();
+        _setupUserSession();
+        // تحديث الكاش في الخلفية
+        FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
+          const fresh = snap.val();
+          if(fresh) localStorage.setItem('cctv_cu_cache', JSON.stringify({...fresh, uid:fbUser.uid, email:fbUser.email}));
+        });
+        return;
+      }
+    }catch(e){ localStorage.removeItem('cctv_cu_cache'); }
+  }
+
   console.log('Auth OK, uid:', fbUser.uid, 'email:', fbUser.email);
   // جلب بيانات المستخدم من قاعدة البيانات
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
@@ -1012,6 +1045,8 @@ FBAUTH.onAuthStateChanged(function(fbUser){
       return;
     }
     CU={...userData, uid:fbUser.uid, email:fbUser.email};
+    // ✅ حفظ بيانات المستخدم في الكاش للدخول السريع في المرة القادمة
+    localStorage.setItem('cctv_cu_cache', JSON.stringify(CU));
     const splash=$('splash'); if(splash) splash.style.display='none';
     $('lload').style.display='none';
     $('lerr').style.display='none';
@@ -1023,9 +1058,20 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#58a6ff';
     // تهيئة قاعدة البيانات إذا كانت فارغة (أول دخول)
     fbInitDB();
-    // بدء المزامنة الفورية
     fbStartSync();
-    // حماية: إذا بقي Splash ظاهراً أكثر من 10 ثوانٍ → خطأ في الاتصال
+    _setupUserSession();
+function _setupUserSession(){
+    // طلب إذن الإشعارات — مرة واحدة فقط
+    if(!localStorage.getItem('notif_perm_asked')){
+      setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 2000);
+    }
+    // طلب إذن GPS — مرة واحدة فقط + تشغيل تلقائي للفنيين
+    if(!localStorage.getItem('gps_perm_asked')){
+      setTimeout(()=>{ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 4000);
+    } else if((CU.role==='technician'||CU.role==='field') && _gpsWatcher===null){
+      setTimeout(()=>{ if(navigator.geolocation) startGPSTracking(); }, 2000);
+    }
+    // حماية: إذا بقي Splash ظاهراً أكثر من 10 ثوانٍ → خطأ
     setTimeout(()=>{
       const splash=$('splash');
       if(splash && splash.style.display!=='none'){
@@ -1036,26 +1082,14 @@ FBAUTH.onAuthStateChanged(function(fbUser){
           <button class="btn btn-rd" style="margin-top:16px" onclick="location.reload()">🔄 إعادة المحاولة</button>`;
       }
     }, 10000);
-    // إظهار زر الويدجت العائم
+    // تحديث online status
+    if(CU && (CU.uid||CU.id)){
+      FBDB.ref('cctv/techLocations/'+(CU.uid||CU.id)).update({online:true, name:CU.name, role:CU.role, _ts:Date.now()});
+    }
+    // تشغيل أي مهام بعد الدخول
     const fab = document.getElementById('quick-fab');
     if(fab) fab.style.display='block';
-    // إظهار فقاعة الدردشة
     showMsgBubble();
-    // طلب إذن الإشعارات — مرة واحدة فقط
-    if(!localStorage.getItem('notif_perm_asked')){
-      setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 2000);
-    }
-    // طلب إذن GPS — مرة واحدة فقط + تشغيل تلقائي للفنيين
-    if(!localStorage.getItem('gps_perm_asked')){
-      setTimeout(()=>{ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 4000);
-    } else if((CU.role==='technician'||CU.role==='field') && _gpsWatcher===null){
-      // إذا سبق منح الإذن، شغّل التتبع مباشرة بدون طلب
-      setTimeout(()=>{
-        if(navigator.geolocation) startGPSTracking();
-      }, 2000);
-    }
-
-    // تحقق من الصيانة المتأخرة
     setTimeout(()=>{
       const today=new Date();
       const overdue=(DB.maintain||[]).filter(t=>!t.done&&new Date(t.dueDate)<today);
@@ -1063,6 +1097,9 @@ FBAUTH.onAuthStateChanged(function(fbUser){
         localNotif('🔔 تذكير صيانة','يوجد '+overdue.length+' مهمة صيانة متأخرة');
       }
     }, 3000);
+    go('dashboard');
+}
+
   }).catch(err=>{
     doLogout();
     const e=$('lerr'); e.textContent='❌ خطأ: '+err.message; e.style.display='block';
