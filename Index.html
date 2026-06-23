@@ -1541,8 +1541,12 @@ function pgInv(){
       ${p('addItem')?`<button class="btn btn-bl" onclick="openAddItem()">+ إضافة عنصر</button>`:''}
       ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openAddWarehouse()">🏪+ مستودع جديد</button>`:''}
       ${p('moves')&&!isMain?`<button class="btn btn-gy" onclick="openTransfer()">🔁 ترحيل للرئيسي</button>`:''}
-      ${CU.role==='manager'&&linkedFieldSites.length?`<button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>`:''}
+      ${CU.role==='manager'&&linkedFieldSites.length?`
+        <button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
+        <button class="btn" style="background:#d1242f22;color:var(--rd);border:1px solid #d1242f44" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
+      `:''}
       <button class="btn btn-gy" onclick="exportFilteredInv()">⬇️ تصدير Excel</button>
+    </div>
     </div>
   </div>
 
@@ -2931,9 +2935,14 @@ async function doSyncFieldItems(warehouseName){
     // 1. كاميرات المواقع الميدانية
     const cameras = fs.cameras||[];
     for(const cam of cameras){
-      const alreadyExists = existingItems.some(it=>
-        (it.serial&&cam.serial&&it.serial===cam.serial)||(it.fieldCamId===cam.id)
-      );
+      const camName = (cam.name||'').trim().toLowerCase();
+      const camSerial = (cam.serial||'').trim().toLowerCase();
+      const alreadyExists = existingItems.some(it=>{
+        if(it.fieldCamId && it.fieldCamId===(cam.id||cam.serial)) return true;
+        if(camSerial && it.serial && it.serial.toLowerCase()===camSerial) return true;
+        if(camName && it.name && it.name.trim().toLowerCase()===camName && it.fieldSiteId===fs.id) return true;
+        return false;
+      });
       if(alreadyExists){ skippedCount++; continue; }
       const newItem = {
         id: gid(), type:'camera',
@@ -2989,6 +2998,49 @@ async function doSyncFieldItems(warehouseName){
   logAct('مزامنة مواد الميدان', warehouseName+' — '+addedCount+' عنصر');
   setTimeout(()=>pgInv(), 800);
 }
+
+// ============================================
+//  🧹 حذف المواد المكررة من المستودع
+// ============================================
+async function dedupWarehouse(warehouseName){
+  const items = DB.inv[warehouseName]||[];
+  if(!items.length){ toast('لا مواد في المستودع','warn'); return; }
+  openModal(`
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:40px;margin-bottom:12px">🧹</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px">حذف التكرار</div>
+      <div style="color:var(--mt);font-size:14px;margin-bottom:20px">
+        سيُحتفظ بنسخة واحدة فقط من كل مادة (حسب الاسم والسيريال).<br>
+        التكرار الزائد يُحذف نهائياً.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-rd" onclick="closeModal();doDedupWarehouse('${esc(warehouseName)}')">🧹 تأكيد</button>
+      </div>
+    </div>`);
+}
+
+async function doDedupWarehouse(warehouseName){
+  const items = [...(DB.inv[warehouseName]||[])];
+  const seen = new Set();
+  let deletedCount = 0;
+  for(const item of items){
+    const nameKey   = (item.name||item.serial||'').trim().toLowerCase();
+    const serialKey = (item.serial||'').trim().toLowerCase();
+    const siteKey   = item.fieldSiteId||item.fieldCamId||'';
+    const key = serialKey ? serialKey+'__'+siteKey : nameKey+'__'+siteKey;
+    if(seen.has(key)){
+      await FBDB.ref(`cctv/inv/${fbKey(warehouseName)}/${item.id}`).remove();
+      deletedCount++;
+    } else {
+      seen.add(key);
+    }
+  }
+  toast(`✅ تم حذف ${deletedCount} عنصر مكرر`);
+  logAct('حذف تكرار', warehouseName+' — '+deletedCount+' عنصر');
+  setTimeout(()=>pgInv(), 800);
+}
+
 function pgSites(){
   if(!p('sites')&&CU.role!=='manager'){
     $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ غير مصرح</div>'; return;
