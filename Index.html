@@ -1563,12 +1563,14 @@ function pgInv(){
   </div>`:''}
 
   <div class="fr">
-    <input placeholder="🔍 بحث..." value="${esc(ISQ)}" oninput="ISQ=this.value;pgInv()">
-    <select onchange="ITYP=this.value;pgInv()">
+    <input id="inv-search" placeholder="🔍 بحث..." value="${esc(ISQ)}"
+      oninput="ISQ=this.value;filterInvTable()"
+      style="flex:1;min-width:120px">
+    <select onchange="ITYP=this.value;filterInvTable()">
       <option value="">كل الأنواع</option>
       ${Object.entries(AT).map(([k,v])=>`<option value="${k}"${ITYP===k?' selected':''}>${v.icon} ${v.label}</option>`).join('')}
     </select>
-    <select onchange="ISTS=this.value;pgInv()">
+    <select onchange="ISTS=this.value;filterInvTable()">
       <option value="">كل الحالات</option>
       <option value="warehouse"${ISTS==='warehouse'?' selected':''}>في المخزن</option>
       <option value="deployed"${ISTS==='deployed'?' selected':''}>منصوب</option>
@@ -1583,8 +1585,8 @@ function pgInv(){
     </select>`:''}
   </div>
   <div style="padding:6px 16px;font-size:13px;color:var(--mt);display:flex;justify-content:space-between">
-    <span>📋 يعرض <b style="color:var(--tx)">${items.length}</b> من ${(isMain?Object.values(DB.inv).flat():sItems).length} عنصر</span>
-    ${ITYP||ISTS||ISQ?`<button style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px" onclick="ISQ='';ITYP='';ISTS='';pgInv()">✕ مسح الفلاتر</button>`:''}
+    <span id="inv-count">📋 يعرض <b style="color:var(--tx)">${items.length}</b> من ${(isMain?Object.values(DB.inv).flat():sItems).length} عنصر</span>
+    <button id="inv-clear-btn" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px;display:${ITYP||ISTS||ISQ?'':'none'}" onclick="ISQ='';ITYP='';ISTS='';document.getElementById('inv-search').value='';filterInvTable()">✕ مسح الفلاتر</button>
   </div>
 
   <div class="tw"><table>
@@ -1595,7 +1597,7 @@ function pgInv(){
       <th>بواسطة</th>
       ${p('addItem')?'<th>إجراءات</th>':''}
     </tr></thead>
-    <tbody>
+    <tbody id="inv-table-body">
       ${renderInvRows(isMain,allItems,items,AT)}
     </tbody>
   </table></div>
@@ -1686,7 +1688,13 @@ function renderInvRows(isMain,allItems,items,AT){
   return showItems.map((item)=>{
     const realSite=item.currentSite||ISITE;
     const realIdx=(DB.inv[realSite]||[]).indexOf(item);
-    return `<tr>
+    return `<tr
+      data-name="${esc(item.name||item.serial||'')}"
+      data-serial="${esc(item.serial||'')}"
+      data-model="${esc(item.model||'')}"
+      data-mfr="${esc(item.mfr||'')}"
+      data-type="${esc(item.type||'')}"
+      data-status="${esc(item.status||'')}">
       <td style="white-space:nowrap">
         <span style="font-size:17px">${AT[item.type]?.icon||'🔧'}</span>
         <span style="font-size:11px;color:var(--mt);margin-right:5px">${AT[item.type]?.label||item.type}</span>
@@ -3397,31 +3405,43 @@ function renderFieldSiteDetail(fs){
         لا توجد كاميرات منصوبة
         ${CU.role==='manager'||p('addItem')?`<br><button class="btn btn-bl btn-sm" style="margin-top:14px" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>`:''}
       </div>`
-    :`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
-      ${fs.cameras.map((c,ci)=>{
-        const hasGPS=c.lat&&c.lng&&!isNaN(parseFloat(c.lat));
-        const stC=c.status==='active'?'var(--gn)':c.status==='maintenance'?'var(--yl)':'var(--mt)';
-        const stL=c.status==='active'?'🟢':'🟡';
-        const mid=fs.id+'_'+ci;
-        return `<div class="panel" style="padding:12px;cursor:pointer;transition:all .15s"
-          onclick="event.stopPropagation();openCamDetail('${fs.id}',${ci})"
-          onmouseenter="this.style.borderColor='var(--bl)';this.style.transform='translateY(-2px)'"
-          onmouseleave="this.style.borderColor='var(--br)';this.style.transform=''">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span style="font-size:18px">${stL}</span>
-            <div style="font-weight:700;font-size:15px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name||c.serial||'كاميرا')}</div>
+    :`<div class="panel" style="padding:0;overflow:hidden;margin-bottom:14px">
+        <div onclick="const b=document.getElementById('cams-${fs.id}');const a=document.getElementById('cam-arr-${fs.id}');const open=b.style.display!=='none';b.style.display=open?'none':'grid';a.style.transform=open?'':'rotate(90deg)'"
+          style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="cam-arr-${fs.id}" style="font-size:16px;transition:transform .25s;color:var(--mt)">▶</span>
+            <span style="font-weight:600">📷 الكاميرات</span>
+            <span style="font-size:12px;color:var(--mt)">(${fs.cameras.length})</span>
+            <span style="font-size:11px;color:var(--gn)">${fs.cameras.filter(c=>c.status==='active').length} تعمل</span>
+            ${fs.cameras.filter(c=>c.status!=='active').length?`<span style="font-size:11px;color:var(--yl)">${fs.cameras.filter(c=>c.status!=='active').length} أخرى</span>`:''}
           </div>
-          <div style="font-size:12px;color:var(--mt);margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.installDesc||c.camType||'—')}</div>
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:11px;color:${hasGPS?'var(--gn)':'var(--rd)'}">${hasGPS?'📍 GPS':'❌ بدون GPS'}</span>
-            ${CU.role==='manager'||p('addItem')?`<div style="display:flex;gap:4px" onclick="event.stopPropagation()">
-              <button class="btn btn-sm btn-gy" style="padding:5px 8px;font-size:13px" onclick="openEditFieldCam('${fs.id}',${ci})">✏️</button>
-              ${CU.role==='manager'?`<button class="btn btn-sm btn-rd" style="padding:5px 8px;font-size:13px" onclick="delFieldCam('${fs.id}',${ci})">🗑</button>`:''}
-            </div>`:''}
-          </div>
-        </div>`;
-      }).join('')}
-    </div>`}`;
+        </div>
+        <div id="cams-${fs.id}" style="display:none;padding:10px;border-top:1px solid var(--br);
+          display:none;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+          ${fs.cameras.map((c,ci)=>{
+            const hasGPS=c.lat&&c.lng&&!isNaN(parseFloat(c.lat));
+            const stL=c.status==='active'?'🟢':'🟡';
+            const mid=fs.id+'_'+ci;
+            return `<div class="panel" style="padding:12px;cursor:pointer;transition:all .15s"
+              onclick="event.stopPropagation();openCamDetail('${fs.id}',${ci})"
+              onmouseenter="this.style.borderColor='var(--bl)'"
+              onmouseleave="this.style.borderColor='var(--br)'">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="font-size:18px">${stL}</span>
+                <div style="font-weight:700;font-size:15px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name||c.serial||'كاميرا')}</div>
+              </div>
+              <div style="font-size:12px;color:var(--mt);margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.installDesc||c.camType||'—')}</div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span style="font-size:11px;color:${hasGPS?'var(--gn)':'var(--rd)'}">${hasGPS?'📍 GPS':'❌ بدون GPS'}</span>
+                ${CU.role==='manager'||p('addItem')?`<div style="display:flex;gap:4px" onclick="event.stopPropagation()">
+                  <button class="btn btn-sm btn-gy" style="padding:5px 8px;font-size:13px" onclick="openEditFieldCam('${fs.id}',${ci})">✏️</button>
+                  ${CU.role==='manager'?`<button class="btn btn-sm btn-rd" style="padding:5px 8px;font-size:13px" onclick="delFieldCam('${fs.id}',${ci})">🗑</button>`:''}
+                </div>`:''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`}`;
 }
 
 
@@ -5090,6 +5110,34 @@ function exportFilteredInv(){
   a.click();
   URL.revokeObjectURL(url);
   toast(`✅ تم تصدير ${items.length} عنصر`);
+}
+
+function filterInvTable(){
+  // فلترة الجدول بدون إعادة رسم الصفحة — يحافظ على الكيبورد
+  const q = (ISQ||'').toLowerCase();
+  const rows = document.querySelectorAll('#inv-table-body tr');
+  let visible = 0;
+  rows.forEach(row=>{
+    const name   = (row.dataset.name||'').toLowerCase();
+    const serial = (row.dataset.serial||'').toLowerCase();
+    const model  = (row.dataset.model||'').toLowerCase();
+    const mfr    = (row.dataset.mfr||'').toLowerCase();
+    const type   = row.dataset.type||'';
+    const status = row.dataset.status||'';
+    const matchQ = !q || [name,serial,model,mfr].some(v=>v.includes(q));
+    const matchT = !ITYP || type===ITYP;
+    const matchS = !ISTS || status===ISTS;
+    const show   = matchQ && matchT && matchS;
+    row.style.display = show ? '' : 'none';
+    if(show) visible++;
+  });
+  const countEl = document.getElementById('inv-count');
+  if(countEl){
+    const total = rows.length;
+    countEl.textContent = `📋 يعرض ${visible} من ${total} عنصر`;
+  }
+  const clearBtn = document.getElementById('inv-clear-btn');
+  if(clearBtn) clearBtn.style.display = (ISQ||ITYP||ISTS)?'':'none';
 }
 
 function exportReportCSV(){
@@ -6854,15 +6902,23 @@ function renderSiteItem(item, siteId, ptId, canEdit){
   const stIcons  = {'يعمل':'✅','معطل':'❌','صيانة':'🔧'};
   const col = stColors[item.status]||'var(--mt)';
   const ico = stIcons[item.status]||'❓';
+  const AT = allT();
+  const typeLabel = item.itemType && AT[item.itemType] ? AT[item.itemType].icon+' '+AT[item.itemType].label : '';
 
   return `<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 12px;border:1px solid var(--br)">
-    <!-- صورة مصغرة -->
-    ${item.photo?`<img src="${item.photo}" onclick="viewPhoto('${item.photo}')" style="width:44px;height:44px;border-radius:8px;object-fit:cover;cursor:pointer;flex-shrink:0">`
-    :`<div style="width:44px;height:44px;border-radius:8px;background:var(--sf);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">📦</div>`}
+    <!-- أيقونة النوع أو صورة مصغرة -->
+    ${item.photo
+      ?`<div onclick="viewPhoto('${item.photo}')" style="width:40px;height:40px;border-radius:8px;overflow:hidden;cursor:pointer;flex-shrink:0;border:1px solid var(--br)">
+          <img src="${item.photo}" style="width:100%;height:100%;object-fit:cover">
+        </div>`
+      :`<div style="width:40px;height:40px;border-radius:8px;background:var(--sf);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;border:1px solid var(--br)">
+          ${AT[item.itemType]?.icon||'📦'}
+        </div>`}
     <!-- التفاصيل -->
     <div style="flex:1;min-width:0">
       <div style="font-weight:700;font-size:15px">${esc(item.name)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:3px;font-size:12px;color:var(--mt)">
+        ${typeLabel?`<span style="color:var(--bl)">${typeLabel}</span>`:''}
         <span>الكمية: <b style="color:var(--tx)">${item.qty||1}</b></span>
         ${item.serial?`<span>SN: <b style="color:var(--bl)">${esc(item.serial)}</b></span>`:''}
         <span style="color:${col};font-weight:700">${ico} ${esc(item.status||'—')}</span>
