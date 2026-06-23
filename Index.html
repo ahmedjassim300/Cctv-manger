@@ -1691,10 +1691,13 @@ function renderInvRows(isMain,allItems,items,AT){
   const warehouseItems = showItems.filter(i=>i.status==='warehouse'||i.status==='maintenance'||i.status==='returned');
   const deployedItems  = showItems.filter(i=>i.status==='deployed'||i.status==='consumed');
 
-  // مجموعات المنصوبة حسب الموقع
+  // ── المواد المنصوبة — مجمّعة حسب الموقع الميداني (fieldSiteId) ──
   const deployedGroups = {};
   deployedItems.forEach(item=>{
-    const loc = item.installedAt || item.currentSite || 'غير محدد';
+    // استخدم اسم الموقع الميداني إذا كان مرتبطاً، وإلا currentSite
+    const fsId = item.fieldSiteId;
+    const fs   = fsId && DB.fieldSites.find(s=>s.id===fsId);
+    const loc  = fs ? fs.name : (item.currentSite || 'غير محدد');
     if(!deployedGroups[loc]) deployedGroups[loc]=[];
     deployedGroups[loc].push(item);
   });
@@ -1748,18 +1751,26 @@ function renderInvRows(isMain,allItems,items,AT){
 
     Object.entries(deployedGroups).forEach(([loc, locItems], gi)=>{
       const gid = 'dep-grp-'+gi;
-      html += `<tr id="${gid}-hdr" onclick="toggleDepGroup('${gid}')" style="cursor:pointer;background:var(--bg)">
+      const working = locItems.filter(i=>i.status==='deployed').length;
+      const byType  = {};
+      locItems.forEach(i=>{ const t=AT[i.type]?.label||'أخرى'; byType[t]=(byType[t]||0)+1; });
+      const typeSummary = Object.entries(byType).map(([t,n])=>`${n} ${t}`).join(' | ');
+
+      html += `<tr id="${gid}-hdr" onclick="toggleDepGroup('${gid}')" style="cursor:pointer;background:#f0f7ff">
         <td colspan="${colspan+1}" style="padding:10px 14px">
           <div style="display:flex;align-items:center;gap:10px">
             <span id="${gid}-arr" style="font-size:15px;transition:transform .2s;color:var(--mt)">▶</span>
-            <span style="font-weight:700;font-size:14px">📍 ${esc(loc)}</span>
-            <span style="font-size:12px;color:var(--mt)">${locItems.length} عنصر منصوب</span>
-            <span style="font-size:11px;background:#1a7f3722;color:var(--gn);padding:2px 8px;border-radius:10px">منصوب</span>
+            <div>
+              <span style="font-weight:700;font-size:14px">📍 ${esc(loc)}</span>
+              <span style="font-size:12px;color:var(--mt);margin-right:8px">${locItems.length} عنصر</span>
+              <span style="font-size:11px;color:var(--mt)">${typeSummary}</span>
+            </div>
+            <span style="font-size:11px;background:#1a7f3722;color:var(--gn);padding:2px 8px;border-radius:10px;margin-right:auto">منصوب</span>
           </div>
         </td>
       </tr>
-      <tr id="${gid}-body" style="display:none"><td colspan="${colspan+1}" style="padding:0 0 4px">
-        <table style="width:100%;border-collapse:collapse">
+      <tr id="${gid}-body" style="display:none"><td colspan="${colspan+1}" style="padding:0">
+        <table style="width:100%;border-collapse:collapse;background:var(--bg)">
           ${locItems.map(itemRow).join('')}
         </table>
       </td></tr>`;
