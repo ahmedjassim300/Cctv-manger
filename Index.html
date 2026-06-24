@@ -946,109 +946,133 @@ function _confirmExit(){
 loadBranding();
 
 FBAUTH.onAuthStateChanged(function(fbUser){
-  if(_isLoggingOut) return;
-
+  if(_isLoggingOut) return; // تجاهل أي حدث أثناء تسجيل الخروج
   if(!fbUser){
-    localStorage.removeItem('cctv_cu_cache');
-    window._firstSyncDone = false;
-    const splash=$('splash'); if(splash) splash.style.display='none';
+    // إخفاء Splash وإظهار شاشة الدخول
+    const splash = $('splash');
+    if(splash) splash.style.display='none';
     $('ls').style.display='flex';
     const btn=$('login-btn');
     if(btn){ btn.disabled=false; btn.textContent='تسجيل الدخول'; }
     _loginAttempted = false;
     return;
   }
-
-  // جلب بيانات المستخدم مع timeout إجباري 8 ثوانٍ
-  var _authDone = false;
-  var _authTimer = setTimeout(function(){
-    if(_authDone) return;
-    _authDone = true;
-    console.warn('Auth timeout — showing login screen');
-    const splash=$('splash'); if(splash) splash.style.display='none';
-    $('ls').style.display='flex';
-    $('ls').style.opacity='1';
-    var e=$('lerr');
-    e.textContent='⏱️ انتهت مدة الانتظار — تحقق من الاتصال وحاول مجدداً';
-    e.style.display='block'; e.style.opacity='1';
-  }, 8000);
-
-  FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(function(snap){
-    if(_authDone) return;
-    _authDone = true;
-    clearTimeout(_authTimer);
-    var userData = snap.val();
-
+  console.log('Auth OK, uid:', fbUser.uid, 'email:', fbUser.email);
+  // جلب بيانات المستخدم من قاعدة البيانات
+  FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
+    console.log('DB user data:', snap.val());
+    let userData=snap.val();
     if(!userData){
-      // تحقق إذا كان أول مستخدم
-      FBDB.ref('cctv/users').once('value').then(function(allSnap){
-        if(!allSnap.val() || Object.keys(allSnap.val()).length===0){
-          var newUser = {
-            uid:fbUser.uid, email:fbUser.email,
-            name:fbUser.email.split('@')[0],
-            role:'manager', active:true, perms:null,
-            createdAt:new Date().toLocaleString('ar-IQ')
+      // إذا كان أول مستخدم (المدير) أضف بياناته تلقائياً
+      FBDB.ref('cctv/users').once('value').then(allSnap=>{
+        const allUsers = allSnap.val();
+        const isFirst = !allUsers || Object.keys(allUsers).length===0;
+        if(isFirst){
+          // أول مستخدم يسجل دخول يصبح مديراً تلقائياً
+          const newUser = {
+            uid: fbUser.uid,
+            email: fbUser.email,
+            name: fbUser.email.split('@')[0],
+            role: 'manager',
+            active: true,
+            perms: null,
+            createdAt: new Date().toLocaleString('ar-IQ')
           };
-          FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(function(){
-            _enterApp(newUser, fbUser);
+          FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(()=>{
+            CU={...newUser};
+            const splash=$('splash'); if(splash) splash.style.display='none';
+            $('lload').style.display='none';
+            $('lerr').style.display='none';
+            $('ls').style.display='none';
+            $('app').style.display='flex';
+            const av=$('sav');
+            av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#f85149';
+            $('snm').textContent=CU.name;
+            $('srl').textContent=ROLES[CU.role]; $('srl').style.color=RC[CU.role];
+            fbInitDB();
+            fbStartSync();
           });
         } else {
           const splash=$('splash'); if(splash) splash.style.display='none';
           $('ls').style.display='flex';
-          var e=$('lerr');
-          e.textContent='❌ حسابك غير مسجّل. تواصل مع المدير';
-          e.style.display='block'; e.style.opacity='1';
+          const e=$('lerr');
+          e.textContent='❌ حسابك غير مسجّل في النظام. تواصل مع المدير';
+          e.style.display='block';
+          e.style.opacity='1';
           FBAUTH.signOut();
+          console.error('User not in DB, uid:', fbUser.uid);
         }
       });
       return;
     }
-
     if(!userData.active){
       const splash=$('splash'); if(splash) splash.style.display='none';
       $('ls').style.display='flex';
-      var e=$('lerr');
-      e.textContent='⛔ حسابك معطّل. تواصل مع المدير';
-      e.style.display='block'; e.style.opacity='1';
+      const e=$('lerr');
+      e.textContent='⛔ حسابك معطّل، تواصل مع المدير';
+      e.style.display='block';
+      e.style.opacity='1';
       FBAUTH.signOut();
+      console.error('User disabled:', fbUser.uid);
       return;
     }
-
-    _enterApp(userData, fbUser);
-
-  }).catch(function(err){
-    if(_authDone) return;
-    _authDone = true;
-    clearTimeout(_authTimer);
-    console.error('DB error:', err);
+    CU={...userData, uid:fbUser.uid, email:fbUser.email};
     const splash=$('splash'); if(splash) splash.style.display='none';
-    $('ls').style.display='flex';
-    var e=$('lerr');
-    e.textContent='❌ خطأ في الاتصال: '+err.message;
-    e.style.display='block'; e.style.opacity='1';
+    $('lload').style.display='none';
+    $('lerr').style.display='none';
+    $('ls').style.display='none';
+    $('app').style.display='flex';
+    const av=$('sav');
+    av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#58a6ff';
+    $('snm').textContent=CU.name;
+    $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#58a6ff';
+    // تهيئة قاعدة البيانات إذا كانت فارغة (أول دخول)
+    fbInitDB();
+    // بدء المزامنة الفورية
+    fbStartSync();
+    // حماية: إذا بقي Splash ظاهراً أكثر من 10 ثوانٍ → خطأ في الاتصال
+    setTimeout(()=>{
+      const splash=$('splash');
+      if(splash && splash.style.display!=='none'){
+        splash.innerHTML=`
+          <div class="sp-logo">⚠️</div>
+          <div class="sp-txt" style="color:var(--rd)">انتهت مدة الانتظار</div>
+          <div class="sp-sub">تحقق من اتصالك بالإنترنت</div>
+          <button class="btn btn-rd" style="margin-top:16px" onclick="location.reload()">🔄 إعادة المحاولة</button>`;
+      }
+    }, 10000);
+    // إظهار زر الويدجت العائم
+    const fab = document.getElementById('quick-fab');
+    if(fab) fab.style.display='block';
+    // إظهار فقاعة الدردشة
+    showMsgBubble();
+    // طلب إذن الإشعارات — مرة واحدة فقط
+    if(!localStorage.getItem('notif_perm_asked')){
+      setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 2000);
+    }
+    // طلب إذن GPS — مرة واحدة فقط + تشغيل تلقائي للفنيين
+    if(!localStorage.getItem('gps_perm_asked')){
+      setTimeout(()=>{ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 4000);
+    } else if((CU.role==='technician'||CU.role==='field') && _gpsWatcher===null){
+      // إذا سبق منح الإذن، شغّل التتبع مباشرة بدون طلب
+      setTimeout(()=>{
+        if(navigator.geolocation) startGPSTracking();
+      }, 2000);
+    }
+
+    // تحقق من الصيانة المتأخرة
+    setTimeout(()=>{
+      const today=new Date();
+      const overdue=(DB.maintain||[]).filter(t=>!t.done&&new Date(t.dueDate)<today);
+      if(overdue.length&&CU.role==='manager'){
+        localNotif('🔔 تذكير صيانة','يوجد '+overdue.length+' مهمة صيانة متأخرة');
+      }
+    }, 3000);
+  }).catch(err=>{
+    doLogout();
+    const e=$('lerr'); e.textContent='❌ خطأ: '+err.message; e.style.display='block';
   });
 });
-
-function _enterApp(userData, fbUser){
-  CU = Object.assign({}, userData, {uid:fbUser.uid, email:fbUser.email});
-  localStorage.setItem('cctv_cu_cache', JSON.stringify(CU));
-
-  const splash=$('splash'); if(splash) splash.style.display='none';
-  $('lload').style.display='none';
-  $('lerr').style.display='none';
-  $('ls').style.display='none';
-  $('app').style.display='flex';
-
-  var av=$('sav');
-  if(av){ av.textContent=(CU.name||'?')[0]; av.style.background=RC[CU.role]||'#f85149'; }
-  var snm=$('snm'); if(snm) snm.textContent=CU.name||'';
-  var srl=$('srl'); if(srl){ srl.textContent=ROLES[CU.role]||CU.role; srl.style.color=RC[CU.role]||'#f85149'; }
-
-  window._firstSyncDone = false;
-  fbInitDB();
-  fbStartSync();
-  _setupUserSession();
-}
 
 function _setupUserSession(){
   // طلب إذن الإشعارات مرة واحدة
