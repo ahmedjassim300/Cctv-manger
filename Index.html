@@ -951,8 +951,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
   if(!fbUser){
     localStorage.removeItem('cctv_cu_cache');
     window._firstSyncDone = false;
-    const splash = $('splash');
-    if(splash) splash.style.display='none';
+    const splash=$('splash'); if(splash) splash.style.display='none';
     $('ls').style.display='flex';
     const btn=$('login-btn');
     if(btn){ btn.disabled=false; btn.textContent='تسجيل الدخول'; }
@@ -960,82 +959,105 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     return;
   }
 
-  const cachedUser = (() => {
-    try{
-      const c = localStorage.getItem('cctv_cu_cache');
-      if(!c) return null;
-      const p = JSON.parse(c);
-      return (p && p.uid===fbUser.uid && p.active!==false) ? p : null;
-    }catch(e){ return null; }
-  })();
+  // جلب بيانات المستخدم من Firebase مباشرة — بسيط وموثوق
+  FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(function(snap){
+    var userData = snap.val();
 
-  function _showApp(userData){
-    if(!userData || userData.active===false){
-      const splash=$('splash'); if(splash) splash.style.display='none';
-      $('ls').style.display='flex';
-      const e=$('lerr');
-      e.textContent = userData && userData.active===false ? '⛔ حسابك معطّل' : '❌ حسابك غير مسجّل في النظام';
-      e.style.display='block'; e.style.opacity='1';
-      FBAUTH.signOut(); return;
-    }
-    CU = {...userData, uid:fbUser.uid, email:fbUser.email};
-    localStorage.setItem('cctv_cu_cache', JSON.stringify(CU));
-
-    const splash=$('splash'); if(splash) splash.style.display='none';
-    $('lload').style.display='none';
-    $('lerr').style.display='none';
-    $('ls').style.display='none';
-    $('app').style.display='flex';
-
-    const av=$('sav');
-    if(av){ av.textContent=CU.name[0]||'?'; av.style.background=RC[CU.role]||'#f85149'; }
-    const snm=$('snm'); if(snm) snm.textContent=CU.name;
-    const srl=$('srl'); if(srl){ srl.textContent=ROLES[CU.role]||CU.role; srl.style.color=RC[CU.role]||'#f85149'; }
-
-    window._firstSyncDone = false;
-    fbInitDB();
-    fbStartSync();
-    _setupUserSession();
-  }
-
-  if(cachedUser){
-    _showApp(cachedUser);
-    FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
-      if(snap.val()) localStorage.setItem('cctv_cu_cache', JSON.stringify({...snap.val(), uid:fbUser.uid, email:fbUser.email}));
-    });
-    return;
-  }
-
-  FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
-    let userData = snap.val();
     if(!userData){
-      FBDB.ref('cctv/users').once('value').then(allSnap=>{
-        const isFirst = !allSnap.val() || Object.keys(allSnap.val()).length===0;
-        if(isFirst){
-          const newUser = {
+      // تحقق إذا كان أول مستخدم
+      FBDB.ref('cctv/users').once('value').then(function(allSnap){
+        if(!allSnap.val() || Object.keys(allSnap.val()).length===0){
+          var newUser = {
             uid:fbUser.uid, email:fbUser.email,
-            name:fbUser.displayName||fbUser.email.split('@')[0],
+            name:fbUser.email.split('@')[0],
             role:'manager', active:true, perms:null,
             createdAt:new Date().toLocaleString('ar-IQ')
           };
-          FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(()=>_showApp(newUser));
+          FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(function(){
+            _enterApp(newUser, fbUser);
+          });
         } else {
-          _showApp(null);
+          const splash=$('splash'); if(splash) splash.style.display='none';
+          $('ls').style.display='flex';
+          var e=$('lerr');
+          e.textContent='❌ حسابك غير مسجّل. تواصل مع المدير';
+          e.style.display='block'; e.style.opacity='1';
+          FBAUTH.signOut();
         }
       });
-    } else {
-      _showApp(userData);
+      return;
     }
-  }).catch(err=>{
-    console.error('DB error:', err);
-    if(cachedUser) _showApp(cachedUser);
-    else {
+
+    if(!userData.active){
       const splash=$('splash'); if(splash) splash.style.display='none';
       $('ls').style.display='flex';
+      var e=$('lerr');
+      e.textContent='⛔ حسابك معطّل. تواصل مع المدير';
+      e.style.display='block'; e.style.opacity='1';
+      FBAUTH.signOut();
+      return;
     }
+
+    _enterApp(userData, fbUser);
+
+  }).catch(function(err){
+    console.error('DB error:', err);
+    const splash=$('splash'); if(splash) splash.style.display='none';
+    $('ls').style.display='flex';
+    var e=$('lerr');
+    e.textContent='❌ خطأ في الاتصال: '+err.message;
+    e.style.display='block'; e.style.opacity='1';
   });
 });
 
+function _enterApp(userData, fbUser){
+  CU = Object.assign({}, userData, {uid:fbUser.uid, email:fbUser.email});
+  localStorage.setItem('cctv_cu_cache', JSON.stringify(CU));
+
+  const splash=$('splash'); if(splash) splash.style.display='none';
+  $('lload').style.display='none';
+  $('lerr').style.display='none';
+  $('ls').style.display='none';
+  $('app').style.display='flex';
+
+  var av=$('sav');
+  if(av){ av.textContent=(CU.name||'?')[0]; av.style.background=RC[CU.role]||'#f85149'; }
+  var snm=$('snm'); if(snm) snm.textContent=CU.name||'';
+  var srl=$('srl'); if(srl){ srl.textContent=ROLES[CU.role]||CU.role; srl.style.color=RC[CU.role]||'#f85149'; }
+
+  window._firstSyncDone = false;
+  fbInitDB();
+  fbStartSync();
+  _setupUserSession();
+}
+
+function _setupUserSession(){
+  // طلب إذن الإشعارات مرة واحدة
+  if(!localStorage.getItem('notif_perm_asked')){
+    setTimeout(function(){ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 3000);
+  }
+  // طلب إذن GPS مرة واحدة
+  if(!localStorage.getItem('gps_perm_asked')){
+    setTimeout(function(){ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 5000);
+  } else if(CU&&(CU.role==='technician'||CU.role==='field')&&_gpsWatcher===null){
+    setTimeout(function(){ if(navigator.geolocation) startGPSTracking(); }, 3000);
+  }
+  // تحديث حالة الاتصال
+  if(CU&&(CU.uid||CU.id)){
+    try{ FBDB.ref('cctv/techLocations/'+(CU.uid||CU.id)).update({online:true,name:CU.name,role:CU.role,_ts:Date.now()}); }catch(e){}
+  }
+  var fab=document.getElementById('quick-fab');
+  if(fab) fab.style.display='block';
+  try{ showMsgBubble(); }catch(e){}
+  // تذكير الصيانة المتأخرة
+  setTimeout(function(){
+    try{
+      var today=new Date();
+      var overdue=(DB.maintain||[]).filter(function(t){ return !t.done&&new Date(t.dueDate)<today; });
+      if(overdue.length&&CU.role==='manager') localNotif('🔔 تذكير صيانة','يوجد '+overdue.length+' مهمة صيانة متأخرة');
+    }catch(e){}
+  }, 4000);
+}
 
 // ═══════════════════════════════════════════════════════
 //  FIREBASE INIT — تهيئة البيانات الأولية
