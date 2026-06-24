@@ -959,8 +959,24 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     return;
   }
 
-  // جلب بيانات المستخدم من Firebase مباشرة — بسيط وموثوق
+  // جلب بيانات المستخدم مع timeout إجباري 8 ثوانٍ
+  var _authDone = false;
+  var _authTimer = setTimeout(function(){
+    if(_authDone) return;
+    _authDone = true;
+    console.warn('Auth timeout — showing login screen');
+    const splash=$('splash'); if(splash) splash.style.display='none';
+    $('ls').style.display='flex';
+    $('ls').style.opacity='1';
+    var e=$('lerr');
+    e.textContent='⏱️ انتهت مدة الانتظار — تحقق من الاتصال وحاول مجدداً';
+    e.style.display='block'; e.style.opacity='1';
+  }, 8000);
+
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(function(snap){
+    if(_authDone) return;
+    _authDone = true;
+    clearTimeout(_authTimer);
     var userData = snap.val();
 
     if(!userData){
@@ -1001,6 +1017,9 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     _enterApp(userData, fbUser);
 
   }).catch(function(err){
+    if(_authDone) return;
+    _authDone = true;
+    clearTimeout(_authTimer);
     console.error('DB error:', err);
     const splash=$('splash'); if(splash) splash.style.display='none';
     $('ls').style.display='flex';
