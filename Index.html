@@ -965,7 +965,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     try{
       const parsed = JSON.parse(cachedUser);
       if(parsed && parsed.uid === fbUser.uid && parsed.active !== false){
-        // دخول فوري من الكاش
+        // دخول فوري من الكاش — لكن ننتظر أول بيانات من Firebase قبل عرض الداشبورد
         CU = parsed;
         const splash=$('splash'); if(splash) splash.style.display='none';
         $('ls').style.display='none';
@@ -974,8 +974,16 @@ FBAUTH.onAuthStateChanged(function(fbUser){
         av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#f85149';
         $('snm').textContent=CU.name;
         $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#f85149';
+        buildNav();
+        // عرض شاشة تحميل مؤقتة
+        $('page').innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;gap:16px;color:var(--mt)">
+          <div style="font-size:48px;animation:spPulse 1.2s infinite">📹</div>
+          <div style="font-size:16px">جار تحميل البيانات...</div>
+        </div>`;
+        // تشغيل المزامنة — go(dashboard) سيُنفَّذ من fbStartSync عند أول بيانات
+        window._firstSyncDone = false;
         fbInitDB(); fbStartSync();
-        _setupUserSession();
+        _setupUserSessionNoNav();
         // تحديث الكاش في الخلفية
         FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
           const fresh = snap.val();
@@ -1061,6 +1069,24 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     fbInitDB();
     fbStartSync();
     _setupUserSession();
+function _setupUserSessionNoNav(){
+  // نفس إعداد الجلسة لكن بدون go('dashboard') — fbStartSync سيفعل ذلك
+  if(!localStorage.getItem('notif_perm_asked')){
+    setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 3000);
+  }
+  if(!localStorage.getItem('gps_perm_asked')){
+    setTimeout(()=>{ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 5000);
+  } else if((CU.role==='technician'||CU.role==='field') && _gpsWatcher===null){
+    setTimeout(()=>{ if(navigator.geolocation) startGPSTracking(); }, 3000);
+  }
+  if(CU && (CU.uid||CU.id)){
+    FBDB.ref('cctv/techLocations/'+(CU.uid||CU.id)).update({online:true, name:CU.name, role:CU.role, _ts:Date.now()});
+  }
+  const fab = document.getElementById('quick-fab');
+  if(fab) fab.style.display='block';
+  showMsgBubble();
+}
+
 function _setupUserSession(){
     // طلب إذن الإشعارات — مرة واحدة فقط
     if(!localStorage.getItem('notif_perm_asked')){
@@ -1240,15 +1266,14 @@ function fbStartSync(){
     const splash=$('splash');
     if(splash && splash.style.display!=='none') splash.style.display='none';
 
-    // تحميل الصفحة فقط إذا كانت هذه أول مزامنة أو إذا لا توجد صفحة مفتوحة
-    if(!PAGE || !window._firstSyncDone) {
+    // تحميل الصفحة عند أول مزامنة
+    if(!window._firstSyncDone) {
       window._firstSyncDone = true;
-      try{ go(PAGE||'dashboard'); }catch(e){}
+      try{ go(PAGE||'dashboard'); }catch(e){ try{ go('dashboard'); }catch(e2){} }
     } else {
-      // تحديث فقط الأجزاء الديناميكية بدون إعادة رسم الصفحة كاملة
+      // تحديث فقط الأجزاء الديناميكية
       try{ buildNav(); }catch(e){}
-      // إذا كانت الصفحة المفتوحة تعرض بيانات متغيرة — حدّثها
-      const dynamicPages = ['dashboard','faults','notifs','urgent','actlog','tasks','techmap'];
+      const dynamicPages = ['dashboard','faults','notifs','urgent','actlog','tasks','techmap','radio'];
       if(dynamicPages.includes(PAGE)) try{ go(PAGE); }catch(e){}
     }
   }, err=>{
