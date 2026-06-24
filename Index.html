@@ -543,6 +543,12 @@ const FBAUTH = firebase.auth();
 const FBDB   = firebase.database();
 let FBMSG = null;
 
+// ✅ تفعيل حفظ الجلسة دائماً — مرة واحدة عند البدء قبل أي عملية
+FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.warn('persistence:',e));
+
+// ══ تمكين كاش Firebase المحلي للعمل offline وتسريع التحميل ══
+try { FBDB.ref().keepSynced(false); } catch(e){}
+
 // ══ تفعيل الوضع الأوفلاين — Firebase يخزن البيانات محلياً ويتزامن عند الاتصال ══
 try {
   FBDB.ref('.info/connected').on('value', snap => {
@@ -671,6 +677,7 @@ let DB = {
   fieldSites:[],   // [{id, name, desc, cameras:[], allowedUsers:[]}]
   actlog:[],        // سجل النشاط
   maintain:[],      // جدول الصيانة
+  radioDevices:[],  // أجهزة المناداة
 };
 DB.sites.forEach(s => DB.inv[s]=[]);
 
@@ -860,9 +867,7 @@ function doLogin(){
   btn.disabled=true;
   btn.textContent='⏳ جار التحقق...';
   $('lerr').style.display='none';
-  FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
-    return FBAUTH.signInWithEmailAndPassword(email,pw);
-  }).catch(err=>{
+  FBAUTH.signInWithEmailAndPassword(email,pw).catch(err=>{
     const msgs={
       'auth/user-not-found':'❌ البريد غير موجود',
       'auth/wrong-password':'❌ كلمة المرور خاطئة',
@@ -941,9 +946,11 @@ function _confirmExit(){
 loadBranding();
 
 FBAUTH.onAuthStateChanged(function(fbUser){
-  if(_isLoggingOut) return; // تجاهل أي حدث أثناء تسجيل الخروج
+  if(_isLoggingOut) return;
+
   if(!fbUser){
-    // إخفاء Splash وإظهار شاشة الدخول
+    localStorage.removeItem('cctv_cu_cache');
+    window._firstSyncDone = false;
     const splash = $('splash');
     if(splash) splash.style.display='none';
     $('ls').style.display='flex';
@@ -952,122 +959,83 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     _loginAttempted = false;
     return;
   }
-  console.log('Auth OK, uid:', fbUser.uid, 'email:', fbUser.email);
-  // جلب بيانات المستخدم من قاعدة البيانات
-  FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
-    console.log('DB user data:', snap.val());
-    let userData=snap.val();
-    if(!userData){
-      // إذا كان أول مستخدم (المدير) أضف بياناته تلقائياً
-      FBDB.ref('cctv/users').once('value').then(allSnap=>{
-        const allUsers = allSnap.val();
-        const isFirst = !allUsers || Object.keys(allUsers).length===0;
-        if(isFirst){
-          // أول مستخدم يسجل دخول يصبح مديراً تلقائياً
-          const newUser = {
-            uid: fbUser.uid,
-            email: fbUser.email,
-            name: fbUser.email.split('@')[0],
-            role: 'manager',
-            active: true,
-            perms: null,
-            createdAt: new Date().toLocaleString('ar-IQ')
-          };
-          FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(()=>{
-            CU={...newUser};
-            const splash=$('splash'); if(splash) splash.style.display='none';
-            $('lload').style.display='none';
-            $('lerr').style.display='none';
-            $('ls').style.display='none';
-            $('app').style.display='flex';
-            const av=$('sav');
-            av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#f85149';
-            $('snm').textContent=CU.name;
-            $('srl').textContent=ROLES[CU.role]; $('srl').style.color=RC[CU.role];
-            fbInitDB();
-            fbStartSync();
-          });
-        } else {
-          const splash=$('splash'); if(splash) splash.style.display='none';
-          $('ls').style.display='flex';
-          const e=$('lerr');
-          e.textContent='❌ حسابك غير مسجّل في النظام. تواصل مع المدير';
-          e.style.display='block';
-          e.style.opacity='1';
-          FBAUTH.signOut();
-          console.error('User not in DB, uid:', fbUser.uid);
-        }
-      });
-      return;
-    }
-    if(!userData.active){
+
+  const cachedUser = (() => {
+    try{
+      const c = localStorage.getItem('cctv_cu_cache');
+      if(!c) return null;
+      const p = JSON.parse(c);
+      return (p && p.uid===fbUser.uid && p.active!==false) ? p : null;
+    }catch(e){ return null; }
+  })();
+
+  function _showApp(userData){
+    if(!userData || userData.active===false){
       const splash=$('splash'); if(splash) splash.style.display='none';
       $('ls').style.display='flex';
       const e=$('lerr');
-      e.textContent='⛔ حسابك معطّل، تواصل مع المدير';
-      e.style.display='block';
-      e.style.opacity='1';
-      FBAUTH.signOut();
-      console.error('User disabled:', fbUser.uid);
-      return;
+      e.textContent = userData && userData.active===false ? '⛔ حسابك معطّل' : '❌ حسابك غير مسجّل في النظام';
+      e.style.display='block'; e.style.opacity='1';
+      FBAUTH.signOut(); return;
     }
-    CU={...userData, uid:fbUser.uid, email:fbUser.email};
+    CU = {...userData, uid:fbUser.uid, email:fbUser.email};
+    localStorage.setItem('cctv_cu_cache', JSON.stringify(CU));
+
     const splash=$('splash'); if(splash) splash.style.display='none';
     $('lload').style.display='none';
     $('lerr').style.display='none';
     $('ls').style.display='none';
     $('app').style.display='flex';
-    const av=$('sav');
-    av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#58a6ff';
-    $('snm').textContent=CU.name;
-    $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#58a6ff';
-    // تهيئة قاعدة البيانات إذا كانت فارغة (أول دخول)
-    fbInitDB();
-    // بدء المزامنة الفورية
-    fbStartSync();
-    // حماية: إذا بقي Splash ظاهراً أكثر من 10 ثوانٍ → خطأ في الاتصال
-    setTimeout(()=>{
-      const splash=$('splash');
-      if(splash && splash.style.display!=='none'){
-        splash.innerHTML=`
-          <div class="sp-logo">⚠️</div>
-          <div class="sp-txt" style="color:var(--rd)">انتهت مدة الانتظار</div>
-          <div class="sp-sub">تحقق من اتصالك بالإنترنت</div>
-          <button class="btn btn-rd" style="margin-top:16px" onclick="location.reload()">🔄 إعادة المحاولة</button>`;
-      }
-    }, 10000);
-    // إظهار زر الويدجت العائم
-    const fab = document.getElementById('quick-fab');
-    if(fab) fab.style.display='block';
-    // إظهار فقاعة الدردشة
-    showMsgBubble();
-    // طلب إذن الإشعارات — مرة واحدة فقط
-    if(!localStorage.getItem('notif_perm_asked')){
-      setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 2000);
-    }
-    // طلب إذن GPS — مرة واحدة فقط + تشغيل تلقائي للفنيين
-    if(!localStorage.getItem('gps_perm_asked')){
-      setTimeout(()=>{ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 4000);
-    } else if((CU.role==='technician'||CU.role==='field') && _gpsWatcher===null){
-      // إذا سبق منح الإذن، شغّل التتبع مباشرة بدون طلب
-      setTimeout(()=>{
-        if(navigator.geolocation) startGPSTracking();
-      }, 2000);
-    }
 
-    // تحقق من الصيانة المتأخرة
-    setTimeout(()=>{
-      const today=new Date();
-      const overdue=(DB.maintain||[]).filter(t=>!t.done&&new Date(t.dueDate)<today);
-      if(overdue.length&&CU.role==='manager'){
-        localNotif('🔔 تذكير صيانة','يوجد '+overdue.length+' مهمة صيانة متأخرة');
-      }
-    }, 3000);
+    const av=$('sav');
+    if(av){ av.textContent=CU.name[0]||'?'; av.style.background=RC[CU.role]||'#f85149'; }
+    const snm=$('snm'); if(snm) snm.textContent=CU.name;
+    const srl=$('srl'); if(srl){ srl.textContent=ROLES[CU.role]||CU.role; srl.style.color=RC[CU.role]||'#f85149'; }
+
+    window._firstSyncDone = false;
+    fbInitDB();
+    fbStartSync();
+    _setupUserSession();
+  }
+
+  if(cachedUser){
+    _showApp(cachedUser);
+    FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
+      if(snap.val()) localStorage.setItem('cctv_cu_cache', JSON.stringify({...snap.val(), uid:fbUser.uid, email:fbUser.email}));
+    });
+    return;
+  }
+
+  FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
+    let userData = snap.val();
+    if(!userData){
+      FBDB.ref('cctv/users').once('value').then(allSnap=>{
+        const isFirst = !allSnap.val() || Object.keys(allSnap.val()).length===0;
+        if(isFirst){
+          const newUser = {
+            uid:fbUser.uid, email:fbUser.email,
+            name:fbUser.displayName||fbUser.email.split('@')[0],
+            role:'manager', active:true, perms:null,
+            createdAt:new Date().toLocaleString('ar-IQ')
+          };
+          FBDB.ref('cctv/users/'+fbUser.uid).set(newUser).then(()=>_showApp(newUser));
+        } else {
+          _showApp(null);
+        }
+      });
+    } else {
+      _showApp(userData);
+    }
   }).catch(err=>{
-    doLogout();
-    const e=$('lerr'); e.textContent='❌ خطأ: '+err.message; e.style.display='block';
+    console.error('DB error:', err);
+    if(cachedUser) _showApp(cachedUser);
+    else {
+      const splash=$('splash'); if(splash) splash.style.display='none';
+      $('ls').style.display='flex';
+    }
   });
 });
+
 
 // ═══════════════════════════════════════════════════════
 //  FIREBASE INIT — تهيئة البيانات الأولية
@@ -1178,6 +1146,7 @@ function fbStartSync(){
     DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
     DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.siteInventory = data.siteInventory || {};
+    DB.radioDevices  = data.radioDevices  ? Object.values(data.radioDevices).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     // تحميل روابط المستودعات الأب
     if(data.siteParents){
       window._siteParents = data.siteParents
@@ -1201,15 +1170,14 @@ function fbStartSync(){
     const splash=$('splash');
     if(splash && splash.style.display!=='none') splash.style.display='none';
 
-    // تحميل الصفحة فقط إذا كانت هذه أول مزامنة أو إذا لا توجد صفحة مفتوحة
-    if(!PAGE || !window._firstSyncDone) {
+    // تحميل الصفحة عند أول مزامنة
+    if(!window._firstSyncDone) {
       window._firstSyncDone = true;
-      try{ go(PAGE||'dashboard'); }catch(e){}
+      try{ go(PAGE||'dashboard'); }catch(e){ try{ go('dashboard'); }catch(e2){} }
     } else {
-      // تحديث فقط الأجزاء الديناميكية بدون إعادة رسم الصفحة كاملة
+      // تحديث فقط الأجزاء الديناميكية
       try{ buildNav(); }catch(e){}
-      // إذا كانت الصفحة المفتوحة تعرض بيانات متغيرة — حدّثها
-      const dynamicPages = ['dashboard','faults','notifs','urgent','actlog','tasks','techmap'];
+      const dynamicPages = ['dashboard','faults','notifs','urgent','actlog','tasks','techmap','radio'];
       if(dynamicPages.includes(PAGE)) try{ go(PAGE); }catch(e){}
     }
   }, err=>{
@@ -1330,7 +1298,8 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,
+      radio:pgRadio})[page]?.();
   });
 }
 
@@ -1362,6 +1331,26 @@ function pgDash(){
     <div class="sc" onclick="go('notifs')" style="cursor:pointer" title="فتح الإشعارات">
       <div class="si" style="background:#9a670022">🔔</div>
       <div><div class="sn" style="color:var(--yl)">${unread}</div><div class="sl">إشعارات</div></div></div>`;
+
+  // إحصائيات أجهزة المناداة
+  const radioDevs = DB.radioDevices||[];
+  if(radioDevs.length){
+    const radioActive  = radioDevs.filter(r=>r.condition==='جيد'||r.condition==='جيد جداً').length;
+    const radioFault   = radioDevs.filter(r=>r.condition==='عطل').length;
+    const radioField   = radioDevs.filter(r=>r.status==='ميدان').length;
+    statsH+=`
+    <div class="sc" onclick="go('radio')" style="cursor:pointer" title="أجهزة المناداة">
+      <div class="si" style="background:#0969da22">📻</div>
+      <div>
+        <div class="sn" style="color:var(--bl)">${radioDevs.length}</div>
+        <div class="sl">أجهزة المناداة</div>
+        <div style="font-size:10px;color:var(--mt);margin-top:2px">
+          <span style="color:var(--gn)">✅${radioActive}</span>
+          <span style="color:var(--rd);margin-right:4px">❌${radioFault}</span>
+          <span style="color:var(--yl);margin-right:4px">📍${radioField}</span>
+        </div>
+      </div>
+    </div>`;
 
   let myTasksH='';
   if(role==='technician'||role==='field'){
@@ -1468,6 +1457,7 @@ function pgDash(){
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
         {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'fieldmap'},
+        {id:'radio',      ic:'📻', lb:'أجهزة المناداة',   perm:null},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
         {id:'docs',       ic:'📁', lb:'المستندات',         perm:null},
@@ -6769,6 +6759,7 @@ function openAppMenu(){
     {id:'chat',      ic:'💬', lb:'الدردشة',            perm:null},
     {id:'docs',      ic:'📁', lb:'المستندات',          perm:'docs'},
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
+    {id:'radio',     ic:'📻', lb:'أجهزة المناداة',      perm:null},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
     {id:'siteinv',   ic:'📦', lb:'جرد الموجودات الثابتة', perm:'fieldmap'},
     {id:'tasks',     ic:'📋', lb:'المهام',                  perm:'faults'},
@@ -8176,6 +8167,239 @@ document.addEventListener('DOMContentLoaded',()=>{
 // ============================================
 //  🔍 البحث السريع في الشريط العلوي
 // ============================================
+// ══════════════════════════════════════════════════════════════════
+//  📻 أجهزة المناداة — نظام مستقل كامل
+// ══════════════════════════════════════════════════════════════════
+
+const RADIO_BRANDS  = ['موتورولا','هايتيرا','كيتباوز','آيكوم','كينوود','بوفينج','HYT','هايسن','راديوسان','غيرها'];
+const RADIO_TYPES   = ['جهاز يدوي (HT)','جهاز محمول (Mobile)','جهاز ثابت (Base)','مكرر (Repeater)','جهاز بحري'];
+const RADIO_BANDS   = ['VHF (136-174 MHz)','UHF (400-520 MHz)','VHF/UHF Dual Band','700/800 MHz','HF'];
+const RADIO_STATUS  = ['مخزن','ميدان','صيانة','مفقود','مسلّم','خارج الخدمة'];
+const RADIO_COND    = ['جيد جداً','جيد','مقبول','عطل','تالف'];
+
+const RADIO_ST_COLORS = {
+  'مخزن':'#0969da','ميدان':'#1a7f37','صيانة':'#9a6700',
+  'مفقود':'#d1242f','مسلّم':'#8250df','خارج الخدمة':'#656d76'
+};
+const RADIO_CD_COLORS = {
+  'جيد جداً':'#1a7f37','جيد':'#2da44e','مقبول':'#9a6700',
+  'عطل':'#d1242f','تالف':'#6e7781'
+};
+
+function pgRadio(){
+  const devs = DB.radioDevices||[];
+  const byStatus = {};
+  RADIO_STATUS.forEach(s=>{ byStatus[s]=devs.filter(d=>d.status===s).length; });
+  const canEdit = CU.role==='manager'||p('addItem');
+
+  // فلاتر
+  const fStatus = window._radioFS||'';
+  const fBrand  = window._radioFB||'';
+  const fSearch = window._radioFQ||'';
+
+  let shown = devs.filter(d=>{
+    const q=(fSearch||'').toLowerCase();
+    const matchQ = !q||[d.name,d.brand,d.serial,d.type,d.assignedTo,d.location].some(v=>v&&v.toLowerCase().includes(q));
+    return matchQ && (!fStatus||d.status===fStatus) && (!fBrand||d.brand===fBrand);
+  });
+
+  $('page').innerHTML=`
+  <div class="ph">
+    <div>
+      <div class="pt">📻 أجهزة المناداة</div>
+      <div class="ps" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
+        ${RADIO_STATUS.map(s=>`<span style="color:${RADIO_ST_COLORS[s]||'var(--mt)'};font-size:12px">${s}: <b>${byStatus[s]||0}</b></span>`).join('')}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${canEdit?`<button class="btn btn-bl" onclick="openAddRadio()">+ إضافة جهاز</button>`:''}
+      <button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ تصدير Excel</button>
+    </div>
+  </div>
+
+  <!-- فلاتر -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px">
+    <input id="radio-search" placeholder="🔍 بحث..." value="${esc(fSearch)}"
+      style="flex:1;min-width:120px;padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px;outline:none"
+      oninput="window._radioFQ=this.value;pgRadio()">
+    <select onchange="window._radioFS=this.value;pgRadio()"
+      style="padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+      <option value="">كل الحالات</option>
+      ${RADIO_STATUS.map(s=>`<option value="${s}" ${fStatus===s?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <select onchange="window._radioFB=this.value;pgRadio()"
+      style="padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+      <option value="">كل الشركات</option>
+      ${RADIO_BRANDS.map(b=>`<option value="${b}" ${fBrand===b?'selected':''}>${b}</option>`).join('')}
+    </select>
+    ${fStatus||fBrand||fSearch?`<button style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px"
+      onclick="window._radioFS='';window._radioFB='';window._radioFQ='';pgRadio()">✕ مسح</button>`:''}
+  </div>
+  <div style="padding:0 16px 6px;font-size:13px;color:var(--mt)">📋 يعرض <b>${shown.length}</b> من ${devs.length} جهاز</div>
+
+  <!-- قائمة الأجهزة -->
+  <div style="padding:0 16px">
+    ${shown.length===0
+      ?`<div class="panel" style="text-align:center;padding:60px;color:var(--mt)">
+          <div style="font-size:48px">📻</div>
+          <div style="margin-top:12px">لا أجهزة مناداة</div>
+          ${canEdit?`<button class="btn btn-bl" style="margin-top:14px" onclick="openAddRadio()">+ إضافة أول جهاز</button>`:''}
+        </div>`
+      : shown.map((d,i)=>`
+        <div class="panel" style="margin-bottom:8px;border-right:3px solid ${RADIO_ST_COLORS[d.status]||'var(--br)'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                <span style="font-weight:700;font-size:16px">📻 ${esc(d.name||d.serial||'جهاز')}</span>
+                <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${RADIO_ST_COLORS[d.status]||'var(--br)'}22;color:${RADIO_ST_COLORS[d.status]||'var(--mt)'}">${d.status||'—'}</span>
+                <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${RADIO_CD_COLORS[d.condition]||'var(--br)'}22;color:${RADIO_CD_COLORS[d.condition]||'var(--mt)'}">${d.condition||'—'}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;font-size:12px;color:var(--mt)">
+                ${d.brand?`<span>🏭 ${esc(d.brand)}</span>`:''}
+                ${d.type?`<span>📡 ${esc(d.type)}</span>`:''}
+                ${d.band?`<span>📶 ${esc(d.band)}</span>`:''}
+                ${d.serial?`<span>🔢 SN: <b style="color:var(--tx)">${esc(d.serial)}</b></span>`:''}
+                ${d.power?`<span>⚡ ${esc(d.power)} واط</span>`:''}
+                ${d.codeType?`<span>🔐 ${esc(d.codeType)}</span>`:''}
+                ${d.assignedTo?`<span style="color:var(--bl)">👤 ${esc(d.assignedTo)}</span>`:''}
+                ${d.location?`<span style="color:var(--gn)">📍 ${esc(d.location)}</span>`:''}
+                ${d.notes?`<span style="color:var(--mt)">📝 ${esc(d.notes)}</span>`:''}
+              </div>
+              <div style="font-size:11px;color:var(--mt);margin-top:6px">بواسطة: ${esc(d.by||'—')} — ${esc(d.date||'')}</div>
+            </div>
+            ${canEdit?`<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+              <button class="btn btn-sm btn-gy" onclick="openEditRadio('${d.id}')">✏️</button>
+              <button class="btn btn-sm btn-rd" onclick="delRadio('${d.id}')">🗑</button>
+            </div>`:''}
+          </div>
+          <!-- تاريخ الحركات -->
+          ${d.moves?.length?`
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--br)">
+            <div style="font-size:11px;color:var(--mt);margin-bottom:4px">📋 سجل الحركات</div>
+            ${d.moves.slice(-3).map(m=>`
+              <div style="font-size:11px;color:var(--mt);padding:2px 0">
+                ${esc(m.date)} — ${esc(m.action)} ${m.to?'→ '+esc(m.to):''} بواسطة ${esc(m.by||'—')}
+              </div>`).join('')}
+          </div>`:''}
+        </div>`).join('')}
+  </div>`;
+}
+
+function openAddRadio(){
+  _openRadioForm(null);
+}
+function openEditRadio(id){
+  const d = (DB.radioDevices||[]).find(x=>x.id===id);
+  if(d) _openRadioForm(d);
+}
+
+function _openRadioForm(d){
+  const f = d||{};
+  openModal(`${mhd(d?'✏️ تعديل جهاز مناداة':'📻 إضافة جهاز مناداة')}
+  <div class="fg">
+    <div class="field"><label>اسم الجهاز / الكود</label>
+      <input id="rd-name" value="${esc(f.name||'')}" placeholder="مثال: راديو-01، HT-البوابة..."></div>
+    <div class="field"><label>الشركة المصنعة</label>
+      <select id="rd-brand">
+        <option value="">— اختر —</option>
+        ${RADIO_BRANDS.map(b=>`<option value="${b}" ${f.brand===b?'selected':''}>${b}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>نوع الجهاز</label>
+      <select id="rd-type">
+        <option value="">— اختر —</option>
+        ${RADIO_TYPES.map(t=>`<option value="${t}" ${f.type===t?'selected':''}>${t}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>النطاق / الفريكونسي</label>
+      <select id="rd-band">
+        <option value="">— اختر —</option>
+        ${RADIO_BANDS.map(b=>`<option value="${b}" ${f.band===b?'selected':''}>${b}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>الرقم التسلسلي (SN)</label>
+      <input id="rd-serial" value="${esc(f.serial||'')}" placeholder="SN-XXXXX"></div>
+    <div class="field"><label>قوة الإرسال (واط)</label>
+      <input id="rd-power" value="${esc(f.power||'')}" placeholder="مثال: 4، 5، 25، 50..."></div>
+    <div class="field"><label>نوع الشفرة / البروتوكول</label>
+      <input id="rd-code" value="${esc(f.codeType||'')}" placeholder="مثال: DCS, CTCSS, DMR, Analog..."></div>
+    <div class="field"><label>الحالة</label>
+      <select id="rd-status">
+        ${RADIO_STATUS.map(s=>`<option value="${s}" ${(f.status||'مخزن')===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>الحالة التقنية / الوصف</label>
+      <select id="rd-cond">
+        ${RADIO_COND.map(c=>`<option value="${c}" ${(f.condition||'جيد')===c?'selected':''}>${c}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>مسلّم لـ / بحوزة</label>
+      <input id="rd-assigned" value="${esc(f.assignedTo||'')}" placeholder="اسم الشخص المستلم..."></div>
+    <div class="field"><label>الموقع / المنطقة</label>
+      <input id="rd-location" value="${esc(f.location||'')}" placeholder="مثال: الحسينية، البوابة الرئيسية..."></div>
+    <div class="field s2"><label>ملاحظات</label>
+      <textarea id="rd-notes" rows="2">${esc(f.notes||'')}</textarea></div>
+  </div>
+  ${mft(d?'💾 حفظ':'➕ إضافة', `saveRadio('${d?.id||''}')`, 'btn-bl')}`);
+}
+
+function saveRadio(existingId){
+  const name = val('rd-name');
+  const serial = val('rd-serial');
+  if(!name&&!serial){ toast('أدخل اسم أو سيريال الجهاز','err'); return; }
+
+  const id = existingId || gid();
+  const prev = (DB.radioDevices||[]).find(x=>x.id===existingId)||{};
+
+  // تسجيل حركة إذا تغيرت الحالة أو المستلم
+  const moves = prev.moves||[];
+  const newStatus = val('rd-status');
+  const newAssigned = val('rd-assigned');
+  if(existingId&&(prev.status!==newStatus||prev.assignedTo!==newAssigned)){
+    moves.push({
+      date:ts(), by:CU.name,
+      action: newStatus!==prev.status?`تغيير الحالة إلى ${newStatus}`:'',
+      to: newAssigned!==prev.assignedTo?newAssigned:'',
+      _ts:Date.now()
+    });
+  }
+
+  const data = {
+    id, name:val('rd-name'), brand:val('rd-brand'), type:val('rd-type'),
+    band:val('rd-band'), serial:val('rd-serial'), power:val('rd-power'),
+    codeType:val('rd-code'), status:val('rd-status'), condition:val('rd-cond'),
+    assignedTo:val('rd-assigned'), location:val('rd-location'), notes:val('rd-notes'),
+    moves, by:prev.by||CU.name, date:prev.date||ts(), _ts:Date.now()
+  };
+
+  fbSet('radioDevices/'+id, data);
+  logAct(existingId?'تعديل جهاز مناداة':'إضافة جهاز مناداة', data.name||data.serial);
+  closeModal();
+  toast(existingId?'✅ تم التعديل':'✅ تم الإضافة');
+  setTimeout(pgRadio, 400);
+}
+
+function delRadio(id){
+  const d = (DB.radioDevices||[]).find(x=>x.id===id);
+  confirmDel(`حذف الجهاز: ${d?.name||d?.serial||id}؟`, `fbDel('radioDevices/${id}');toast('تم الحذف','err');setTimeout(pgRadio,400)`);
+}
+
+function exportRadioExcel(){
+  const devs = DB.radioDevices||[];
+  if(!devs.length){ toast('لا أجهزة للتصدير','warn'); return; }
+  const rows = [['الاسم','الشركة','النوع','النطاق','السيريال','القوة','الشفرة','الحالة','الحالة التقنية','بحوزة','الموقع','الملاحظات','التاريخ']];
+  devs.forEach(d=>{
+    rows.push([d.name||'',d.brand||'',d.type||'',d.band||'',d.serial||'',d.power||'',d.codeType||'',d.status||'',d.condition||'',d.assignedTo||'',d.location||'',d.notes||'',d.date||'']);
+  });
+  let html=`<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>`;
+  html+=`<h2>📻 جرد أجهزة المناداة — ${new Date().toLocaleDateString('ar-IQ')}</h2>`;
+  html+=`<p style="color:#666;font-size:12px">إجمالي: ${devs.length} جهاز</p>`;
+  html+=`<table><thead><tr>${rows[0].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`;
+  rows.slice(1).forEach(r=>{ html+=`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`; });
+  html+=`</tbody></table></body></html>`;
+  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`أجهزة_المناداة_${new Date().toISOString().split('T')[0]}.xls`;
+  a.click(); URL.revokeObjectURL(url);
+  toast(`✅ تم تصدير ${devs.length} جهاز`);
+}
+
 function quickSearch(q){
   const res = $('qs-res');
   q = (q||'').trim();
