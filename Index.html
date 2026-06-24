@@ -543,12 +543,6 @@ const FBAUTH = firebase.auth();
 const FBDB   = firebase.database();
 let FBMSG = null;
 
-// ✅ تفعيل حفظ الجلسة دائماً — مرة واحدة عند البدء قبل أي عملية
-FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.warn('persistence:',e));
-
-// ══ تمكين كاش Firebase المحلي للعمل offline وتسريع التحميل ══
-try { FBDB.ref().keepSynced(false); } catch(e){}
-
 // ══ تفعيل الوضع الأوفلاين — Firebase يخزن البيانات محلياً ويتزامن عند الاتصال ══
 try {
   FBDB.ref('.info/connected').on('value', snap => {
@@ -660,6 +654,15 @@ const BUILTIN = {
 
 const CAM_T = ['ثابتة','دوارة PTZ','حرارية','داخلية','خارجية','مانع تسلل','360°'];
 const SW_T  = ['مُدار (Managed)','غير مُدار (Unmanaged)','هاب (Hub)','POE Switch'];
+
+
+const RADIO_BRANDS  = ['موتورولا','هايتيرا','كيتباوز','آيكوم','كينوود','بوفينج','HYT','هايسن','راديوسان','غيرها'];
+const RADIO_TYPES   = ['جهاز يدوي (HT)','جهاز محمول (Mobile)','جهاز ثابت (Base)','مكرر (Repeater)','جهاز بحري'];
+const RADIO_BANDS   = ['VHF (136-174 MHz)','UHF (400-520 MHz)','VHF/UHF Dual Band','700/800 MHz','HF'];
+const RADIO_STATUS  = ['مخزن','ميدان','صيانة','مفقود','مسلّم','خارج الخدمة'];
+const RADIO_COND    = ['جيد جداً','جيد','مقبول','عطل','تالف'];
+const RADIO_ST_COLORS = {'مخزن':'#0969da','ميدان':'#1a7f37','صيانة':'#9a6700','مفقود':'#d1242f','مسلّم':'#8250df','خارج الخدمة':'#656d76'};
+const RADIO_CD_COLORS = {'جيد جداً':'#1a7f37','جيد':'#2da44e','مقبول':'#9a6700','عطل':'#d1242f','تالف':'#6e7781'};
 
 // ============================================
 //  DATABASE
@@ -867,7 +870,9 @@ function doLogin(){
   btn.disabled=true;
   btn.textContent='⏳ جار التحقق...';
   $('lerr').style.display='none';
-  FBAUTH.signInWithEmailAndPassword(email,pw).catch(err=>{
+  FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
+    return FBAUTH.signInWithEmailAndPassword(email,pw);
+  }).catch(err=>{
     const msgs={
       'auth/user-not-found':'❌ البريد غير موجود',
       'auth/wrong-password':'❌ كلمة المرور خاطئة',
@@ -1074,34 +1079,6 @@ FBAUTH.onAuthStateChanged(function(fbUser){
   });
 });
 
-function _setupUserSession(){
-  // طلب إذن الإشعارات مرة واحدة
-  if(!localStorage.getItem('notif_perm_asked')){
-    setTimeout(function(){ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 3000);
-  }
-  // طلب إذن GPS مرة واحدة
-  if(!localStorage.getItem('gps_perm_asked')){
-    setTimeout(function(){ requestGPSPermission(); localStorage.setItem('gps_perm_asked','1'); }, 5000);
-  } else if(CU&&(CU.role==='technician'||CU.role==='field')&&_gpsWatcher===null){
-    setTimeout(function(){ if(navigator.geolocation) startGPSTracking(); }, 3000);
-  }
-  // تحديث حالة الاتصال
-  if(CU&&(CU.uid||CU.id)){
-    try{ FBDB.ref('cctv/techLocations/'+(CU.uid||CU.id)).update({online:true,name:CU.name,role:CU.role,_ts:Date.now()}); }catch(e){}
-  }
-  var fab=document.getElementById('quick-fab');
-  if(fab) fab.style.display='block';
-  try{ showMsgBubble(); }catch(e){}
-  // تذكير الصيانة المتأخرة
-  setTimeout(function(){
-    try{
-      var today=new Date();
-      var overdue=(DB.maintain||[]).filter(function(t){ return !t.done&&new Date(t.dueDate)<today; });
-      if(overdue.length&&CU.role==='manager') localNotif('🔔 تذكير صيانة','يوجد '+overdue.length+' مهمة صيانة متأخرة');
-    }catch(e){}
-  }, 4000);
-}
-
 // ═══════════════════════════════════════════════════════
 //  FIREBASE INIT — تهيئة البيانات الأولية
 // ═══════════════════════════════════════════════════════
@@ -1235,14 +1212,15 @@ function fbStartSync(){
     const splash=$('splash');
     if(splash && splash.style.display!=='none') splash.style.display='none';
 
-    // تحميل الصفحة عند أول مزامنة
-    if(!window._firstSyncDone) {
+    // تحميل الصفحة فقط إذا كانت هذه أول مزامنة أو إذا لا توجد صفحة مفتوحة
+    if(!PAGE || !window._firstSyncDone) {
       window._firstSyncDone = true;
-      try{ go(PAGE||'dashboard'); }catch(e){ try{ go('dashboard'); }catch(e2){} }
+      try{ go(PAGE||'dashboard'); }catch(e){}
     } else {
-      // تحديث فقط الأجزاء الديناميكية
+      // تحديث فقط الأجزاء الديناميكية بدون إعادة رسم الصفحة كاملة
       try{ buildNav(); }catch(e){}
-      const dynamicPages = ['dashboard','faults','notifs','urgent','actlog','tasks','techmap','radio'];
+      // إذا كانت الصفحة المفتوحة تعرض بيانات متغيرة — حدّثها
+      const dynamicPages = ['dashboard','faults','notifs','urgent','actlog','tasks','techmap'];
       if(dynamicPages.includes(PAGE)) try{ go(PAGE); }catch(e){}
     }
   }, err=>{
@@ -1363,8 +1341,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,
-      radio:pgRadio})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio})[page]?.();
   });
 }
 
@@ -1396,26 +1373,6 @@ function pgDash(){
     <div class="sc" onclick="go('notifs')" style="cursor:pointer" title="فتح الإشعارات">
       <div class="si" style="background:#9a670022">🔔</div>
       <div><div class="sn" style="color:var(--yl)">${unread}</div><div class="sl">إشعارات</div></div></div>`;
-
-  // إحصائيات أجهزة المناداة
-  const radioDevs = DB.radioDevices||[];
-  if(radioDevs.length){
-    const radioActive  = radioDevs.filter(r=>r.condition==='جيد'||r.condition==='جيد جداً').length;
-    const radioFault   = radioDevs.filter(r=>r.condition==='عطل').length;
-    const radioField   = radioDevs.filter(r=>r.status==='ميدان').length;
-    statsH+=`
-    <div class="sc" onclick="go('radio')" style="cursor:pointer" title="أجهزة المناداة">
-      <div class="si" style="background:#0969da22">📻</div>
-      <div>
-        <div class="sn" style="color:var(--bl)">${radioDevs.length}</div>
-        <div class="sl">أجهزة المناداة</div>
-        <div style="font-size:10px;color:var(--mt);margin-top:2px">
-          <span style="color:var(--gn)">✅${radioActive}</span>
-          <span style="color:var(--rd);margin-right:4px">❌${radioFault}</span>
-          <span style="color:var(--yl);margin-right:4px">📍${radioField}</span>
-        </div>
-      </div>
-    </div>`;
 
   let myTasksH='';
   if(role==='technician'||role==='field'){
@@ -6824,9 +6781,9 @@ function openAppMenu(){
     {id:'chat',      ic:'💬', lb:'الدردشة',            perm:null},
     {id:'docs',      ic:'📁', lb:'المستندات',          perm:'docs'},
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
-    {id:'radio',     ic:'📻', lb:'أجهزة المناداة',      perm:null},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
     {id:'siteinv',   ic:'📦', lb:'جرد الموجودات الثابتة', perm:'fieldmap'},
+    {id:'radio',     ic:'📻', lb:'أجهزة المناداة',      perm:null},
     {id:'tasks',     ic:'📋', lb:'المهام',                  perm:'faults'},
     {id:'branding',  ic:'🎨', lb:'تخصيص الشركة',       perm:'users'},
   ].filter(x=>x.perm===null ? true : p(x.perm));
@@ -8232,239 +8189,6 @@ document.addEventListener('DOMContentLoaded',()=>{
 // ============================================
 //  🔍 البحث السريع في الشريط العلوي
 // ============================================
-// ══════════════════════════════════════════════════════════════════
-//  📻 أجهزة المناداة — نظام مستقل كامل
-// ══════════════════════════════════════════════════════════════════
-
-const RADIO_BRANDS  = ['موتورولا','هايتيرا','كيتباوز','آيكوم','كينوود','بوفينج','HYT','هايسن','راديوسان','غيرها'];
-const RADIO_TYPES   = ['جهاز يدوي (HT)','جهاز محمول (Mobile)','جهاز ثابت (Base)','مكرر (Repeater)','جهاز بحري'];
-const RADIO_BANDS   = ['VHF (136-174 MHz)','UHF (400-520 MHz)','VHF/UHF Dual Band','700/800 MHz','HF'];
-const RADIO_STATUS  = ['مخزن','ميدان','صيانة','مفقود','مسلّم','خارج الخدمة'];
-const RADIO_COND    = ['جيد جداً','جيد','مقبول','عطل','تالف'];
-
-const RADIO_ST_COLORS = {
-  'مخزن':'#0969da','ميدان':'#1a7f37','صيانة':'#9a6700',
-  'مفقود':'#d1242f','مسلّم':'#8250df','خارج الخدمة':'#656d76'
-};
-const RADIO_CD_COLORS = {
-  'جيد جداً':'#1a7f37','جيد':'#2da44e','مقبول':'#9a6700',
-  'عطل':'#d1242f','تالف':'#6e7781'
-};
-
-function pgRadio(){
-  const devs = DB.radioDevices||[];
-  const byStatus = {};
-  RADIO_STATUS.forEach(s=>{ byStatus[s]=devs.filter(d=>d.status===s).length; });
-  const canEdit = CU.role==='manager'||p('addItem');
-
-  // فلاتر
-  const fStatus = window._radioFS||'';
-  const fBrand  = window._radioFB||'';
-  const fSearch = window._radioFQ||'';
-
-  let shown = devs.filter(d=>{
-    const q=(fSearch||'').toLowerCase();
-    const matchQ = !q||[d.name,d.brand,d.serial,d.type,d.assignedTo,d.location].some(v=>v&&v.toLowerCase().includes(q));
-    return matchQ && (!fStatus||d.status===fStatus) && (!fBrand||d.brand===fBrand);
-  });
-
-  $('page').innerHTML=`
-  <div class="ph">
-    <div>
-      <div class="pt">📻 أجهزة المناداة</div>
-      <div class="ps" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
-        ${RADIO_STATUS.map(s=>`<span style="color:${RADIO_ST_COLORS[s]||'var(--mt)'};font-size:12px">${s}: <b>${byStatus[s]||0}</b></span>`).join('')}
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${canEdit?`<button class="btn btn-bl" onclick="openAddRadio()">+ إضافة جهاز</button>`:''}
-      <button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ تصدير Excel</button>
-    </div>
-  </div>
-
-  <!-- فلاتر -->
-  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px">
-    <input id="radio-search" placeholder="🔍 بحث..." value="${esc(fSearch)}"
-      style="flex:1;min-width:120px;padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px;outline:none"
-      oninput="window._radioFQ=this.value;pgRadio()">
-    <select onchange="window._radioFS=this.value;pgRadio()"
-      style="padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
-      <option value="">كل الحالات</option>
-      ${RADIO_STATUS.map(s=>`<option value="${s}" ${fStatus===s?'selected':''}>${s}</option>`).join('')}
-    </select>
-    <select onchange="window._radioFB=this.value;pgRadio()"
-      style="padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
-      <option value="">كل الشركات</option>
-      ${RADIO_BRANDS.map(b=>`<option value="${b}" ${fBrand===b?'selected':''}>${b}</option>`).join('')}
-    </select>
-    ${fStatus||fBrand||fSearch?`<button style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px"
-      onclick="window._radioFS='';window._radioFB='';window._radioFQ='';pgRadio()">✕ مسح</button>`:''}
-  </div>
-  <div style="padding:0 16px 6px;font-size:13px;color:var(--mt)">📋 يعرض <b>${shown.length}</b> من ${devs.length} جهاز</div>
-
-  <!-- قائمة الأجهزة -->
-  <div style="padding:0 16px">
-    ${shown.length===0
-      ?`<div class="panel" style="text-align:center;padding:60px;color:var(--mt)">
-          <div style="font-size:48px">📻</div>
-          <div style="margin-top:12px">لا أجهزة مناداة</div>
-          ${canEdit?`<button class="btn btn-bl" style="margin-top:14px" onclick="openAddRadio()">+ إضافة أول جهاز</button>`:''}
-        </div>`
-      : shown.map((d,i)=>`
-        <div class="panel" style="margin-bottom:8px;border-right:3px solid ${RADIO_ST_COLORS[d.status]||'var(--br)'}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
-            <div style="flex:1">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-                <span style="font-weight:700;font-size:16px">📻 ${esc(d.name||d.serial||'جهاز')}</span>
-                <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${RADIO_ST_COLORS[d.status]||'var(--br)'}22;color:${RADIO_ST_COLORS[d.status]||'var(--mt)'}">${d.status||'—'}</span>
-                <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${RADIO_CD_COLORS[d.condition]||'var(--br)'}22;color:${RADIO_CD_COLORS[d.condition]||'var(--mt)'}">${d.condition||'—'}</span>
-              </div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;font-size:12px;color:var(--mt)">
-                ${d.brand?`<span>🏭 ${esc(d.brand)}</span>`:''}
-                ${d.type?`<span>📡 ${esc(d.type)}</span>`:''}
-                ${d.band?`<span>📶 ${esc(d.band)}</span>`:''}
-                ${d.serial?`<span>🔢 SN: <b style="color:var(--tx)">${esc(d.serial)}</b></span>`:''}
-                ${d.power?`<span>⚡ ${esc(d.power)} واط</span>`:''}
-                ${d.codeType?`<span>🔐 ${esc(d.codeType)}</span>`:''}
-                ${d.assignedTo?`<span style="color:var(--bl)">👤 ${esc(d.assignedTo)}</span>`:''}
-                ${d.location?`<span style="color:var(--gn)">📍 ${esc(d.location)}</span>`:''}
-                ${d.notes?`<span style="color:var(--mt)">📝 ${esc(d.notes)}</span>`:''}
-              </div>
-              <div style="font-size:11px;color:var(--mt);margin-top:6px">بواسطة: ${esc(d.by||'—')} — ${esc(d.date||'')}</div>
-            </div>
-            ${canEdit?`<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
-              <button class="btn btn-sm btn-gy" onclick="openEditRadio('${d.id}')">✏️</button>
-              <button class="btn btn-sm btn-rd" onclick="delRadio('${d.id}')">🗑</button>
-            </div>`:''}
-          </div>
-          <!-- تاريخ الحركات -->
-          ${d.moves?.length?`
-          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--br)">
-            <div style="font-size:11px;color:var(--mt);margin-bottom:4px">📋 سجل الحركات</div>
-            ${d.moves.slice(-3).map(m=>`
-              <div style="font-size:11px;color:var(--mt);padding:2px 0">
-                ${esc(m.date)} — ${esc(m.action)} ${m.to?'→ '+esc(m.to):''} بواسطة ${esc(m.by||'—')}
-              </div>`).join('')}
-          </div>`:''}
-        </div>`).join('')}
-  </div>`;
-}
-
-function openAddRadio(){
-  _openRadioForm(null);
-}
-function openEditRadio(id){
-  const d = (DB.radioDevices||[]).find(x=>x.id===id);
-  if(d) _openRadioForm(d);
-}
-
-function _openRadioForm(d){
-  const f = d||{};
-  openModal(`${mhd(d?'✏️ تعديل جهاز مناداة':'📻 إضافة جهاز مناداة')}
-  <div class="fg">
-    <div class="field"><label>اسم الجهاز / الكود</label>
-      <input id="rd-name" value="${esc(f.name||'')}" placeholder="مثال: راديو-01، HT-البوابة..."></div>
-    <div class="field"><label>الشركة المصنعة</label>
-      <select id="rd-brand">
-        <option value="">— اختر —</option>
-        ${RADIO_BRANDS.map(b=>`<option value="${b}" ${f.brand===b?'selected':''}>${b}</option>`).join('')}
-      </select></div>
-    <div class="field"><label>نوع الجهاز</label>
-      <select id="rd-type">
-        <option value="">— اختر —</option>
-        ${RADIO_TYPES.map(t=>`<option value="${t}" ${f.type===t?'selected':''}>${t}</option>`).join('')}
-      </select></div>
-    <div class="field"><label>النطاق / الفريكونسي</label>
-      <select id="rd-band">
-        <option value="">— اختر —</option>
-        ${RADIO_BANDS.map(b=>`<option value="${b}" ${f.band===b?'selected':''}>${b}</option>`).join('')}
-      </select></div>
-    <div class="field"><label>الرقم التسلسلي (SN)</label>
-      <input id="rd-serial" value="${esc(f.serial||'')}" placeholder="SN-XXXXX"></div>
-    <div class="field"><label>قوة الإرسال (واط)</label>
-      <input id="rd-power" value="${esc(f.power||'')}" placeholder="مثال: 4، 5، 25، 50..."></div>
-    <div class="field"><label>نوع الشفرة / البروتوكول</label>
-      <input id="rd-code" value="${esc(f.codeType||'')}" placeholder="مثال: DCS, CTCSS, DMR, Analog..."></div>
-    <div class="field"><label>الحالة</label>
-      <select id="rd-status">
-        ${RADIO_STATUS.map(s=>`<option value="${s}" ${(f.status||'مخزن')===s?'selected':''}>${s}</option>`).join('')}
-      </select></div>
-    <div class="field"><label>الحالة التقنية / الوصف</label>
-      <select id="rd-cond">
-        ${RADIO_COND.map(c=>`<option value="${c}" ${(f.condition||'جيد')===c?'selected':''}>${c}</option>`).join('')}
-      </select></div>
-    <div class="field"><label>مسلّم لـ / بحوزة</label>
-      <input id="rd-assigned" value="${esc(f.assignedTo||'')}" placeholder="اسم الشخص المستلم..."></div>
-    <div class="field"><label>الموقع / المنطقة</label>
-      <input id="rd-location" value="${esc(f.location||'')}" placeholder="مثال: الحسينية، البوابة الرئيسية..."></div>
-    <div class="field s2"><label>ملاحظات</label>
-      <textarea id="rd-notes" rows="2">${esc(f.notes||'')}</textarea></div>
-  </div>
-  ${mft(d?'💾 حفظ':'➕ إضافة', `saveRadio('${d?.id||''}')`, 'btn-bl')}`);
-}
-
-function saveRadio(existingId){
-  const name = val('rd-name');
-  const serial = val('rd-serial');
-  if(!name&&!serial){ toast('أدخل اسم أو سيريال الجهاز','err'); return; }
-
-  const id = existingId || gid();
-  const prev = (DB.radioDevices||[]).find(x=>x.id===existingId)||{};
-
-  // تسجيل حركة إذا تغيرت الحالة أو المستلم
-  const moves = prev.moves||[];
-  const newStatus = val('rd-status');
-  const newAssigned = val('rd-assigned');
-  if(existingId&&(prev.status!==newStatus||prev.assignedTo!==newAssigned)){
-    moves.push({
-      date:ts(), by:CU.name,
-      action: newStatus!==prev.status?`تغيير الحالة إلى ${newStatus}`:'',
-      to: newAssigned!==prev.assignedTo?newAssigned:'',
-      _ts:Date.now()
-    });
-  }
-
-  const data = {
-    id, name:val('rd-name'), brand:val('rd-brand'), type:val('rd-type'),
-    band:val('rd-band'), serial:val('rd-serial'), power:val('rd-power'),
-    codeType:val('rd-code'), status:val('rd-status'), condition:val('rd-cond'),
-    assignedTo:val('rd-assigned'), location:val('rd-location'), notes:val('rd-notes'),
-    moves, by:prev.by||CU.name, date:prev.date||ts(), _ts:Date.now()
-  };
-
-  fbSet('radioDevices/'+id, data);
-  logAct(existingId?'تعديل جهاز مناداة':'إضافة جهاز مناداة', data.name||data.serial);
-  closeModal();
-  toast(existingId?'✅ تم التعديل':'✅ تم الإضافة');
-  setTimeout(pgRadio, 400);
-}
-
-function delRadio(id){
-  const d = (DB.radioDevices||[]).find(x=>x.id===id);
-  confirmDel(`حذف الجهاز: ${d?.name||d?.serial||id}؟`, `fbDel('radioDevices/${id}');toast('تم الحذف','err');setTimeout(pgRadio,400)`);
-}
-
-function exportRadioExcel(){
-  const devs = DB.radioDevices||[];
-  if(!devs.length){ toast('لا أجهزة للتصدير','warn'); return; }
-  const rows = [['الاسم','الشركة','النوع','النطاق','السيريال','القوة','الشفرة','الحالة','الحالة التقنية','بحوزة','الموقع','الملاحظات','التاريخ']];
-  devs.forEach(d=>{
-    rows.push([d.name||'',d.brand||'',d.type||'',d.band||'',d.serial||'',d.power||'',d.codeType||'',d.status||'',d.condition||'',d.assignedTo||'',d.location||'',d.notes||'',d.date||'']);
-  });
-  let html=`<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>`;
-  html+=`<h2>📻 جرد أجهزة المناداة — ${new Date().toLocaleDateString('ar-IQ')}</h2>`;
-  html+=`<p style="color:#666;font-size:12px">إجمالي: ${devs.length} جهاز</p>`;
-  html+=`<table><thead><tr>${rows[0].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`;
-  rows.slice(1).forEach(r=>{ html+=`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`; });
-  html+=`</tbody></table></body></html>`;
-  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url; a.download=`أجهزة_المناداة_${new Date().toISOString().split('T')[0]}.xls`;
-  a.click(); URL.revokeObjectURL(url);
-  toast(`✅ تم تصدير ${devs.length} جهاز`);
-}
-
 function quickSearch(q){
   const res = $('qs-res');
   q = (q||'').trim();
@@ -8583,6 +8307,481 @@ function printFullReport(totalFaults,openF,resolvedF,highF,avgSLA,totalItems,dep
   </body></html>`);
   win.document.close();
 }
+
+// ══ ميزات جديدة ══
+
+function pgRadio(){
+  const devs = DB.radioDevices||[];
+  const byStatus = {};
+  RADIO_STATUS.forEach(s=>{ byStatus[s]=devs.filter(d=>d.status===s).length; });
+  const canEdit = CU.role==='manager'||p('addItem');
+
+  // فلاتر
+  const fStatus = window._radioFS||'';
+  const fBrand  = window._radioFB||'';
+  const fSearch = window._radioFQ||'';
+
+  let shown = devs.filter(d=>{
+    const q=(fSearch||'').toLowerCase();
+    const matchQ = !q||[d.name,d.brand,d.serial,d.type,d.assignedTo,d.location].some(v=>v&&v.toLowerCase().includes(q));
+    return matchQ && (!fStatus||d.status===fStatus) && (!fBrand||d.brand===fBrand);
+  });
+
+  $('page').innerHTML=`
+  <div class="ph">
+    <div>
+      <div class="pt">📻 أجهزة المناداة</div>
+      <div class="ps" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px">
+        ${RADIO_STATUS.map(s=>`<span style="color:${RADIO_ST_COLORS[s]||'var(--mt)'};font-size:12px">${s}: <b>${byStatus[s]||0}</b></span>`).join('')}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${canEdit?`<button class="btn btn-bl" onclick="openAddRadio()">+ إضافة جهاز</button>`:''}
+      <button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ تصدير Excel</button>
+    </div>
+  </div>
+
+  <!-- فلاتر -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px">
+    <input id="radio-search" placeholder="🔍 بحث..." value="${esc(fSearch)}"
+      style="flex:1;min-width:120px;padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px;outline:none"
+      oninput="window._radioFQ=this.value;pgRadio()">
+    <select onchange="window._radioFS=this.value;pgRadio()"
+      style="padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+      <option value="">كل الحالات</option>
+      ${RADIO_STATUS.map(s=>`<option value="${s}" ${fStatus===s?'selected':''}>${s}</option>`).join('')}
+    </select>
+    <select onchange="window._radioFB=this.value;pgRadio()"
+      style="padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+      <option value="">كل الشركات</option>
+      ${RADIO_BRANDS.map(b=>`<option value="${b}" ${fBrand===b?'selected':''}>${b}</option>`).join('')}
+    </select>
+    ${fStatus||fBrand||fSearch?`<button style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:13px"
+      onclick="window._radioFS='';window._radioFB='';window._radioFQ='';pgRadio()">✕ مسح</button>`:''}
+  </div>
+  <div style="padding:0 16px 6px;font-size:13px;color:var(--mt)">📋 يعرض <b>${shown.length}</b> من ${devs.length} جهاز</div>
+
+  <!-- قائمة الأجهزة -->
+  <div style="padding:0 16px">
+    ${shown.length===0
+      ?`<div class="panel" style="text-align:center;padding:60px;color:var(--mt)">
+          <div style="font-size:48px">📻</div>
+          <div style="margin-top:12px">لا أجهزة مناداة</div>
+          ${canEdit?`<button class="btn btn-bl" style="margin-top:14px" onclick="openAddRadio()">+ إضافة أول جهاز</button>`:''}
+        </div>`
+      : shown.map((d,i)=>`
+        <div class="panel" style="margin-bottom:8px;border-right:3px solid ${RADIO_ST_COLORS[d.status]||'var(--br)'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                <span style="font-weight:700;font-size:16px">📻 ${esc(d.name||d.serial||'جهاز')}</span>
+                <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${RADIO_ST_COLORS[d.status]||'var(--br)'}22;color:${RADIO_ST_COLORS[d.status]||'var(--mt)'}">${d.status||'—'}</span>
+                <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${RADIO_CD_COLORS[d.condition]||'var(--br)'}22;color:${RADIO_CD_COLORS[d.condition]||'var(--mt)'}">${d.condition||'—'}</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;font-size:12px;color:var(--mt)">
+                ${d.brand?`<span>🏭 ${esc(d.brand)}</span>`:''}
+                ${d.type?`<span>📡 ${esc(d.type)}</span>`:''}
+                ${d.band?`<span>📶 ${esc(d.band)}</span>`:''}
+                ${d.serial?`<span>🔢 SN: <b style="color:var(--tx)">${esc(d.serial)}</b></span>`:''}
+                ${d.power?`<span>⚡ ${esc(d.power)} واط</span>`:''}
+                ${d.codeType?`<span>🔐 ${esc(d.codeType)}</span>`:''}
+                ${d.assignedTo?`<span style="color:var(--bl)">👤 ${esc(d.assignedTo)}</span>`:''}
+                ${d.location?`<span style="color:var(--gn)">📍 ${esc(d.location)}</span>`:''}
+                ${d.notes?`<span style="color:var(--mt)">📝 ${esc(d.notes)}</span>`:''}
+              </div>
+              <div style="font-size:11px;color:var(--mt);margin-top:6px">بواسطة: ${esc(d.by||'—')} — ${esc(d.date||'')}</div>
+            </div>
+            ${canEdit?`<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+              <button class="btn btn-sm btn-gy" onclick="openEditRadio('${d.id}')">✏️</button>
+              <button class="btn btn-sm btn-rd" onclick="delRadio('${d.id}')">🗑</button>
+            </div>`:''}
+          </div>
+          <!-- تاريخ الحركات -->
+          ${d.moves?.length?`
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--br)">
+            <div style="font-size:11px;color:var(--mt);margin-bottom:4px">📋 سجل الحركات</div>
+            ${d.moves.slice(-3).map(m=>`
+              <div style="font-size:11px;color:var(--mt);padding:2px 0">
+                ${esc(m.date)} — ${esc(m.action)} ${m.to?'→ '+esc(m.to):''} بواسطة ${esc(m.by||'—')}
+              </div>`).join('')}
+          </div>`:''}
+        </div>`).join('')}
+  </div>`;
+}
+
+
+function openAddRadio(){
+  _openRadioForm(null);
+}
+
+
+function openEditRadio(id){
+  const d = (DB.radioDevices||[]).find(x=>x.id===id);
+  if(d) _openRadioForm(d);
+}
+
+
+function _openRadioForm(d){
+  const f = d||{};
+  openModal(`${mhd(d?'✏️ تعديل جهاز مناداة':'📻 إضافة جهاز مناداة')}
+  <div class="fg">
+    <div class="field"><label>اسم الجهاز / الكود</label>
+      <input id="rd-name" value="${esc(f.name||'')}" placeholder="مثال: راديو-01، HT-البوابة..."></div>
+    <div class="field"><label>الشركة المصنعة</label>
+      <select id="rd-brand">
+        <option value="">— اختر —</option>
+        ${RADIO_BRANDS.map(b=>`<option value="${b}" ${f.brand===b?'selected':''}>${b}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>نوع الجهاز</label>
+      <select id="rd-type">
+        <option value="">— اختر —</option>
+        ${RADIO_TYPES.map(t=>`<option value="${t}" ${f.type===t?'selected':''}>${t}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>النطاق / الفريكونسي</label>
+      <select id="rd-band">
+        <option value="">— اختر —</option>
+        ${RADIO_BANDS.map(b=>`<option value="${b}" ${f.band===b?'selected':''}>${b}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>الرقم التسلسلي (SN)</label>
+      <input id="rd-serial" value="${esc(f.serial||'')}" placeholder="SN-XXXXX"></div>
+    <div class="field"><label>قوة الإرسال (واط)</label>
+      <input id="rd-power" value="${esc(f.power||'')}" placeholder="مثال: 4، 5، 25، 50..."></div>
+    <div class="field"><label>نوع الشفرة / البروتوكول</label>
+      <input id="rd-code" value="${esc(f.codeType||'')}" placeholder="مثال: DCS, CTCSS, DMR, Analog..."></div>
+    <div class="field"><label>الحالة</label>
+      <select id="rd-status">
+        ${RADIO_STATUS.map(s=>`<option value="${s}" ${(f.status||'مخزن')===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>الحالة التقنية / الوصف</label>
+      <select id="rd-cond">
+        ${RADIO_COND.map(c=>`<option value="${c}" ${(f.condition||'جيد')===c?'selected':''}>${c}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>مسلّم لـ / بحوزة</label>
+      <input id="rd-assigned" value="${esc(f.assignedTo||'')}" placeholder="اسم الشخص المستلم..."></div>
+    <div class="field"><label>الموقع / المنطقة</label>
+      <input id="rd-location" value="${esc(f.location||'')}" placeholder="مثال: الحسينية، البوابة الرئيسية..."></div>
+    <div class="field s2"><label>ملاحظات</label>
+      <textarea id="rd-notes" rows="2">${esc(f.notes||'')}</textarea></div>
+  </div>
+  ${mft(d?'💾 حفظ':'➕ إضافة', `saveRadio('${d?.id||''}')`, 'btn-bl')}`);
+}
+
+
+function saveRadio(existingId){
+  const name = val('rd-name');
+  const serial = val('rd-serial');
+  if(!name&&!serial){ toast('أدخل اسم أو سيريال الجهاز','err'); return; }
+
+  const id = existingId || gid();
+  const prev = (DB.radioDevices||[]).find(x=>x.id===existingId)||{};
+
+  // تسجيل حركة إذا تغيرت الحالة أو المستلم
+  const moves = prev.moves||[];
+  const newStatus = val('rd-status');
+  const newAssigned = val('rd-assigned');
+  if(existingId&&(prev.status!==newStatus||prev.assignedTo!==newAssigned)){
+    moves.push({
+      date:ts(), by:CU.name,
+      action: newStatus!==prev.status?`تغيير الحالة إلى ${newStatus}`:'',
+      to: newAssigned!==prev.assignedTo?newAssigned:'',
+      _ts:Date.now()
+    });
+  }
+
+  const data = {
+    id, name:val('rd-name'), brand:val('rd-brand'), type:val('rd-type'),
+    band:val('rd-band'), serial:val('rd-serial'), power:val('rd-power'),
+    codeType:val('rd-code'), status:val('rd-status'), condition:val('rd-cond'),
+    assignedTo:val('rd-assigned'), location:val('rd-location'), notes:val('rd-notes'),
+    moves, by:prev.by||CU.name, date:prev.date||ts(), _ts:Date.now()
+  };
+
+  fbSet('radioDevices/'+id, data);
+  logAct(existingId?'تعديل جهاز مناداة':'إضافة جهاز مناداة', data.name||data.serial);
+  closeModal();
+  toast(existingId?'✅ تم التعديل':'✅ تم الإضافة');
+  setTimeout(pgRadio, 400);
+}
+
+
+function delRadio(id){
+  const d = (DB.radioDevices||[]).find(x=>x.id===id);
+  confirmDel(`حذف الجهاز: ${d?.name||d?.serial||id}؟`, `fbDel('radioDevices/${id}');toast('تم الحذف','err');setTimeout(pgRadio,400)`);
+}
+
+
+function exportRadioExcel(){
+  const devs = DB.radioDevices||[];
+  if(!devs.length){ toast('لا أجهزة للتصدير','warn'); return; }
+  const rows = [['الاسم','الشركة','النوع','النطاق','السيريال','القوة','الشفرة','الحالة','الحالة التقنية','بحوزة','الموقع','الملاحظات','التاريخ']];
+  devs.forEach(d=>{
+    rows.push([d.name||'',d.brand||'',d.type||'',d.band||'',d.serial||'',d.power||'',d.codeType||'',d.status||'',d.condition||'',d.assignedTo||'',d.location||'',d.notes||'',d.date||'']);
+  });
+  let html=`<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>`;
+  html+=`<h2>📻 جرد أجهزة المناداة — ${new Date().toLocaleDateString('ar-IQ')}</h2>`;
+  html+=`<p style="color:#666;font-size:12px">إجمالي: ${devs.length} جهاز</p>`;
+  html+=`<table><thead><tr>${rows[0].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>`;
+  rows.slice(1).forEach(r=>{ html+=`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`; });
+  html+=`</tbody></table></body></html>`;
+  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`أجهزة_المناداة_${new Date().toISOString().split('T')[0]}.xls`;
+  a.click(); URL.revokeObjectURL(url);
+  toast(`✅ تم تصدير ${devs.length} جهاز`);
+}
+
+
+function filterInvTable(){
+  // فلترة الجدول بدون إعادة رسم الصفحة — يحافظ على الكيبورد
+  const q = (ISQ||'').toLowerCase();
+  const rows = document.querySelectorAll('#inv-table-body tr');
+  let visible = 0;
+  rows.forEach(row=>{
+    const name   = (row.dataset.name||'').toLowerCase();
+    const serial = (row.dataset.serial||'').toLowerCase();
+    const model  = (row.dataset.model||'').toLowerCase();
+    const mfr    = (row.dataset.mfr||'').toLowerCase();
+    const type   = row.dataset.type||'';
+    const status = row.dataset.status||'';
+    const matchQ = !q || [name,serial,model,mfr].some(v=>v.includes(q));
+    const matchT = !ITYP || type===ITYP;
+    const matchS = !ISTS || status===ISTS;
+    const show   = matchQ && matchT && matchS;
+    row.style.display = show ? '' : 'none';
+    if(show) visible++;
+  });
+  const countEl = document.getElementById('inv-count');
+  if(countEl){
+    const total = rows.length;
+    countEl.textContent = `📋 يعرض ${visible} من ${total} عنصر`;
+  }
+  const clearBtn = document.getElementById('inv-clear-btn');
+  if(clearBtn) clearBtn.style.display = (ISQ||ITYP||ISTS)?'':'none';
+}
+
+
+function toggleDepGroup(gid){
+  const body = document.getElementById(gid+'-body');
+  const arr  = document.getElementById(gid+'-arr');
+  if(!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'table-row';
+  if(arr) arr.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+
+function dedupWarehouse(warehouseName){
+  const items = DB.inv[warehouseName]||[];
+  if(!items.length){ toast('لا مواد في المستودع','warn'); return; }
+  openModal(`
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:40px;margin-bottom:12px">🧹</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px">حذف التكرار</div>
+      <div style="color:var(--mt);font-size:14px;margin-bottom:20px">
+        سيُحتفظ بنسخة واحدة فقط من كل مادة (حسب الاسم والسيريال).<br>
+        التكرار الزائد يُحذف نهائياً.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-rd" onclick="closeModal();doDedupWarehouse('${esc(warehouseName)}')">🧹 تأكيد</button>
+      </div>
+    </div>`);
+}
+
+
+function doDedupWarehouse(warehouseName){
+  const items = [...(DB.inv[warehouseName]||[])];
+  const seen = new Set();
+  let deletedCount = 0;
+  for(const item of items){
+    const nameKey   = (item.name||item.serial||'').trim().toLowerCase();
+    const serialKey = (item.serial||'').trim().toLowerCase();
+    const siteKey   = item.fieldSiteId||item.fieldCamId||'';
+    const key = serialKey ? serialKey+'__'+siteKey : nameKey+'__'+siteKey;
+    if(seen.has(key)){
+      await FBDB.ref(`cctv/inv/${fbKey(warehouseName)}/${item.id}`).remove();
+      deletedCount++;
+    } else {
+      seen.add(key);
+    }
+  }
+  toast(`✅ تم حذف ${deletedCount} عنصر مكرر`);
+  logAct('حذف تكرار', warehouseName+' — '+deletedCount+' عنصر');
+  setTimeout(()=>pgInv(), 800);
+}
+
+
+function exportFilteredInv(){
+  const AT=allT();
+  const sItems = isMainSite(ISITE) ? Object.values(DB.inv).flat() : (DB.inv[ISITE]||[]);
+  const items = sItems.filter(item=>{
+    const q=(ISQ||'').toLowerCase();
+    const ok=!q||[item.name,item.serial,item.model,item.mfr].some(v=>v?.toLowerCase().includes(q));
+    return ok&&(!ITYP||item.type===ITYP)&&(!ISTS||item.status===ISTS);
+  });
+  if(!items.length){ toast('لا مواد للتصدير بالفلتر الحالي','warn'); return; }
+
+  const filterDesc=[
+    ISITE?`المستودع: ${ISITE}`:'',
+    ITYP?`النوع: ${AT[ITYP]?.label||ITYP}`:'',
+    ISTS?`الحالة: ${ISTS}`:'',
+    ISQ?`بحث: ${ISQ}`:'',
+  ].filter(Boolean).join(' | ');
+
+  const rows=[['#','الاسم','النوع','السيريال','الموديل','الشركة','الحالة','موقع النصب','المستودع','التاريخ']];
+  items.forEach((it,i)=>{
+    rows.push([i+1,it.name||'',AT[it.type]?.label||it.type||'',it.serial||'',it.model||'',it.mfr||'',it.status||'',it.installedAt||'',it.currentSite||ISITE,it.addedAt||'']);
+  });
+
+  let html='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#0969da}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:6px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}@media print{.np{display:none}}</style></head><body>';
+  html+=`<h2>📦 ${esc(ISITE)}</h2><p style="color:#666;font-size:12px">${filterDesc||'كل المواد'} — ${items.length} عنصر — ${new Date().toLocaleString('ar-IQ')}</p>`;
+  html+=`<button class="np" onclick="window.print()" style="margin-bottom:12px;padding:6px 20px;background:#0969da;color:#fff;border:none;border-radius:6px;cursor:pointer">🖨️ طباعة / PDF</button>`;
+  html+='<table><thead><tr>'+rows[0].map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
+  rows.slice(1).forEach(r=>{html+='<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>';});
+  html+='</tbody></table></body></html>';
+
+  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`مخزن_${ISITE}${ITYP?'_'+(AT[ITYP]?.label||ITYP):''}${ISTS?'_'+ISTS:''}_${new Date().toISOString().split('T')[0]}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(`✅ تم تصدير ${items.length} عنصر`);
+}
+
+
+function syncFieldItemsToWarehouse(warehouseName){
+  const linkedFS = DB.fieldSites.filter(fs=>fs.warehouse===warehouseName);
+  if(!linkedFS.length){ toast('لا مواقع ميدانية مرتبطة بهذا المستودع','warn'); return; }
+
+  // نافذة تأكيد
+  openModal(`
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:40px;margin-bottom:12px">🔄</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px">مزامنة مواد الميدان</div>
+      <div style="color:var(--mt);font-size:14px;margin-bottom:16px">
+        سيتم إدراج جميع مواد المواقع الميدانية المرتبطة بـ <b>${esc(warehouseName)}</b> في المخزن كـ <b style="color:var(--gn)">منصوب</b>.<br>
+        المواد الموجودة مسبقاً لن تُكرَّر.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+        <button class="btn" style="background:var(--gn);color:#fff" onclick="closeModal();doSyncFieldItems('${esc(warehouseName)}')">✅ تأكيد المزامنة</button>
+      </div>
+    </div>`);
+}
+
+
+function doSyncFieldItems(warehouseName){
+  const linkedFS = DB.fieldSites.filter(fs=>fs.warehouse===warehouseName);
+  let addedCount=0, skippedCount=0;
+  const existingItems = DB.inv[warehouseName]||[];
+
+  for(const fs of linkedFS){
+    // 1. كاميرات المواقع الميدانية
+    const cameras = fs.cameras||[];
+    for(const cam of cameras){
+      const camName = (cam.name||'').trim().toLowerCase();
+      const camSerial = (cam.serial||'').trim().toLowerCase();
+      const alreadyExists = existingItems.some(it=>{
+        if(it.fieldCamId && it.fieldCamId===(cam.id||cam.serial)) return true;
+        if(camSerial && it.serial && it.serial.toLowerCase()===camSerial) return true;
+        if(camName && it.name && it.name.trim().toLowerCase()===camName && it.fieldSiteId===fs.id) return true;
+        return false;
+      });
+      if(alreadyExists){ skippedCount++; continue; }
+      const newItem = {
+        id: gid(), type:'camera',
+        name: cam.name||'كاميرا ميدانية',
+        serial: cam.serial||'',
+        model: cam.model||'',
+        mfr: cam.brand||'',
+        status: 'deployed',
+        installedAt: fs.name+(cam.name?` — ${cam.name}`:''),
+        currentSite: warehouseName,
+        fieldSiteId: fs.id,
+        fieldCamId: cam.id||cam.serial,
+        addedBy: CU.name,
+        addedAt: ts(),
+        _ts: Date.now()
+      };
+      await FBDB.ref(`cctv/inv/${fbKey(warehouseName)}/${newItem.id}`).set(newItem);
+      addedCount++;
+    }
+
+    // 2. مواد جرد الموجودات الثابتة (siteInventory)
+    const snap = await FBDB.ref(`cctv/siteInventory/${fs.id}`).once('value');
+    const points = snap.val() ? Object.values(snap.val()) : [];
+    for(const pt of points){
+      const ptItems = pt.items ? Object.values(pt.items) : [];
+      for(const it of ptItems){
+        const alreadyExists = existingItems.some(ex=>
+          (it.serial&&ex.serial&&ex.serial===it.serial)||(ex.siteItemId===it.id)
+        );
+        if(alreadyExists){ skippedCount++; continue; }
+        const newItem = {
+          id: gid(), type:'other',
+          name: it.name||'عنصر ميداني',
+          serial: it.serial||'',
+          status: 'deployed',
+          installedAt: fs.name+' — '+pt.name,
+          currentSite: warehouseName,
+          fieldSiteId: fs.id,
+          siteItemId: it.id,
+          qty: it.qty||1,
+          notes: it.notes||'',
+          addedBy: CU.name,
+          addedAt: ts(),
+          _ts: Date.now()
+        };
+        await FBDB.ref(`cctv/inv/${fbKey(warehouseName)}/${newItem.id}`).set(newItem);
+        addedCount++;
+      }
+    }
+  }
+
+  toast(`✅ تمت المزامنة — ${addedCount} عنصر جديد${skippedCount?` (${skippedCount} موجود مسبقاً)`:''}`);
+  logAct('مزامنة مواد الميدان', warehouseName+' — '+addedCount+' عنصر');
+  setTimeout(()=>pgInv(), 800);
+}
+
+
+function renderTechLocations(locs){
+  const el = document.getElementById('tech-locations');
+  if(!el) return;
+  const now = Date.now();
+  const locList = Object.values(locs||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
+  if(!locList.length){
+    el.innerHTML='<div style="text-align:center;padding:40px;color:var(--mt)">لا فنيين نشطين الآن</div>';
+    return;
+  }
+  el.innerHTML = locList.map(loc=>{
+    const mins = Math.round((now - (loc._ts||0))/(1000*60));
+    const isRecent = mins < 10;
+    return `
+    <div class="panel" style="margin-bottom:10px;border-right:3px solid ${isRecent?'var(--gn)':'var(--mt)'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <div style="font-weight:700">${esc(loc.name)}</div>
+          <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
+        </div>
+        <span style="font-size:11px;background:${isRecent?'#1a7f3722':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
+          ${isRecent?'🟢 نشط':'⚫ منذ '+mins+' د'}
+        </span>
+      </div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:8px">
+        📍 ${loc.lat?.toFixed(5)||'—'}, ${loc.lng?.toFixed(5)||'—'}
+        ${loc.accuracy?` | دقة: ${loc.accuracy}م`:''}
+      </div>
+      <div style="font-size:11px;color:var(--mt);margin-bottom:8px">🕐 آخر تحديث: ${esc(loc.updatedAt||'')}</div>
+      <a href="https://maps.google.com/?q=${loc.lat},${loc.lng}" target="_blank" class="btn btn-sm btn-bl">
+        🗺️ فتح في الخريطة
+      </a>
+    </div>`;
+  }).join('');
+}
+
 </script>
 </body>
 </html>
