@@ -671,6 +671,7 @@ let DB = {
   fieldSites:[],   // [{id, name, desc, cameras:[], allowedUsers:[]}]
   actlog:[],        // سجل النشاط
   maintain:[],      // جدول الصيانة
+  radioDevices:[],
 };
 DB.sites.forEach(s => DB.inv[s]=[]);
 
@@ -1178,6 +1179,7 @@ function fbStartSync(){
     DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
     DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.siteInventory = data.siteInventory || {};
+    DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     // تحميل روابط المستودعات الأب
     if(data.siteParents){
       window._siteParents = data.siteParents
@@ -1330,7 +1332,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio})[page]?.();
   });
 }
 
@@ -8294,6 +8296,24 @@ function printFullReport(totalFaults,openF,resolvedF,highF,avgSLA,totalItems,dep
   </body></html>`);
   win.document.close();
 }
+
+function pgRadio(){
+  $('page').innerHTML=`
+  <div class="ph"><div class="pt">📻 أجهزة المناداة</div>
+    <button class="btn btn-bl" onclick="openAddRadio()">+ إضافة جهاز</button>
+  </div>
+  <div id="radio-list" style="padding:0 16px">
+    ${(DB.radioDevices||[]).length===0
+      ?'<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا أجهزة بعد</div>'
+      :(DB.radioDevices||[]).map((d,i)=>`
+        <div class="panel" style="margin-bottom:8px">
+          <b>📻 \${d.name||d.serial||'جهاز'}</b>
+          <span style="margin-right:8px;font-size:12px;color:var(--mt)">\${d.brand||''} — \${d.status||''}</span>
+        </div>`).join('')}
+  </div>`;
+}
+function openAddRadio(){ toast('ميزة أجهزة المناداة قيد التطوير','warn'); }
+
 </script>
 </body>
 </html>
