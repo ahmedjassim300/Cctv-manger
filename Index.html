@@ -603,8 +603,8 @@ window.onerror = function(msg, src, line, col, err) {
 // ============================================
 //  CONSTANTS
 // ============================================
-const ROLES = {manager:'مدير', admin:'إداري', engineer:'مهندس', technician:'فني', field:'صاعود', viewer:'السيد'};
-const RC    = {manager:'#f85149', admin:'#ff7b00', engineer:'#58a6ff', technician:'#3fb950', field:'#d29922', viewer:'#bc8cff'};
+const ROLES = {manager:'مدير', admin:'إداري', engineer:'مهندس', technician:'فني', field:'صاعود', viewer:'السيد', signals:'مخابر'};
+const RC    = {manager:'#f85149', admin:'#ff7b00', engineer:'#58a6ff', technician:'#3fb950', field:'#d29922', viewer:'#bc8cff', signals:'#06b6d4'};
 
 const PERM_DEF = {
   inv      : 'عرض المخزن',
@@ -619,15 +619,18 @@ const PERM_DEF = {
   sites    : 'المواقع والمخازن',
   types    : 'إدارة أنواع المواد',
   fieldmap : 'خريطة المواقع الميدانية',
+  radio    : 'عرض أجهزة المناداة',
+  radioEdit: 'تعديل أجهزة المناداة',
 };
 
 const DEF_PERMS = {
-  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1},
-  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0},
-  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
-  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
-  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0},
-  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0},
+  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1},
+  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0},
+  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:1,radioEdit:0},
+  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0},
+  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0},
+  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0},
 };
 
 const FAULT_ST = [
@@ -1159,15 +1162,28 @@ function fbStartSync(){
     // collections
     DB.moves       = data.moves       ? Object.values(data.moves).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.faults      = data.faults      ? Object.values(data.faults) : [];
-    // فلترة الإشعارات حسب صلاحيات المستخدم
+    // فلترة الإشعارات حسب صلاحيات المستخدم ومواقعه
     const allNotifs = data.notifs ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     const myUid = CU?.uid||CU?.id;
+    const myAllowedSites = CU?.perms?.allowedSites||[];
     DB.notifs = allNotifs.filter(n=>{
-      if(!CU || CU.role==='manager' || CU.role==='viewer') return true; // المدير والسيد يريان الكل
-      if(!n.allowedUsers) return true; // إشعار عام قديم
-      if(n.allowedUsers.includes('all')) return true; // إشعار عام
-      if(n.allowedUsers.includes('manager_only')) return false; // للمدير فقط
-      return n.allowedUsers.includes(myUid); // فقط المسموح لهم
+      // المدير والسيد يريان كل الإشعارات
+      if(!CU || CU.role==='manager' || CU.role==='viewer') return true;
+      // إشعار موجّه لمستخدم محدد
+      if(n.targetUid) return n.targetUid===myUid;
+      // إشعار مرتبط بموقع ميداني
+      if(n.fieldSiteId){
+        // إذا كان للمستخدم مواقع محددة، تحقق منها
+        if(myAllowedSites.length) return myAllowedSites.includes(n.fieldSiteId);
+        // إذا لم تحدد مواقع، تحقق من allowedUsers
+        if(n.allowedUsers) return n.allowedUsers.includes(myUid)||n.allowedUsers.includes('all');
+        return false;
+      }
+      // إشعار عام
+      if(!n.allowedUsers) return true;
+      if(n.allowedUsers.includes('all')) return true;
+      if(n.allowedUsers.includes('manager_only')) return false;
+      return n.allowedUsers.includes(myUid);
     });
     DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
     DB.customTypes = data.customTypes || {};
@@ -2520,6 +2536,7 @@ function showUserForm(u,idx){
       <option value="engineer"  ${f.role==='engineer'  ?'selected':''}>مهندس</option>
       <option value="technician"${f.role==='technician'?'selected':''}>فني</option>
       <option value="field"     ${f.role==='field'     ?'selected':''}>صاعود</option>
+      <option value="signals"   ${f.role==='signals'   ?'selected':''}>🔵 مخابر</option>
       <option value="viewer"    ${f.role==='viewer'    ?'selected':''}>👑 السيد</option>
     </select>
   </div>
@@ -3304,6 +3321,43 @@ function pgFieldMap(){
     </div>
     <div id="fld-map" style="height:490px;border-radius:10px;border:1px solid var(--br);margin-bottom:16px;z-index:1;position:relative;"></div>
 
+    <!-- شريط الطبقات -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--sf);border-radius:10px;border:1px solid var(--br);align-items:center">
+      <span style="font-size:13px;font-weight:700;color:var(--mt);margin-left:6px">الطبقات:</span>
+      <button id="lyr-cameras" onclick="toggleMapLayer('cameras',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #0969da;background:#0969da22;color:#0969da;font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        📷 كاميرات
+      </button>
+      <button id="lyr-towers" onclick="toggleMapLayer('towers',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #9a6700;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        🗼 أبراج
+      </button>
+      <button id="lyr-p2p" onclick="toggleMapLayer('p2p',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #8250df;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        📡 P2P
+      </button>
+      <button id="lyr-radio" onclick="toggleMapLayer('radio',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #06b6d4;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        📻 راديو
+      </button>
+      <button id="lyr-faults" onclick="toggleMapLayer('faults',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #d1242f;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        🔴 أعطال
+      </button>
+      <button id="lyr-boundaries" onclick="toggleMapLayer('boundaries',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #1a7f37;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        📐 حدود
+      </button>
+      <button id="lyr-network" onclick="toggleMapLayer('network',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #656d76;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        🌐 شبكة
+      </button>
+      <button onclick="clearAllMapLayers()"
+        style="padding:6px 14px;border-radius:20px;border:1px solid var(--br);background:var(--bg);color:var(--mt);font-size:12px;cursor:pointer;font-family:inherit;margin-right:auto">
+        ✕ مسح الكل
+      </button>
+    </div>
+
     ${fieldSearchResult 
       ? renderSearchResult() 
       : (_FSITE 
@@ -3313,6 +3367,60 @@ function pgFieldMap(){
 
   if(visibleSites.length>0) requestAnimationFrame(()=>initFieldMap());
 }
+
+// ══ طبقات الخريطة ══
+var _activeLayers = {cameras:true, towers:false, p2p:false, radio:false, faults:false, boundaries:false, network:false};
+
+function toggleMapLayer(layer, btn){
+  _activeLayers[layer] = !_activeLayers[layer];
+  var active = _activeLayers[layer];
+  var colors = {
+    cameras:'#0969da', towers:'#9a6700', p2p:'#8250df',
+    radio:'#06b6d4', faults:'#d1242f', boundaries:'#1a7f37', network:'#656d76'
+  };
+  var col = colors[layer]||'var(--bl)';
+  if(btn){
+    btn.style.background = active ? col+'22' : 'var(--sf)';
+    btn.style.color      = active ? col : 'var(--mt)';
+  }
+  applyMapLayers();
+}
+
+function clearAllMapLayers(){
+  Object.keys(_activeLayers).forEach(function(k){ _activeLayers[k]=false; });
+  var btns=['cameras','towers','p2p','radio','faults','boundaries','network'];
+  btns.forEach(function(id){
+    var b=document.getElementById('lyr-'+id);
+    if(b){ b.style.background='var(--sf)'; b.style.color='var(--mt)'; }
+  });
+  applyMapLayers();
+}
+
+function applyMapLayers(){
+  if(!_map) return;
+  try{
+    // إخفاء/إظهار الماركرات حسب الطبقة
+    if(_markers && _markers.length){
+      _markers.forEach(function(m){
+        if(!m||!m._layerType) return;
+        var show = _activeLayers[m._layerType]!==false;
+        if(show){ if(m.addTo) try{m.addTo(_map);}catch(e){} }
+        else { if(m.remove) try{m.remove();}catch(e){} }
+      });
+    }
+    // الطبقات الخاصة
+    if(!_activeLayers.faults) { try{hideFaultsLayer();}catch(e){} }
+    else { try{toggleFaultsLayer();}catch(e){} }
+    if(!_activeLayers.network) { try{hideNetworkLayer();}catch(e){} }
+    else if(canViewNetwork()) { try{loadNetworkLayer();}catch(e){} }
+    if(!_activeLayers.boundaries) { try{hideBoundaries();}catch(e){} }
+    else { try{loadBoundaries();}catch(e){} }
+  }catch(e){ console.warn('applyMapLayers:', e); }
+}
+
+function hideFaultsLayer(){ var el=document.getElementById('fault-pins'); if(el) el.remove(); }
+function hideNetworkLayer(){ var el=document.getElementById('network-layer'); if(el) el.remove(); }
+function hideBoundaries(){ var el=document.getElementById('boundary-layer'); if(el) el.remove(); }
 
 function searchCamByIP() {
   const ip = val('ipSearchInput');
@@ -8304,9 +8412,13 @@ const RADIO_TYPES=['جهاز يدوي','جهاز محمول','جهاز ثابت'
 const RADIO_COND=['جيد جداً','جيد','مقبول','عطل','تالف'];
 
 function pgRadio(){
+  if(!p('radio')&&CU.role!=='manager'){
+    $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">🔒</div><div style="margin-top:12px">غير مصرح بعرض أجهزة المناداة</div></div>';
+    return;
+  }
   if(!DB.radioDevices) DB.radioDevices=[];
   var devs=DB.radioDevices;
-  var canEdit=CU.role==='manager'||p('addItem');
+  var canEdit=CU.role==='manager'||p('radioEdit');
   var html='<div class="ph"><div class="pt">📻 أجهزة المناداة</div>';
   if(canEdit) html+='<button class="btn btn-bl" onclick="openAddRadio()">+ إضافة</button>';
   html+='</div><div style="padding:0 16px">';
