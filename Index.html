@@ -3340,15 +3340,15 @@ function pgFieldMap(){
         style="padding:6px 14px;border-radius:20px;border:2px solid #06b6d4;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         📻 راديو
       </button>
-      <button id="lyr-faults" onclick="toggleMapLayer('faults',this)"
+      <button id="lyr-faults" onclick="toggleMapLayer('faults',this);if(_activeLayers.faults)showFaultsOnMap();"
         style="padding:6px 14px;border-radius:20px;border:2px solid #d1242f;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         🔴 أعطال
       </button>
-      <button id="lyr-boundaries" onclick="toggleMapLayer('boundaries',this)"
+      <button id="lyr-boundaries" onclick="toggleMapLayer('boundaries',this);if(_activeLayers.boundaries)loadBoundaries();"
         style="padding:6px 14px;border-radius:20px;border:2px solid #1a7f37;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         📐 حدود
       </button>
-      <button id="lyr-network" onclick="toggleMapLayer('network',this)"
+      <button id="lyr-network" onclick="toggleMapLayer('network',this);if(_activeLayers.network&&canViewNetwork())loadNetworkLayer();"
         style="padding:6px 14px;border-radius:20px;border:2px solid #656d76;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         🌐 شبكة
       </button>
@@ -3397,25 +3397,15 @@ function clearAllMapLayers(){
 }
 
 function applyMapLayers(){
-  if(!_map) return;
-  try{
-    // إخفاء/إظهار الماركرات حسب الطبقة
-    if(_markers && _markers.length){
-      _markers.forEach(function(m){
-        if(!m||!m._layerType) return;
-        var show = _activeLayers[m._layerType]!==false;
-        if(show){ if(m.addTo) try{m.addTo(_map);}catch(e){} }
-        else { if(m.remove) try{m.remove();}catch(e){} }
-      });
+  if(!_map || !window._layerGroups) return;
+  Object.keys(window._layerGroups).forEach(function(k){
+    var lg = window._layerGroups[k];
+    if(_activeLayers[k]){
+      if(!_map.hasLayer(lg)) lg.addTo(_map);
+    } else {
+      if(_map.hasLayer(lg)) lg.remove();
     }
-    // الطبقات الخاصة
-    if(!_activeLayers.faults) { try{hideFaultsLayer();}catch(e){} }
-    else { try{toggleFaultsLayer();}catch(e){} }
-    if(!_activeLayers.network) { try{hideNetworkLayer();}catch(e){} }
-    else if(canViewNetwork()) { try{loadNetworkLayer();}catch(e){} }
-    if(!_activeLayers.boundaries) { try{hideBoundaries();}catch(e){} }
-    else { try{loadBoundaries();}catch(e){} }
-  }catch(e){ console.warn('applyMapLayers:', e); }
+  });
 }
 
 function hideFaultsLayer(){ var el=document.getElementById('fault-pins'); if(el) el.remove(); }
@@ -3803,74 +3793,59 @@ function initFieldMap(){
       {attribution:'© Google Traffic',maxZoom:22,maxNativeZoom:21,opacity:0.7}).addTo(_map);
   }
 
+  // ══ إنشاء LayerGroups للطبقات ══
+  window._layerGroups = {
+    cameras    : L.layerGroup(),
+    towers     : L.layerGroup(),
+    p2p        : L.layerGroup(),
+    radio      : L.layerGroup(),
+    faults     : L.layerGroup(),
+    boundaries : L.layerGroup(),
+    network    : L.layerGroup(),
+  };
+
+  // تطبيق الطبقات النشطة فقط
+  Object.keys(window._layerGroups).forEach(k=>{
+    if(_activeLayers[k]) window._layerGroups[k].addTo(_map);
+  });
+
   allCams.forEach(c=>{
     const lat=parseFloat(c.lat), lng=parseFloat(c.lng);
     const stColor=c.status==='active'?'#3fb950':c.status==='maintenance'?'#d29922':'#58a6ff';
     const angle=parseFloat(c.beamAngle)||70;
     const rot=parseFloat(c.beamRot)||0;
     const mid=`${c._fsId}_${c._ci}`;
-    const viewDist=parseFloat(c.viewDist)||50; // المسافة بالمتر
-
-    // ══ رسم شعاع الرؤية — قطاع حقيقي بالمتر الجغرافي ══
+    const viewDist=parseFloat(c.viewDist)||50;
     const mPerLat = 111320;
     const mPerLng = 111320 * Math.cos(lat * Math.PI/180);
     const halfRad  = (angle/2) * Math.PI/180;
     const rotRad   = rot       * Math.PI/180;
     const steps    = Math.max(24, Math.round(angle));
+    const camGroup = window._layerGroups.cameras;
 
-    // كاميرا 360° = دائرة كاملة
     if(angle >= 358){
-      // ══ PTZ 360° — شعاع شمسي متقطع أحمر-برتقالي ══
-      // 1. الدائرة الخارجية الحدودية
-      L.circle([lat,lng],{
-        radius: viewDist,
-        color: '#ff4400', fillColor: 'transparent',
-        fillOpacity: 0, weight: 2.5, opacity: 0.9,
-        dashArray: '8,4'
-      }).addTo(_map);
-
-      // 2. الأشعة المتقطعة من المركز
+      L.circle([lat,lng],{radius:viewDist,color:'#ff4400',fillColor:'transparent',fillOpacity:0,weight:2.5,opacity:0.9,dashArray:'8,4'}).addTo(camGroup);
       const numRays = 16;
-      for(let r = 0; r < numRays; r++){
-        const theta = (r / numRays) * 2 * Math.PI;
-        const dLat  = (viewDist * Math.cos(theta)) / mPerLat;
-        const dLng  = (viewDist * Math.sin(theta)) / mPerLng;
-        // لون متدرج أحمر-برتقالي حسب الزاوية
-        const hue   = Math.round(r / numRays * 30); // 0=أحمر → 30=برتقالي
-        const rayColor = r % 2 === 0 ? '#ff3300' : '#ff7700';
-        L.polyline(
-          [[lat, lng], [lat + dLat, lng + dLng]],
-          { color: rayColor, weight: 1.8, opacity: 0.75, dashArray: '10,6' }
-        ).addTo(_map);
+      for(let r=0;r<numRays;r++){
+        const theta=(r/numRays)*2*Math.PI;
+        const dLat=(viewDist*Math.cos(theta))/mPerLat;
+        const dLng=(viewDist*Math.sin(theta))/mPerLng;
+        const rayColor=r%2===0?'#ff3300':'#ff7700';
+        L.polyline([[lat,lng],[lat+dLat,lng+dLng]],{color:rayColor,weight:1.8,opacity:0.75,dashArray:'10,6'}).addTo(camGroup);
       }
-
-      // 3. دائرة صغيرة في المركز
-      L.circle([lat,lng],{
-        radius: viewDist * 0.05,
-        color: '#ff4400', fillColor: '#ff6600',
-        fillOpacity: 0.8, weight: 1
-      }).addTo(_map);
-
+      L.circle([lat,lng],{radius:viewDist*0.05,color:'#ff4400',fillColor:'#ff6600',fillOpacity:0.8,weight:1}).addTo(camGroup);
     } else {
-      // قطاع: مركز + قوس
-      const pts = [[lat, lng]];
-      for(let i = 0; i <= steps; i++){
-        // الزاوية الحالية من البداية للنهاية
-        const theta = rotRad - halfRad + (i / steps) * 2 * halfRad;
-        // شمال جغرافي = 0° → (dLat+, dLng=0)
-        // شرق          = 90° → (dLat=0, dLng+)
-        const dLat = (viewDist * Math.cos(theta)) / mPerLat;
-        const dLng = (viewDist * Math.sin(theta)) / mPerLng;
-        pts.push([lat + dLat, lng + dLng]);
+      const pts=[[lat,lng]];
+      for(let i=0;i<=steps;i++){
+        const theta=rotRad-halfRad+(i/steps)*2*halfRad;
+        const dLat=(viewDist*Math.cos(theta))/mPerLat;
+        const dLng=(viewDist*Math.sin(theta))/mPerLng;
+        pts.push([lat+dLat,lng+dLng]);
       }
-      pts.push([lat, lng]); // إغلاق القطاع
-      L.polygon(pts,{
-        color: stColor, fillColor: stColor,
-        fillOpacity: 0.20, weight: 1.8, opacity: 0.80
-      }).addTo(_map);
+      pts.push([lat,lng]);
+      L.polygon(pts,{color:stColor,fillColor:stColor,fillOpacity:0.20,weight:1.8,opacity:0.80}).addTo(camGroup);
     }
 
-    // ══ أيقونة الكاميرا الثابتة (صغيرة) ══
     const sz=32;
     const svgIcon=`<svg width="${sz}" height="${sz}" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
       <circle cx="16" cy="16" r="15" fill="${stColor}" opacity="0.15" stroke="${stColor}" stroke-width="1.5"/>
@@ -3879,23 +3854,21 @@ function initFieldMap(){
       <circle cx="11" cy="16" r="3.5" fill="white" opacity="0.9"/>
       <circle cx="11" cy="16" r="2" fill="${stColor}"/>
     </svg>`;
-
     const icon=L.divIcon({html:svgIcon,className:'',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
-    const isDraggable = CU && (CU.role==='manager'||CU.role==='engineer');
-    const marker=L.marker([lat,lng],{icon, zIndexOffset:500, draggable:isDraggable}).addTo(_map);
+    const isDraggable=CU&&(CU.role==='manager'||CU.role==='engineer');
+    const marker=L.marker([lat,lng],{icon,zIndexOffset:500,draggable:isDraggable}).addTo(camGroup);
 
     if(isDraggable){
-      marker.on('dragstart', ()=>{ toast('📍 اسحب لتصحيح الموقع','warn'); marker.closePopup(); });
-      marker.on('dragend', function(e){
-        const nl = e.target.getLatLng();
-        const dist = Math.round(_map.distance([lat,lng],[nl.lat,nl.lng]));
-        window._pendingCamMove = {fsId:c._fsId, ci:c._ci, lat:nl.lat, lng:nl.lng};
+      marker.on('dragstart',()=>{toast('📍 اسحب لتصحيح الموقع','warn');marker.closePopup();});
+      marker.on('dragend',function(e){
+        const nl=e.target.getLatLng();
+        const dist=Math.round(_map.distance([lat,lng],[nl.lat,nl.lng]));
+        window._pendingCamMove={fsId:c._fsId,ci:c._ci,lat:nl.lat,lng:nl.lng};
         openModal(mhd('📍 تأكيد تعديل موقع الكاميرا')
           +'<div style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:14px">'
           +'<div style="font-weight:700;margin-bottom:6px">📷 '+esc(c.name||c.serial||'كاميرا')+'</div>'
           +'<div style="font-size:14px;color:var(--mt)">تم إزاحة الكاميرا <b style="color:var(--yl)">'+dist+' متر</b></div>'
-          +'<div style="font-size:12px;color:var(--mt);margin-top:4px;direction:ltr">'
-          +nl.lat.toFixed(6)+', '+nl.lng.toFixed(6)+'</div></div>'
+          +'<div style="font-size:12px;color:var(--mt);margin-top:4px;direction:ltr">'+nl.lat.toFixed(6)+', '+nl.lng.toFixed(6)+'</div></div>'
           +'<div style="display:flex;gap:8px">'
           +'<button class="btn btn-gy" style="flex:1" onclick="closeModal();initFieldMap()">↩️ إلغاء</button>'
           +'<button class="btn btn-bl" style="flex:1" onclick="confirmCamMove()">✅ حفظ الموقع</button>'
@@ -3904,27 +3877,18 @@ function initFieldMap(){
     }
 
     const popup=`<div style="min-width:230px;direction:rtl;font-family:inherit">
-      <div style="font-weight:800;font-size:18px;color:${stColor};margin-bottom:6px">
-        📷 ${esc(c.name||c.serial||'كاميرا')}
-      </div>
+      <div style="font-weight:800;font-size:18px;color:${stColor};margin-bottom:6px">📷 ${esc(c.name||c.serial||'كاميرا')}</div>
       <div style="font-size:12px;color:#7d8590;margin-bottom:8px">📍 ${esc(c._fsName)}</div>
       ${c.camType?`<div style="font-size:12px;margin-bottom:3px"><b>النوع:</b> ${esc(c.camType)}</div>`:''}
       ${c.res?`<div style="font-size:12px;margin-bottom:3px"><b>الدقة:</b> ${esc(c.res)}</div>`:''}
-      ${c.angle?`<div style="font-size:12px;margin-bottom:3px"><b>زاوية الرؤية:</b> ${esc(c.angle)}°</div>`:''}
-      ${c.dir?`<div style="font-size:12px;margin-bottom:3px"><b>الاتجاه:</b> ${esc(c.dir)}</div>`:''}
-      ${c.installDesc?`<div style="font-size:12px;margin-bottom:3px"><b>موقع التنصيب:</b> ${esc(c.installDesc)}</div>`:''}
       ${c.ip?`<div style="font-size:12px;margin-bottom:3px"><b>IP:</b> <span style="direction:ltr;display:inline-block">${esc(c.ip)}</span></div>`:''}
-      ${c.model?`<div style="font-size:12px;margin-bottom:3px"><b>الموديل:</b> ${esc(c.model)}</div>`:''}
-      ${c.mfr?`<div style="font-size:12px;margin-bottom:3px"><b>الشركة:</b> ${esc(c.mfr)}</div>`:''}
       ${c.serial?`<div style="font-size:12px;margin-bottom:3px"><b>السيريال:</b> ${esc(c.serial)}</div>`:''}
       <div style="font-size:12px;margin-bottom:6px"><b>الحالة:</b> ${c.status==='active'?'🟢 تعمل':c.status==='maintenance'?'🟡 صيانة':'⚪ مجهول'}</div>
       <div style="font-size:10px;color:#555;direction:ltr;margin-bottom:8px">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
-      ${p('fieldmap')?`<button onclick="openEditFieldCam('${c._fsId}',${c._ci});_map&&_map.closePopup()"
-        style="background:#58a6ff22;border:1px solid #58a6ff44;color:#58a6ff;padding:5px 14px;
-        border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;width:100%">✏️ تعديل</button>`:''}
+      ${p('fieldmap')?`<button onclick="openEditFieldCam('${c._fsId}',${c._ci});_map&&_map.closePopup()" style="background:#58a6ff22;border:1px solid #58a6ff44;color:#58a6ff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;width:100%">✏️ تعديل</button>`:''}
     </div>`;
     marker.bindPopup(L.popup({maxWidth:300}).setContent(popup));
-    _markers.push({id:mid, marker, cam:c});
+    _markers.push({id:mid,marker,cam:c,_layerType:'cameras'});
   });
 
   if(allCams.length>1){
@@ -4353,10 +4317,9 @@ function clearBoundaryDraw(){
 
 function loadBoundaries(){
   if(!_map) return;
-  // احذف الحدود القديمة من الخريطة
-  if(window._boundaryLayers){ window._boundaryLayers.forEach(l=>l.remove()); }
-  window._boundaryLayers = [];
-
+  if(!window._layerGroups) return;
+  const lg = window._layerGroups.boundaries;
+  lg.clearLayers();
   FBDB.ref('cctv/boundaries').once('value').then(snap=>{
     if(!snap.val()) return;
     Object.values(snap.val()).forEach(b=>{
@@ -4364,15 +4327,14 @@ function loadBoundaries(){
       const poly = L.polygon(b.points,{
         color:b.color||'#f85149', fillColor:b.color||'#f85149',
         fillOpacity:0.1, weight:2.5
-      }).addTo(_map)
-        .bindPopup(`<div style="font-family:inherit">
+      }).bindPopup(`<div style="font-family:inherit">
           <div style="font-weight:700;margin-bottom:4px">${esc(b.name)}</div>
           <div style="font-size:12px;color:#666">بواسطة: ${esc(b.by||'')} — ${esc(b.date||'')}</div>
           ${CU.role==='manager'?`<div style="display:flex;gap:6px;margin-top:8px">
             <button onclick="deleteBoundary('${b.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit">🗑️ حذف</button>
           </div>`:''}
         </div>`);
-      window._boundaryLayers.push(poly);
+      lg.addLayer(poly);
     });
   });
 }
@@ -4800,15 +4762,18 @@ function toggleFaultsLayer(){
     btn.style.borderColor = _faultsLayerOn ? '#f8514944' : 'var(--br)';
   }
   if(_faultsLayerOn) showFaultsOnMap();
-  else { _faultMarkers.forEach(m=>m.remove()); _faultMarkers=[]; }
+  else {
+    if(window._layerGroups?.faults) window._layerGroups.faults.clearLayers();
+    _faultMarkers=[];
+  }
 }
 
 function showFaultsOnMap(){
-  if(!_map) return;
-  _faultMarkers.forEach(m=>m.remove()); _faultMarkers=[];
+  if(!_map||!window._layerGroups) return;
+  const lg = window._layerGroups.faults;
+  lg.clearLayers(); _faultMarkers=[];
   const activeFaults = getVisibleFaults().filter(f=>f.status!=='resolved');
   activeFaults.forEach(f=>{
-    // ابحث عن إحداثيات الكاميرا المرتبطة
     const site = DB.fieldSites.find(s=>s.id===f.fieldSiteId||s.name===f.location);
     if(!site) return;
     const cam = site.cameras?.find(c=>c.name===f.pointId||c.serial===f.camSN);
@@ -4821,13 +4786,13 @@ function showFaultsOnMap(){
       className:'', iconSize:[22,22], iconAnchor:[11,11]
     });
     const m = L.marker([lat,lng],{icon,zIndexOffset:900})
-      .addTo(_map)
       .bindPopup(`<div style="font-family:inherit;min-width:160px">
         <div style="font-weight:700;color:${pri};margin-bottom:4px">${f.priority==='high'?'🔴 عاجل':'🟡 متوسط'}</div>
         <div style="font-weight:700">${esc(f.location)}</div>
         <div style="font-size:12px;color:#666">${esc(f.pointId)}</div>
         <div style="font-size:12px;margin-top:4px">${esc(f.reason)}</div>
       </div>`);
+    lg.addLayer(m);
     _faultMarkers.push(m);
   });
   if(_faultMarkers.length===0) toast('لا أعطال نشطة لها إحداثيات','warn');
@@ -7735,14 +7700,15 @@ function toggleNetworkLayer(){
 }
 
 function clearNetworkLayer(){
-  _netLines.forEach(l=>l.remove());   _netLines=[];
-  _netMarkers.forEach(m=>m.remove()); _netMarkers=[];
+  if(window._layerGroups?.network) window._layerGroups.network.clearLayers();
+  _netLines=[]; _netMarkers=[];
 }
 
 // ── تحميل عناصر الشبكة ──
 function loadNetworkLayer(){
-  if(!_map) return;
+  if(!_map||!window._layerGroups) return;
   clearNetworkLayer();
+  const lg = window._layerGroups.network;
   FBDB.ref('cctv/network').once('value').then(snap=>{
     if(!snap.val()) return;
     const data = snap.val();
@@ -7760,7 +7726,7 @@ function loadNetworkLayer(){
         const line = L.polyline(link.points,{
           color, weight, opacity:0.85,
           dashArray: dash==='none'?null:dash
-        }).addTo(_map);
+        }).addTo(lg);
 
         line.bindPopup(`<div style="font-family:inherit;min-width:180px">
           <div style="font-weight:700;font-size:15px;margin-bottom:6px">
@@ -7796,7 +7762,7 @@ function loadNetworkLayer(){
             white-space:nowrap;color:#fff;font-family:Arial">${ico}</div>`,
           className:'', iconAnchor:[16,16]
         });
-        const marker = L.marker([dev.lat,dev.lng],{icon}).addTo(_map);
+        const marker = L.marker([dev.lat,dev.lng],{icon}).addTo(lg);
         marker.bindPopup(`<div style="font-family:inherit;min-width:180px">
           <div style="font-weight:700;font-size:15px;margin-bottom:6px">${ico} ${esc(dev.name)}</div>
           ${dev.model?`<div style="font-size:13px;color:#666">الموديل: <b>${esc(dev.model)}</b></div>`:''}
