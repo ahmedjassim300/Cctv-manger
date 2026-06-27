@@ -1758,10 +1758,27 @@ function renderInvRows(isMain,allItems,items,AT){
   }
 
   let html = '';
+  const colspan = isMainV ? 8 : 7;
 
-  // ── المواد في المخزن — جدول عادي ──
+  // ── المواد في المخزن — مطوية ──
   if(warehouseItems.length){
-    html += warehouseItems.map(itemRow).join('');
+    html += `<tr id="wh-grp-hdr" onclick="toggleDepGroup('wh-grp')" style="cursor:pointer;background:#f0f4ff">
+      <td colspan="${colspan+1}" style="padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="wh-grp-arr" style="font-size:15px;transition:transform .2s;color:var(--mt)">▶</span>
+          <div>
+            <span style="font-weight:700;font-size:14px">📦 المواد في المخزن</span>
+            <span style="font-size:12px;color:var(--mt);margin-right:8px">${warehouseItems.length} عنصر</span>
+          </div>
+          <span style="font-size:11px;background:#0969da22;color:var(--bl);padding:2px 8px;border-radius:10px;margin-right:auto">في المخزن</span>
+        </div>
+      </td>
+    </tr>
+    <tr id="wh-grp-body" style="display:none"><td colspan="${colspan+1}" style="padding:0">
+      <table style="width:100%;border-collapse:collapse">
+        ${warehouseItems.map(itemRow).join('')}
+      </table>
+    </td></tr>`;
   }
 
   // ── المواد المنصوبة — مطوية حسب الموقع ──
@@ -1972,6 +1989,7 @@ function showItemForm(f){
         ${Object.entries(AT).map(([k,v])=>`<option value="${k}"${f.type===k?' selected':''}>${v.icon} ${v.label}</option>`).join('')}
       </select></div>
     <div class="field"><label>الاسم / التسمية</label><input id="fnm" value="${esc(f.name)}" placeholder="اسم الجهاز أو نقطة التركيب"></div>
+    <div class="field"><label>الكمية</label><input id="fqty" type="number" value="${f.qty||1}" min="1" placeholder="عدد الوحدات"></div>
     <div class="field"><label>الرقم التسلسلي (SN)</label><input id="fsr" value="${esc(f.serial)}" placeholder="SN-XXXXX"></div>
     <div class="field"><label>الموديل</label><input id="fmd" value="${esc(f.model)}" placeholder="رقم أو اسم الموديل"></div>
     <div class="field"><label>الشركة الصانعة</label><input id="fmf" value="${esc(f.mfr)}" placeholder="Hikvision / Dahua / Cisco..."></div>
@@ -2078,7 +2096,7 @@ function saveItem(){
   const prev=_eit||{};
   const newStatus = val('fst-status')||prev.status||'warehouse';
   const installedAt = val('finstalled')||prev.installedAt||'';
-  const item={id:prev.id||gid(),type:t,name:nm,serial:sr,
+  const item={id:prev.id||gid(),type:t,name:nm,serial:sr,qty:parseInt(val('fqty'))||1,
     model:val('fmd'),mfr:val('fmf'),
     status:newStatus,installedAt,
     addedBy:CU.name,addedAt:prev.addedAt||ts(),currentSite:_es,_ts:Date.now()};
@@ -2270,39 +2288,71 @@ function onFaultSiteChange(){
   const siteId = sel?.value;
   const ptSel = document.getElementById('fpt');
   if(!ptSel) return;
-  ptSel.innerHTML = '<option value="">— اختر النقطة/الكاميرا —</option>';
+  ptSel.innerHTML = '<option value="">— اختر النقطة/الجهاز —</option>';
   if(!siteId) return;
   const site = DB.fieldSites.find(s=>s.id===siteId);
   if(!site) return;
-  // أضف الكاميرات
+
+  // 📷 الكاميرات
   if(site.cameras && site.cameras.length){
     const grp = document.createElement('optgroup');
-    grp.label = '📷 الكاميرات';
+    grp.label = '📷 كاميرات';
     site.cameras.forEach((c,i)=>{
       const opt = document.createElement('option');
       opt.value = c.name||c.serial||('كاميرا '+(i+1));
-      opt.textContent = opt.value + (c.installDesc?' — '+c.installDesc:'');
+      opt.textContent = opt.value+(c.installDesc?' — '+c.installDesc:'');
       grp.appendChild(opt);
     });
     ptSel.appendChild(grp);
   }
-  // أضف نقاط الجرد من siteInventory
+
+  // 📌 نقاط الجرد من siteInventory
   const invData = DB.siteInventory && DB.siteInventory[siteId];
   if(invData){
     const pts = Object.values(invData);
     if(pts.length){
       const grp2 = document.createElement('optgroup');
-      grp2.label = '📌 النقاط';
+      grp2.label = '📌 نقاط الجرد';
       pts.forEach(pt=>{
         const opt = document.createElement('option');
         opt.value = pt.name;
-        opt.textContent = pt.name;
+        opt.textContent = pt.name+(pt.items?' ('+Object.values(pt.items).length+' عنصر)':'');
         grp2.appendChild(opt);
       });
       ptSel.appendChild(grp2);
     }
   }
-  // تحديث اسم الموقع في floc
+
+  // 📻 أجهزة الراديو في هذا الموقع
+  const radioDevs = (DB.radioDevices||[]).filter(r=>r.location&&r.location.includes(site.name));
+  if(radioDevs.length){
+    const grp3 = document.createElement('optgroup');
+    grp3.label = '📻 أجهزة المناداة';
+    radioDevs.forEach(r=>{
+      const opt = document.createElement('option');
+      opt.value = r.name||r.serial||'جهاز مناداة';
+      opt.textContent = opt.value+(r.brand?' — '+r.brand:'');
+      grp3.appendChild(opt);
+    });
+    ptSel.appendChild(grp3);
+  }
+
+  // 🌐 أجهزة الشبكة في المنطقة (إذا محملة)
+  if(DB.networkDevices && DB.networkDevices.length){
+    const netDevs = DB.networkDevices.filter(d=>d.site===siteId||d.location===site.name);
+    if(netDevs.length){
+      const grp4 = document.createElement('optgroup');
+      grp4.label = '🌐 أجهزة الشبكة';
+      netDevs.forEach(d=>{
+        const opt = document.createElement('option');
+        opt.value = d.name;
+        opt.textContent = d.name+(d.model?' — '+d.model:'');
+        grp4.appendChild(opt);
+      });
+      ptSel.appendChild(grp4);
+    }
+  }
+
   const selOpt = sel.options[sel.selectedIndex];
   if(selOpt) sel.setAttribute('data-selected-name', selOpt.getAttribute('data-name')||selOpt.text);
 }
@@ -3412,7 +3462,51 @@ function hideFaultsLayer(){ var el=document.getElementById('fault-pins'); if(el)
 function hideNetworkLayer(){ var el=document.getElementById('network-layer'); if(el) el.remove(); }
 function hideBoundaries(){ var el=document.getElementById('boundary-layer'); if(el) el.remove(); }
 
-function searchCamByIP() {
+function openAddFieldEquip(fsId, type){
+  if(type==='camera'){ openAddFieldCam(fsId); return; }
+  const labels={tower:'🗼 برج',p2p:'📡 P2P',radio:'📻 جهاز راديو',nvr:'💾 NVR'};
+  openModal(`${mhd('+ '+labels[type]||type)}
+  <div class="fg">
+    <div class="field"><label>الاسم / التسمية *</label>
+      <input id="feq-name" placeholder="مثال: برج A، P2P-رئيسي، NVR-غرفة التحكم..."></div>
+    <div class="field"><label>الموديل</label>
+      <input id="feq-model" placeholder="الموديل أو الشركة..."></div>
+    <div class="field"><label>الرقم التسلسلي</label>
+      <input id="feq-serial" placeholder="SN-XXXXX"></div>
+    <div class="field"><label>الارتفاع / التفاصيل</label>
+      <input id="feq-detail" placeholder="${type==='tower'?'الارتفاع بالمتر':type==='p2p'?'التردد / الفريكونسي':'التفاصيل'}"></div>
+    <div class="field"><label>الحالة</label>
+      <select id="feq-status">
+        <option value="active">✅ يعمل</option>
+        <option value="maintenance">🔧 صيانة</option>
+        <option value="down">❌ معطل</option>
+      </select></div>
+    <div class="field"><label>الإحداثيات — خط العرض</label>
+      <input id="feq-lat" type="number" step="any" placeholder="مثال: 30.512345"></div>
+    <div class="field"><label>الإحداثيات — خط الطول</label>
+      <input id="feq-lng" type="number" step="any" placeholder="مثال: 47.812345"></div>
+    <div class="field s2"><label>ملاحظات</label>
+      <textarea id="feq-notes" rows="2"></textarea></div>
+  </div>
+  ${mft('➕ إضافة',"saveFieldEquip('"+fsId+"','"+type+"')",'btn-bl')}`);
+}
+
+function saveFieldEquip(fsId, type){
+  const name=val('feq-name');
+  if(!name){toast('أدخل الاسم','err');return;}
+  const equip={
+    id:gid(), equipType:type,
+    name, model:val('feq-model'), serial:val('feq-serial'),
+    detail:val('feq-detail'), status:val('feq-status'),
+    lat:val('feq-lat'), lng:val('feq-lng'),
+    notes:val('feq-notes'), by:CU.name, date:ts(), _ts:Date.now()
+  };
+  fbSet('fieldSites/'+fsId+'/equipment/'+equip.id, equip);
+  logAct('إضافة معدة ميدانية', name+' — '+type);
+  closeModal();
+  toast('✅ تمت الإضافة');
+  setTimeout(()=>{ _FSITE=fsId; pgFieldMap(); }, 400);
+}
   const ip = val('ipSearchInput');
   const resultDiv = $('ipSearchResult');
   const visibleSites = getVisibleFieldSites();
@@ -3616,11 +3710,14 @@ function renderFieldSiteDetail(fs){
           </div>` : ''}
       </div>
       ${CU.role==='manager' ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-bl btn-sm" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>
-        <button class="btn btn-sm btn-pu" onclick="openSitePermissions('${fs.id}')">👥 صلاحيات</button>
-        <button class="btn btn-sm btn-gy" onclick="openEditFieldSite('${fs.id}')">✏️</button>
+        <button class="btn btn-bl btn-sm" onclick="openAddFieldEquip('${fs.id}','camera')">+ 📷 كاميرا</button>
+        <button class="btn btn-sm" style="background:#9a670022;color:#9a6700;border:1px solid #9a670044" onclick="openAddFieldEquip('${fs.id}','tower')">+ 🗼 برج</button>
+        <button class="btn btn-sm" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="openAddFieldEquip('${fs.id}','p2p')">+ 📡 P2P</button>
+        <button class="btn btn-sm" style="background:#06b6d422;color:#06b6d4;border:1px solid #06b6d444" onclick="openAddFieldEquip('${fs.id}','radio')">+ 📻 راديو</button>
+        <button class="btn btn-sm" style="background:#1a7f3722;color:#1a7f37;border:1px solid #1a7f3744" onclick="openAddFieldEquip('${fs.id}','nvr')">+ 💾 NVR</button>
+        <button class="btn btn-sm btn-pu" onclick="openEditFieldSite('${fs.id}')">⚙️ تعديل</button>
       </div>` : p('addItem') ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-bl btn-sm" onclick="openAddFieldCam('${fs.id}')">+ إضافة كاميرا</button>
+        <button class="btn btn-bl btn-sm" onclick="openAddFieldEquip('${fs.id}','camera')">+ 📷 كاميرا</button>
       </div>` : ''}
     </div>
   </div>
@@ -3889,6 +3986,27 @@ function initFieldMap(){
     </div>`;
     marker.bindPopup(L.popup({maxWidth:300}).setContent(popup));
     _markers.push({id:mid,marker,cam:c,_layerType:'cameras'});
+  });
+
+  // ══ طبقة أجهزة الراديو ══
+  const radioLg = window._layerGroups.radio;
+  (DB.radioDevices||[]).forEach(function(r){
+    if(!r.lat||!r.lng) return;
+    const rlat=parseFloat(r.lat), rlng=parseFloat(r.lng);
+    if(isNaN(rlat)||isNaN(rlng)) return;
+    const col=RADIO_SC[r.status]||'#06b6d4';
+    const icon=L.divIcon({
+      html:`<div style="width:30px;height:30px;background:${col};border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.4)">📻</div>`,
+      className:'',iconSize:[30,30],iconAnchor:[15,15]
+    });
+    const m=L.marker([rlat,rlng],{icon,zIndexOffset:600}).addTo(radioLg);
+    m.bindPopup(`<div style="font-family:inherit;min-width:160px">
+      <div style="font-weight:700;color:${col};margin-bottom:4px">📻 ${esc(r.name||r.serial||'راديو')}</div>
+      ${r.brand?`<div style="font-size:12px">${esc(r.brand)} — ${esc(r.type||'')}</div>`:''}
+      <div style="font-size:12px;margin-top:4px"><b>الحالة:</b> ${esc(r.status||'—')}</div>
+      ${r.assignedTo?`<div style="font-size:12px;color:#0969da">👤 ${esc(r.assignedTo)}</div>`:''}
+    </div>`);
+    _markers.push({id:'radio_'+r.id,marker:m,_layerType:'radio'});
   });
 
   if(allCams.length>1){
@@ -6036,6 +6154,17 @@ function pgTechMap(){
   if(window._techMapRef){ window._techMapRef.off(); window._techMapRef=null; }
 }
 
+function fmtTimeSince(ms){
+  const m = Math.round((Date.now()-ms)/60000);
+  if(m<1)   return 'الآن';
+  if(m<60)  return m+' دقيقة';
+  const h = Math.floor(m/60);
+  if(h<24)  return h+' ساعة '+(m%60?'و'+(m%60)+' د':'');
+  const d = Math.floor(h/24);
+  if(d<7)   return d+' يوم '+(h%24?'و'+(h%24)+' ساعة':'');
+  return Math.floor(d/7)+' أسبوع '+(d%7?'و'+(d%7)+' يوم':'');
+}
+
 function renderTechLocations(locs){
   const el = document.getElementById('tech-locations');
   if(!el) return;
@@ -6046,8 +6175,8 @@ function renderTechLocations(locs){
     return;
   }
   el.innerHTML = locList.map(loc=>{
-    const mins = Math.round((now - (loc._ts||0))/(1000*60));
-    const isRecent = mins < 10;
+    const timeAgo = loc._ts ? fmtTimeSince(loc._ts) : '—';
+    const isRecent = loc._ts && (Date.now()-loc._ts)<600000; // 10 دقائق
     return `
     <div class="panel" style="margin-bottom:10px;border-right:3px solid ${isRecent?'var(--gn)':'var(--mt)'}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -6056,7 +6185,7 @@ function renderTechLocations(locs){
           <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
         </div>
         <span style="font-size:11px;background:${isRecent?'#1a7f3722':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
-          ${isRecent?'🟢 نشط':'⚫ منذ '+mins+' د'}
+          ${isRecent?'🟢 نشط':'⚫ منذ '+timeAgo}
         </span>
       </div>
       <div style="font-size:12px;color:var(--mt);margin-bottom:8px">
@@ -8428,16 +8557,25 @@ function _radioForm(d){
   var cOpts=RADIO_COND.map(function(v){return '<option value="'+v+'"'+((f.condition||'جيد')===v?' selected':'')+'>'+v+'</option>';}).join('');
   var html=mhd(d?'تعديل جهاز':'إضافة جهاز مناداة');
   html+='<div class="fg">';
-  html+='<div class="field"><label>الاسم</label><input id="rd-name" value="'+esc(f.name||'')+'" placeholder="راديو-01"></div>';
+  html+='<div class="field"><label>الاسم / الكود</label><input id="rd-name" value="'+esc(f.name||'')+'" placeholder="راديو-01..."></div>';
   html+='<div class="field"><label>الشركة</label><select id="rd-brand"><option value="">—</option>'+bOpts+'</select></div>';
   html+='<div class="field"><label>النوع</label><select id="rd-type"><option value="">—</option>'+tOpts+'</select></div>';
-  html+='<div class="field"><label>السيريال</label><input id="rd-serial" value="'+esc(f.serial||'')+'"></div>';
-  html+='<div class="field"><label>القوة (واط)</label><input id="rd-power" value="'+esc(f.power||'')+'"></div>';
+  html+='<div class="field"><label>الرقم التسلسلي</label><input id="rd-serial" value="'+esc(f.serial||'')+'" placeholder="SN-XXXXX"></div>';
+  html+='<div class="field"><label>القوة (واط)</label><input id="rd-power" value="'+esc(f.power||'')+'" placeholder="4، 5، 25..."></div>';
   html+='<div class="field"><label>الشفرة</label><input id="rd-code" value="'+esc(f.codeType||'')+'" placeholder="DMR, Analog..."></div>';
   html+='<div class="field"><label>الحالة</label><select id="rd-status">'+sOpts+'</select></div>';
   html+='<div class="field"><label>الحالة التقنية</label><select id="rd-cond">'+cOpts+'</select></div>';
-  html+='<div class="field"><label>بحوزة</label><input id="rd-assigned" value="'+esc(f.assignedTo||'')+'"></div>';
-  html+='<div class="field"><label>الموقع</label><input id="rd-location" value="'+esc(f.location||'')+'"></div>';
+  html+='<div class="field"><label>بحوزة / مسلّم لـ</label><input id="rd-assigned" value="'+esc(f.assignedTo||'')+'" placeholder="اسم الشخص..."></div>';
+  html+='<div class="field"><label>الموقع / المنطقة</label><input id="rd-location" value="'+esc(f.location||'')+'" placeholder="الحسينية، البوابة..."></div>';
+  html+='<div class="field s2" style="background:var(--bg);border-radius:8px;padding:10px">';
+  html+='<div style="font-size:13px;font-weight:700;color:var(--bl);margin-bottom:8px">📍 الموقع على الخريطة</div>';
+  html+='<div style="display:flex;gap:8px;margin-bottom:8px">';
+  html+='<div class="field" style="flex:1;margin:0"><label>خط العرض (Lat)</label><input id="rd-lat" type="number" step="any" value="'+esc(f.lat||'')+'" placeholder="30.512345"></div>';
+  html+='<div class="field" style="flex:1;margin:0"><label>خط الطول (Lng)</label><input id="rd-lng" type="number" step="any" value="'+esc(f.lng||'')+'" placeholder="47.812345"></div>';
+  html+='</div>';
+  html+='<button type="button" class="btn btn-gy btn-sm" onclick="getGPS(\'rd-lat\',\'rd-lng\',\'rd-gps-st\')">📍 تحديد موقعي تلقائياً</button>';
+  html+='<span id="rd-gps-st" style="font-size:12px;color:var(--mt);margin-right:8px"></span>';
+  html+='</div>';
   html+='<div class="field s2"><label>ملاحظات</label><textarea id="rd-notes" rows="2">'+esc(f.notes||'')+'</textarea></div>';
   html+='</div>';
   html+=mft(d?'💾 حفظ':'➕ إضافة',"saveRadio('"+(d?d.id:'')+"')",'btn-bl');
@@ -8460,6 +8598,7 @@ function saveRadio(existId){
     serial:val('rd-serial'),power:val('rd-power'),codeType:val('rd-code'),
     status:val('rd-status'),condition:val('rd-cond'),
     assignedTo:val('rd-assigned'),location:val('rd-location'),
+    lat:val('rd-lat')||'',lng:val('rd-lng')||'',
     notes:val('rd-notes'),moves:moves,
     by:prev.by||CU.name,date:prev.date||ts(),_ts:Date.now()};
   fbSet('radioDevices/'+id,data);
