@@ -675,6 +675,7 @@ let DB = {
   actlog:[],        // سجل النشاط
   maintain:[],
   radioDevices:[],
+  uavDevices:[],
 };
 DB.sites.forEach(s => DB.inv[s]=[]);
 
@@ -1196,6 +1197,7 @@ function fbStartSync(){
     DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     DB.siteInventory = data.siteInventory || {};
     DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+    DB.uavDevices = data.uavDevices ? Object.values(data.uavDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
     // تحميل روابط المستودعات الأب
     if(data.siteParents){
       window._siteParents = data.siteParents
@@ -1348,7 +1350,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV})[page]?.();
   });
 }
 
@@ -1487,6 +1489,7 @@ function pgDash(){
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
         {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'fieldmap'},
         {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:null},
+        {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:null},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
         {id:'docs',       ic:'📁', lb:'المستندات',         perm:null},
@@ -8541,6 +8544,191 @@ function saveFieldEquip(fsId,type){
   closeModal();
   toast('✅ تمت الإضافة');
   setTimeout(function(){_FSITE=fsId;pgFieldMap();},400);
+}
+
+
+// ══════════════════════════════════════════════
+//  🛩️ الطائرات المسيرة
+// ══════════════════════════════════════════════
+var UAV_BRANDS=['DJI','Autel','Parrot','Yuneec','AgEagle','Skydio','محلية الصنع','غيرها'];
+var UAV_TYPES=['Multi-rotor','Fixed Wing','VTOL','Hybrid'];
+var UAV_CAM=['بدون كاميرا','كاميرا RGB','كاميرا حرارية','كاميرا ثنائية (RGB+حرارية)','كاميرا متعددة الأطياف','كاميرا LiDAR'];
+var UAV_STATUS=['في المخزن','في الميدان','صيانة','معطل','مفقود','خارج الخدمة'];
+var UAV_COND=['ممتاز','جيد جداً','جيد','مقبول','يحتاج صيانة','تالف'];
+var UAV_SC={'في المخزن':'#0969da','في الميدان':'#1a7f37','صيانة':'#9a6700','معطل':'#d1242f','مفقود':'#8250df','خارج الخدمة':'#656d76'};
+
+function pgUAV(){
+  if(!DB.uavDevices) DB.uavDevices=[];
+  var devs=DB.uavDevices;
+  var canEdit=CU.role==='manager'||p('addItem');
+  var byS={};
+  UAV_STATUS.forEach(function(s){byS[s]=devs.filter(function(d){return d.status===s;}).length;});
+
+  var html='<div class="ph"><div><div class="pt">🛩️ الطائرات المسيرة</div>';
+  html+='<div class="ps" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">';
+  UAV_STATUS.forEach(function(s){
+    if(byS[s]) html+='<span style="color:'+(UAV_SC[s]||'var(--mt)')+';font-size:12px">'+s+': <b>'+byS[s]+'</b></span>';
+  });
+  html+='</div></div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  if(canEdit) html+='<button class="btn btn-bl" onclick="openAddUAV()">+ إضافة طائرة</button>';
+  html+='<button class="btn btn-gy" onclick="exportUAVExcel()">⬇️ Excel</button>';
+  html+='</div></div>';
+
+  // فلاتر
+  var fS=window._uavFS||'', fB=window._uavFB||'', fQ=window._uavFQ||'';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px">';
+  html+='<input id="uav-search" placeholder="🔍 بحث..." value="'+esc(fQ)+'" style="flex:1;min-width:120px;padding:7px 12px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px;outline:none" oninput="window._uavFQ=this.value;pgUAV()">';
+  html+='<select onchange="window._uavFS=this.value;pgUAV()" style="padding:7px 10px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">';
+  html+='<option value="">كل الحالات</option>';
+  UAV_STATUS.forEach(function(s){html+='<option value="'+s+'"'+(fS===s?' selected':'')+'>'+s+'</option>';});
+  html+='</select>';
+  html+='<select onchange="window._uavFB=this.value;pgUAV()" style="padding:7px 10px;border-radius:20px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">';
+  html+='<option value="">كل الشركات</option>';
+  UAV_BRANDS.forEach(function(b){html+='<option value="'+b+'"'+(fB===b?' selected':'')+'>'+b+'</option>';});
+  html+='</select></div>';
+
+  var shown=devs.filter(function(d){
+    var q=(fQ||'').toLowerCase();
+    var mq=!q||[d.name,d.brand,d.model,d.serial,d.assignedTo,d.location].some(function(v){return v&&v.toLowerCase().indexOf(q)>=0;});
+    return mq&&(!fS||d.status===fS)&&(!fB||d.brand===fB);
+  });
+
+  html+='<div style="padding:0 16px 6px;font-size:13px;color:var(--mt)">📋 '+shown.length+' من '+devs.length+' طائرة</div>';
+  html+='<div style="padding:0 16px">';
+
+  if(!shown.length){
+    html+='<div class="panel" style="text-align:center;padding:50px;color:var(--mt)"><div style="font-size:56px">🛩️</div><div style="margin-top:12px">لا طائرات مسيرة بعد</div>';
+    if(canEdit) html+='<button class="btn btn-bl" style="margin-top:14px" onclick="openAddUAV()">+ إضافة أول طائرة</button>';
+    html+='</div>';
+  } else {
+    for(var i=0;i<shown.length;i++){
+      var d=shown[i];
+      var col=UAV_SC[d.status]||'#0969da';
+      html+='<div class="panel" style="margin-bottom:10px;border-right:3px solid '+col+'">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">';
+      html+='<div style="flex:1">';
+      // العنوان
+      html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">';
+      html+='<span style="font-weight:700;font-size:16px">🛩️ '+esc(d.name||d.model||'طائرة')+'</span>';
+      html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:'+col+'22;color:'+col+'">'+esc(d.status||'—')+'</span>';
+      if(d.condition) html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg);color:var(--mt)">'+esc(d.condition)+'</span>';
+      html+='</div>';
+      // التفاصيل
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;font-size:12px;color:var(--mt)">';
+      if(d.brand)       html+='<span>🏭 '+esc(d.brand)+'</span>';
+      if(d.model)       html+='<span>✈️ '+esc(d.model)+'</span>';
+      if(d.type)        html+='<span>🔧 '+esc(d.type)+'</span>';
+      if(d.camera)      html+='<span>📷 '+esc(d.camera)+'</span>';
+      if(d.serial)      html+='<span>🔢 SN: <b style="color:var(--tx)">'+esc(d.serial)+'</b></span>';
+      if(d.flightTime)  html+='<span>⏱️ '+esc(d.flightTime)+' دقيقة</span>';
+      if(d.range)       html+='<span>📡 مدى: '+esc(d.range)+' كم</span>';
+      if(d.assignedTo)  html+='<span style="color:var(--bl)">👤 '+esc(d.assignedTo)+'</span>';
+      if(d.location)    html+='<span style="color:var(--gn)">📍 '+esc(d.location)+'</span>';
+      html+='</div>';
+      // الملحقات
+      if(d.accessories&&d.accessories.length){
+        html+='<div style="margin-top:6px;font-size:12px"><b>📦 الملحقات:</b> ';
+        html+=d.accessories.map(function(a){return '<span style="background:var(--bg);padding:2px 6px;border-radius:5px;margin-right:3px">'+esc(a)+'</span>';}).join('');
+        html+='</div>';
+      }
+      if(d.notes) html+='<div style="font-size:11px;color:var(--mt);margin-top:4px">📝 '+esc(d.notes)+'</div>';
+      html+='</div>';
+      // أزرار
+      if(canEdit){
+        html+='<div style="display:flex;flex-direction:column;gap:4px">';
+        html+='<button class="btn btn-sm btn-gy" onclick="openEditUAV(\''+d.id+'\')">✏️</button>';
+        html+='<button class="btn btn-sm btn-rd" onclick="delUAV(\''+d.id+'\')">🗑</button>';
+        html+='</div>';
+      }
+      html+='</div></div>';
+    }
+  }
+  html+='</div>';
+  document.getElementById('page').innerHTML=html;
+}
+
+function openAddUAV(){ _uavForm(null); }
+function openEditUAV(id){
+  var devs=DB.uavDevices||[];
+  for(var i=0;i<devs.length;i++){if(devs[i].id===id){_uavForm(devs[i]);return;}}
+}
+
+function _uavForm(d){
+  var f=d||{};
+  function opts(arr,cur){return arr.map(function(v){return '<option value="'+v+'"'+((cur||arr[0])===v?' selected':'')+'>'+v+'</option>';}).join('');}
+  var accStr=(f.accessories||[]).join('، ');
+  var html=mhd(d?'✏️ تعديل طائرة مسيرة':'🛩️ إضافة طائرة مسيرة');
+  html+='<div class="fg">';
+  html+='<div class="field"><label>الاسم / الكود *</label><input id="uav-name" value="'+esc(f.name||'')+'" placeholder="مثال: DJI-01، طائرة المراقبة..."></div>';
+  html+='<div class="field"><label>الشركة المصنعة</label><select id="uav-brand"><option value="">—</option>'+opts(UAV_BRANDS,f.brand)+'</select></div>';
+  html+='<div class="field"><label>الموديل</label><input id="uav-model" value="'+esc(f.model||'')+'" placeholder="مثال: Mavic 3، Mini 4 Pro..."></div>';
+  html+='<div class="field"><label>نوع الطائرة</label><select id="uav-type"><option value="">—</option>'+opts(UAV_TYPES,f.type)+'</select></div>';
+  html+='<div class="field"><label>نوع الكاميرا</label><select id="uav-camera"><option value="">—</option>'+opts(UAV_CAM,f.camera)+'</select></div>';
+  html+='<div class="field"><label>الرقم التسلسلي</label><input id="uav-serial" value="'+esc(f.serial||'')+'" placeholder="SN-XXXXX"></div>';
+  html+='<div class="field"><label>زمن الطيران (دقيقة)</label><input id="uav-flight" type="number" value="'+esc(f.flightTime||'')+'" placeholder="مثال: 45"></div>';
+  html+='<div class="field"><label>مدى التحكم (كم)</label><input id="uav-range" value="'+esc(f.range||'')+'" placeholder="مثال: 10"></div>';
+  html+='<div class="field"><label>الحالة</label><select id="uav-status">'+opts(UAV_STATUS,f.status)+'</select></div>';
+  html+='<div class="field"><label>الحالة التقنية</label><select id="uav-cond"><option value="">—</option>'+opts(UAV_COND,f.condition)+'</select></div>';
+  html+='<div class="field"><label>بحوزة / مسلّم لـ</label><input id="uav-assigned" value="'+esc(f.assignedTo||'')+'" placeholder="اسم الشخص..."></div>';
+  html+='<div class="field"><label>الموقع / المنطقة</label><input id="uav-location" value="'+esc(f.location||'')+'" placeholder="الحسينية، المقر..."></div>';
+  html+='<div class="field s2"><label>الملحقات (افصل بفاصلة)</label><input id="uav-acc" value="'+esc(accStr)+'" placeholder="مثال: بطاريتان إضافيتان، حقيبة حمل، ND Filters..."></div>';
+  html+='<div class="field s2"><label>ملاحظات</label><textarea id="uav-notes" rows="2">'+esc(f.notes||'')+'</textarea></div>';
+  html+='</div>';
+  html+=mft(d?'💾 حفظ':'➕ إضافة',"saveUAV('"+(d?d.id:'')+"')",'btn-bl');
+  openModal(html);
+}
+
+function saveUAV(existId){
+  var name=val('uav-name');
+  if(!name){toast('أدخل اسم الطائرة','err');return;}
+  var id=existId||gid();
+  var prev=null;
+  var devs=DB.uavDevices||[];
+  for(var i=0;i<devs.length;i++){if(devs[i].id===existId){prev=devs[i];break;}}
+  prev=prev||{};
+  var accRaw=val('uav-acc')||'';
+  var accessories=accRaw?accRaw.split(/[،,]/).map(function(s){return s.trim();}).filter(Boolean):[];
+  var data={
+    id:id, name:val('uav-name'), brand:val('uav-brand'), model:val('uav-model'),
+    type:val('uav-type'), camera:val('uav-camera'), serial:val('uav-serial'),
+    flightTime:val('uav-flight'), range:val('uav-range'),
+    status:val('uav-status'), condition:val('uav-cond'),
+    assignedTo:val('uav-assigned'), location:val('uav-location'),
+    accessories:accessories, notes:val('uav-notes'),
+    by:prev.by||CU.name, date:prev.date||ts(), _ts:Date.now()
+  };
+  fbSet('uavDevices/'+id, data);
+  logAct(existId?'تعديل طائرة مسيرة':'إضافة طائرة مسيرة', data.name||data.model);
+  closeModal();
+  toast(existId?'✅ تم التعديل':'✅ تمت الإضافة');
+  setTimeout(pgUAV, 400);
+}
+
+function delUAV(id){
+  var d=null;
+  var devs=DB.uavDevices||[];
+  for(var i=0;i<devs.length;i++){if(devs[i].id===id){d=devs[i];break;}}
+  confirmDel('حذف الطائرة: '+(d?d.name||d.model:id)+'؟',"fbDel('uavDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgUAV,400)");
+}
+
+function exportUAVExcel(){
+  var devs=DB.uavDevices||[];
+  if(!devs.length){toast('لا طائرات للتصدير','warn');return;}
+  var h=['الاسم','الشركة','الموديل','النوع','الكاميرا','السيريال','زمن الطيران','المدى','الحالة','الحالة التقنية','بحوزة','الموقع','الملحقات','ملاحظات','التاريخ'];
+  var html='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  html+='<h2>🛩️ جرد الطائرات المسيرة</h2><p style="color:#666">'+devs.length+' طائرة — '+new Date().toLocaleDateString('ar-IQ')+'</p>';
+  html+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
+  devs.forEach(function(d){
+    html+='<tr>'+[d.name,d.brand,d.model,d.type,d.camera,d.serial,d.flightTime,d.range,d.status,d.condition,d.assignedTo,d.location,(d.accessories||[]).join('، '),d.notes,d.date].map(function(v){return '<td>'+(v||'')+'</td>';}).join('')+'</tr>';
+  });
+  html+='</tbody></table></body></html>';
+  var blob=new Blob(['﻿'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url; a.download='طائرات_مسيرة_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click(); URL.revokeObjectURL(url);
+  toast('✅ تم تصدير '+devs.length+' طائرة');
 }
 
 </script>
