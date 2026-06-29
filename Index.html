@@ -5300,41 +5300,77 @@ function pgReports(){
 
 function exportFilteredInv(){
   const AT=allT();
-  const sItems = isMainSite(ISITE) ? Object.values(DB.inv).flat() : (DB.inv[ISITE]||[]);
-  const items = sItems.filter(item=>{
+  // جلب المواد الصحيحة — تجاهل عناصر ___init
+  let sItems;
+  if(isMainSite(ISITE)){
+    sItems = Object.values(DB.inv).flat().filter(function(i){ return i&&!i.___init; });
+  } else {
+    sItems = (DB.inv[ISITE]||[]).filter(function(i){ return i&&!i.___init; });
+  }
+
+  // تطبيق نفس فلاتر الصفحة الحالية
+  const items = sItems.filter(function(item){
+    if(!item||!item.name&&!item.serial) return false;
     const q=(ISQ||'').toLowerCase();
-    const ok=!q||[item.name,item.serial,item.model,item.mfr].some(v=>v?.toLowerCase().includes(q));
+    const ok=!q||[item.name,item.serial,item.model,item.mfr].some(function(v){return v&&v.toLowerCase().indexOf(q)>=0;});
     return ok&&(!ITYP||item.type===ITYP)&&(!ISTS||item.status===ISTS);
   });
-  if(!items.length){ toast('لا مواد للتصدير بالفلتر الحالي','warn'); return; }
+
+  if(!items.length){ toast('لا مواد للتصدير','warn'); return; }
 
   const filterDesc=[
-    ISITE?`المستودع: ${ISITE}`:'',
-    ITYP?`النوع: ${AT[ITYP]?.label||ITYP}`:'',
-    ISTS?`الحالة: ${ISTS}`:'',
-    ISQ?`بحث: ${ISQ}`:'',
+    ISITE?'المستودع: '+ISITE:'',
+    ITYP?(AT[ITYP]&&AT[ITYP].label?'النوع: '+AT[ITYP].label:''):'',
+    ISTS?'الحالة: '+ISTS:'',
+    ISQ?'بحث: '+ISQ:'',
   ].filter(Boolean).join(' | ');
 
-  const rows=[['#','الاسم','النوع','السيريال','الموديل','الشركة','الحالة','موقع النصب','المستودع','التاريخ']];
-  items.forEach((it,i)=>{
-    rows.push([i+1,it.name||'',AT[it.type]?.label||it.type||'',it.serial||'',it.model||'',it.mfr||'',it.status||'',it.installedAt||'',it.currentSite||ISITE,it.addedAt||'']);
+  // بناء جدول Excel
+  var headers=['#','الاسم','النوع','السيريال','الموديل','الشركة','الكمية','الحالة','موقع النصب','المستودع','أضيف بواسطة','التاريخ'];
+  var htmlStr='<html dir="rtl"><head><meta charset="utf-8">';
+  htmlStr+='<style>body{font-family:Arial;direction:rtl}';
+  htmlStr+='h2{color:#0969da;margin-bottom:4px}';
+  htmlStr+='.info{color:#666;font-size:12px;margin-bottom:12px}';
+  htmlStr+='table{width:100%;border-collapse:collapse;font-size:12px}';
+  htmlStr+='th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}';
+  htmlStr+='td{border:1px solid #ddd;padding:6px 10px}';
+  htmlStr+='tr:nth-child(even) td{background:#f5f8ff}';
+  htmlStr+='</style></head><body>';
+  htmlStr+='<h2>📦 تقرير المخزن — '+esc(ISITE)+'</h2>';
+  htmlStr+='<div class="info">'+(filterDesc||'كل المواد')+' | إجمالي: '+items.length+' عنصر | '+new Date().toLocaleString('ar-IQ')+'</div>';
+  htmlStr+='<table><thead><tr>';
+  headers.forEach(function(h){ htmlStr+='<th>'+h+'</th>'; });
+  htmlStr+='</tr></thead><tbody>';
+  items.forEach(function(it,i){
+    var typeLabel=AT[it.type]&&AT[it.type].label?AT[it.type].label:(it.type||'');
+    htmlStr+='<tr>';
+    htmlStr+='<td>'+(i+1)+'</td>';
+    htmlStr+='<td>'+(it.name||'—')+'</td>';
+    htmlStr+='<td>'+typeLabel+'</td>';
+    htmlStr+='<td>'+(it.serial||'—')+'</td>';
+    htmlStr+='<td>'+(it.model||'—')+'</td>';
+    htmlStr+='<td>'+(it.mfr||'—')+'</td>';
+    htmlStr+='<td>'+(it.qty||1)+'</td>';
+    htmlStr+='<td>'+(it.status||'—')+'</td>';
+    htmlStr+='<td>'+(it.installedAt||'—')+'</td>';
+    htmlStr+='<td>'+(it.currentSite||ISITE)+'</td>';
+    htmlStr+='<td>'+(it.addedBy||it.addedBy||'—')+'</td>';
+    htmlStr+='<td>'+(it.addedAt||'—')+'</td>';
+    htmlStr+='</tr>';
   });
+  htmlStr+='</tbody></table></body></html>';
 
-  let html='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#0969da}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:6px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}@media print{.np{display:none}}</style></head><body>';
-  html+=`<h2>📦 ${esc(ISITE)}</h2><p style="color:#666;font-size:12px">${filterDesc||'كل المواد'} — ${items.length} عنصر — ${new Date().toLocaleString('ar-IQ')}</p>`;
-  html+=`<button class="np" onclick="window.print()" style="margin-bottom:12px;padding:6px 20px;background:#0969da;color:#fff;border:none;border-radius:6px;cursor:pointer">🖨️ طباعة / PDF</button>`;
-  html+='<table><thead><tr>'+rows[0].map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>';
-  rows.slice(1).forEach(r=>{html+='<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>';});
-  html+='</tbody></table></body></html>';
-
-  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
+  var blob=new Blob(['\uFEFF'+htmlStr],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
   a.href=url;
-  a.download=`مخزن_${ISITE}${ITYP?'_'+(AT[ITYP]?.label||ITYP):''}${ISTS?'_'+ISTS:''}_${new Date().toISOString().split('T')[0]}.xls`;
+  var fname='مخزن_'+ISITE+(ITYP?'_'+(AT[ITYP]&&AT[ITYP].label||ITYP):'')+(ISTS?'_'+ISTS:'')+'_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.download=fname;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  toast(`✅ تم تصدير ${items.length} عنصر`);
+  toast('✅ تم تصدير '+items.length+' عنصر');
 }
 
 function filterInvTable(){
