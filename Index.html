@@ -627,15 +627,17 @@ const PERM_DEF = {
   fieldmap : 'خريطة المواقع الميدانية',
   radio    : 'عرض أجهزة المناداة',
   radioEdit: 'تعديل أجهزة المناداة',
+  uav      : 'عرض الطائرات المسيرة',
+  uavEdit  : 'تعديل الطائرات المسيرة',
 };
 
 const DEF_PERMS = {
-  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1},
-  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0},
+  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1},
+  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
   engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:1,radioEdit:0},
-  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0},
-  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0},
-  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0},
+  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
+  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
   signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0},
 };
 
@@ -1492,8 +1494,8 @@ function pgDash(){
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
         {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'fieldmap'},
-        {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:null},
-        {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:null},
+        {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:'radio'},
+        {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
         {id:'docs',       ic:'📁', lb:'المستندات',         perm:null},
@@ -1571,7 +1573,7 @@ function pgInv(){
         <button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
         <button class="btn" style="background:#d1242f22;color:var(--rd);border:1px solid #d1242f44" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
       `:''}
-      <button class="btn btn-gy" onclick="exportFilteredInv()">⬇️ تصدير Excel</button>
+      ${CU.role==='manager'?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📡 تصدير المنصوبات</button>':''}
     </div>
     </div>
   </div>
@@ -2720,9 +2722,9 @@ function openPerms(i){
   if(CU.role!=='manager'){ toast('⛔ فقط المدير يستطيع تعديل الصلاحيات','err'); return; }
   const cur=u.perms||DEF_PERMS[u.role]||{};
   const isViewer=u.role==='viewer';
-  const isTechOrField = u.role==='technician'||u.role==='field';
-  const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','docs','downloadDocs'];
-  const WRITE_PERMS =['addItem','updFault','importInv','users'];
+  const isTechOrField = u.role!=='manager'&&u.role!=='viewer';
+  const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','docs','downloadDocs','radio','uav'];
+  const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit'];
   const PERM_LABELS ={
     inv:'عرض المخزن', faults:'عرض الأعطال', notifs:'الإشعارات',
     invoices:'عرض الفواتير', moves:'عرض حركة المواد', sites:'عرض المواقع والمخازن',
@@ -2768,6 +2770,29 @@ function openPerms(i){
     +mft('💾 حفظ الصلاحيات','savePerms('+i+')', 'btn-gn'));
 }
 
+
+function syncUserFieldSitePerms(userIdx, siteId, allow){
+  var u=DB.users[userIdx];
+  if(!u) return;
+  var uid=u.uid||u.id;
+  // تحديث site.allowedUsers
+  var site=DB.fieldSites.find(function(s){return s.id===siteId;});
+  if(site){
+    var allowed=site.allowedUsers?[].concat(site.allowedUsers):[];
+    if(allow){if(allowed.indexOf(uid)<0) allowed.push(uid);}
+    else{allowed=allowed.filter(function(x){return x!==uid;});}
+    fbSet('fieldSites/'+siteId+'/allowedUsers', allowed);
+  }
+  // تحديث perms.allowedSites في المستخدم
+  var curPerms=u.perms||{};
+  var curSites=curPerms.allowedSites?[].concat(curPerms.allowedSites):[];
+  if(allow){if(curSites.indexOf(siteId)<0) curSites.push(siteId);}
+  else{curSites=curSites.filter(function(x){return x!==siteId;});}
+  curPerms.allowedSites=curSites;
+  fbUpdate('users/'+uid,{perms:curPerms});
+  toast(allow?'✅ تمت إضافة الصلاحية':'🚫 تم سحب الصلاحية');
+}
+
 function savePerms(i){
   const ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users'];
   const perms={};
@@ -2788,12 +2813,12 @@ function savePerms(i){
 function resetPerms(i){ const u=DB.users[i]; if(u) fbUpdate('users/'+(u.uid||u.id),{perms:null}); closeModal(); toast('تم إعادة الصلاحيات للافتراضي'); }
 
 function revokeAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=false;
   });
 }
 function grantAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=true;
   });
 }
@@ -3274,6 +3299,7 @@ function pgFieldMap(){
     </div>
     ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
     ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportMapImage()">📸 تصدير صورة</button>`:''}
+    ${CU.role==='manager'&&window._FSITE?`<button class="btn btn-gy" onclick="exportFieldSiteExcel(window._FSITE)">⬇️ Excel الموقع</button>`:''}
   </div>
 
   ${visibleSites.length===0
@@ -5161,11 +5187,29 @@ function addFaultComment(faultId){
 // ═══════════════════════════════════════════════════════
 function pgActLog(){
   if(CU.role!=='manager'){ $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)">⛔ للمدير فقط</div>'; return; }
+  var filterUser = window._actFilterUser||'';
+  var filterFrom = window._actFilterFrom||'';
+  var filterTo   = window._actFilterTo||'';
+  var logs = (DB.actlog||[]).slice();
+  if(filterUser) logs=logs.filter(function(l){return l.name&&l.name.indexOf(filterUser)>=0;});
+  if(filterFrom){var df=new Date(filterFrom);logs=logs.filter(function(l){return new Date(l._ts||0)>=df;});}
+  if(filterTo){var dt2=new Date(filterTo);dt2.setDate(dt2.getDate()+1);logs=logs.filter(function(l){return new Date(l._ts||0)<=dt2;});}
+  var userNames=[...new Set((DB.actlog||[]).map(function(l){return l.name;}).filter(Boolean))];
   const ACT_COLORS={'إضافة عطل':'var(--rd)','تحديث عطل':'var(--yl)','إضافة مستخدم':'var(--gn)','حذف مستخدم':'var(--rd)','حركة مواد':'var(--bl)','تعليق على عطل':'var(--pu)'};
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📋 سجل النشاط</div>
-    <div class="ps">${DB.actlog.length} سجل</div>
+    <div class="ps">${logs.length} من ${DB.actlog.length} سجل</div>
+    <button class="btn btn-gy" onclick="exportActLogExcel()">⬇️ Excel</button>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 0 12px">
+    <select onchange="window._actFilterUser=this.value;pgActLog()" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+      <option value="">كل المستخدمين</option>
+      ${userNames.map(n=>'<option value="'+esc(n)+'"'+(filterUser===n?' selected':'')+'>'+esc(n)+'</option>').join('')}
+    </select>
+    <input type="date" id="actlog-filter-from" value="${filterFrom}" placeholder="من" onchange="window._actFilterFrom=this.value;pgActLog()" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+    <input type="date" id="actlog-filter-to" value="${filterTo}" placeholder="إلى" onchange="window._actFilterTo=this.value;pgActLog()" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+    ${filterUser||filterFrom||filterTo?'<button class="btn btn-sm btn-rd" onclick="window._actFilterUser=\'\';window._actFilterFrom=\'\';window._actFilterTo=\'\';pgActLog()">✕ مسح</button>':''}
   </div>
   <div style="padding:0 16px">
     ${DB.actlog.length?DB.actlog.map(a=>`
@@ -5300,6 +5344,54 @@ function pgReports(){
       </div>`).join('')}
     </div>
   </div>`;
+}
+
+function exportWarehouseOnly(){
+  if(CU.role!=='manager'){toast('تصدير المخزن للمدير فقط','err');return;}
+  var site=ISITE;
+  var sItems=(DB.inv[site]||[]).filter(function(it){return it.status==='warehouse'||it.status==='returned'||!it.status;});
+  if(!sItems.length){toast('لا مواد في المخزن للتصدير','warn');return;}
+  var AT=allT();
+  var h=['النوع','الاسم','السيريال','الموديل','الشركة','الحالة','أضيف بواسطة','التاريخ'];
+  var tableRows='';
+  sItems.forEach(function(it){
+    var row=[AT[it.type]?AT[it.type].label:it.type,it.name||'',it.serial||'',it.model||'',it.mfr||'',it.status||'warehouse',it.addedBy||'',it.addedAt||''];
+    tableRows+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
+  });
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  xls+='<h2>📦 مواد المخزن — '+site+'</h2><p style="color:#666">'+sItems.length+' مادة في المخزن — '+new Date().toLocaleDateString('ar-IQ')+'</p>';
+  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
+  xls+='</body></html>';
+  var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='مخزن_'+site+'_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click();URL.revokeObjectURL(url);
+  toast('✅ تم تصدير '+sItems.length+' مادة من المخزن');
+}
+
+function exportDeployedOnly(){
+  if(CU.role!=='manager'){toast('تصدير المنصوبات للمدير فقط','err');return;}
+  var site=ISITE;
+  var sItems=(DB.inv[site]||[]).filter(function(it){return it.status==='deployed';});
+  if(!sItems.length){toast('لا مواد منصوبة للتصدير','warn');return;}
+  var AT=allT();
+  var h=['النوع','الاسم','السيريال','موقع النصب','الموديل','الشركة','أضيف بواسطة','التاريخ'];
+  var tableRows='';
+  sItems.forEach(function(it){
+    var row=[AT[it.type]?AT[it.type].label:it.type,it.name||'',it.serial||'',it.installedAt||'',it.model||'',it.mfr||'',it.addedBy||'',it.addedAt||''];
+    tableRows+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
+  });
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a7f37;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f0fff4}</style></head><body>';
+  xls+='<h2>📡 المواد المنصوبة — '+site+'</h2><p style="color:#666">'+sItems.length+' مادة منصوبة — '+new Date().toLocaleDateString('ar-IQ')+'</p>';
+  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
+  xls+='</body></html>';
+  var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='منصوبات_'+site+'_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click();URL.revokeObjectURL(url);
+  toast('✅ تم تصدير '+sItems.length+' مادة منصوبة');
 }
 
 function exportFilteredInv(){
@@ -6091,7 +6183,10 @@ function pgTechMap(){
   }
   $('page').innerHTML=`
   <div class="ph"><div class="pt">🗺️ مواقع الفنيين — مباشر</div>
-    <span style="font-size:12px;color:var(--gn);margin-top:2px">🟢 يتحدث تلقائياً</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:12px;color:var(--gn);margin-top:2px">🟢 يتحدث تلقائياً</span>
+      ${CU.role==='manager'?'<button class="btn btn-gy btn-sm" onclick="exportTechMapExcel()">⬇️ Excel</button>':''}
+    </div>
   </div>
   <div id="tech-locations" style="padding:0 16px">
     <div style="text-align:center;color:var(--mt);padding:20px">⏳ جار التحميل...</div>
@@ -8461,9 +8556,15 @@ function pgRadio(){
   if(!DB.radioDevices) DB.radioDevices=[];
   var devs=DB.radioDevices;
   var canEdit=CU.role==='manager'||p('radioEdit');
-  var html='<div class="ph"><div class="pt">📻 أجهزة المناداة</div>';
+  var html='<div class="ph"><div><div class="pt">📻 أجهزة المناداة</div>';
+  html+='<div class="ps" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">';
+  // عداد الأجهزة
+  html+='<span style="color:var(--mt);font-size:12px">إجمالي: <b>'+devs.length+'</b></span>';
+  html+='</div></div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
   if(canEdit) html+='<button class="btn btn-bl" onclick="openAddRadio()">+ إضافة</button>';
-  html+='</div><div style="padding:0 16px">';
+  if(CU.role==='manager') html+='<button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ Excel</button>';
+  html+='</div></div><div style="padding:0 16px">';
   if(!devs.length){
     html+='<div class="panel" style="text-align:center;padding:40px;color:var(--mt)"><div style="font-size:40px">📻</div><div style="margin-top:10px">لا أجهزة مناداة بعد</div></div>';
   } else {
@@ -8598,9 +8699,13 @@ var UAV_COND=['ممتاز','جيد جداً','جيد','مقبول','يحتاج �
 var UAV_SC={'في المخزن':'#0969da','في الميدان':'#1a7f37','صيانة':'#9a6700','معطل':'#d1242f','مفقود':'#8250df','خارج الخدمة':'#656d76'};
 
 function pgUAV(){
+  if(!p('uav')&&CU.role!=='manager'){
+    document.getElementById('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px;margin-bottom:12px">⛔</div><div>ليس لديك صلاحية لعرض الطائرات المسيرة</div></div>';
+    return;
+  }
   if(!DB.uavDevices) DB.uavDevices=[];
   var devs=DB.uavDevices;
-  var canEdit=CU.role==='manager'||p('addItem');
+  var canEdit=(CU.role==='manager'||p('uavEdit'));
   var byS={};
   UAV_STATUS.forEach(function(s){byS[s]=devs.filter(function(d){return d.status===s;}).length;});
 
@@ -8752,7 +8857,159 @@ function delUAV(id){
   confirmDel('حذف الطائرة: '+(d?d.name||d.model:id)+'؟',"fbDel('uavDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgUAV,400)");
 }
 
+
+function exportFieldSiteExcel(siteId){
+  if(CU.role!=='manager'){toast('تصدير الميدانية للمدير فقط','err');return;}
+  var site=DB.fieldSites.find(function(s){return s.id===siteId;});
+  if(!site){toast('الموقع غير موجود','err');return;}
+  var AT=allT();
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#0969da}h3{color:#1a7f37;border-bottom:2px solid #1a7f37;padding-bottom:4px;margin-top:20px}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px}th{background:#1a2332;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  xls+='<h2>🗺️ تصدير الموقع الميداني — '+esc(site.name)+'</h2>';
+  xls+='<p style="color:#666">تاريخ التصدير: '+new Date().toLocaleDateString('ar-IQ')+'</p>';
+
+  // الكاميرات
+  var cams=site.cameras||[];
+  xls+='<h3>📷 الكاميرات ('+cams.length+')</h3>';
+  if(cams.length){
+    xls+='<table><thead><tr><th>الاسم</th><th>النوع</th><th>السيريال</th><th>الموديل</th><th>الدقة</th><th>الاتجاه</th><th>الوصف</th><th>Lat</th><th>Lng</th></tr></thead><tbody>';
+    cams.forEach(function(c){
+      xls+='<tr><td>'+esc(c.name||c.serial||'')+'</td><td>'+esc(c.cT||'')+'</td><td>'+esc(c.serial||'')+'</td><td>'+esc(c.model||'')+'</td><td>'+esc(c.rs||'')+'</td><td>'+esc(c.dir||'')+'</td><td>'+esc(c.installDesc||c.dc||'')+'</td><td>'+esc(String(c.lat||''))+'</td><td>'+esc(String(c.lng||''))+'</td></tr>';
+    });
+    xls+='</tbody></table>';
+  } else { xls+='<p style="color:#999">لا كاميرات مسجلة</p>'; }
+
+  // جرد الموقع
+  var invData=DB.siteInventory&&DB.siteInventory[siteId];
+  var pts=invData?Object.values(invData):[];
+  var allInvItems=[];
+  pts.forEach(function(pt){if(pt.items){Object.values(pt.items).forEach(function(it){allInvItems.push({pt:pt.name,item:it});});}});
+  xls+='<h3>📦 جرد الموقع ('+allInvItems.length+')</h3>';
+  if(allInvItems.length){
+    xls+='<table><thead><tr><th>النقطة</th><th>النوع</th><th>الاسم</th><th>السيريال</th><th>الحالة</th></tr></thead><tbody>';
+    allInvItems.forEach(function(r){
+      var it=r.item;
+      xls+='<tr><td>'+esc(r.pt)+'</td><td>'+esc(AT[it.type]?AT[it.type].label:it.type||'')+'</td><td>'+esc(it.name||it.serial||'')+'</td><td>'+esc(it.serial||'')+'</td><td>'+esc(it.status||'')+'</td></tr>';
+    });
+    xls+='</tbody></table>';
+  } else { xls+='<p style="color:#999">لا مواد مجردة</p>'; }
+
+  // أجهزة الراديو في الموقع
+  var siteRadio=(DB.radioDevices||[]).filter(function(d){return d.location&&d.location.indexOf(site.name)>=0;});
+  xls+='<h3>📻 أجهزة المناداة ('+siteRadio.length+')</h3>';
+  if(siteRadio.length){
+    xls+='<table><thead><tr><th>الاسم</th><th>الموديل</th><th>التردد</th><th>الحالة</th><th>بحوزة</th></tr></thead><tbody>';
+    siteRadio.forEach(function(d){
+      xls+='<tr><td>'+esc(d.name||d.serial||'')+'</td><td>'+esc(d.model||'')+'</td><td>'+esc(d.frequency||'')+'</td><td>'+esc(d.status||'')+'</td><td>'+esc(d.assignedTo||'')+'</td></tr>';
+    });
+    xls+='</tbody></table>';
+  } else { xls+='<p style="color:#999">لا أجهزة مناداة</p>'; }
+
+  // الطائرات في الموقع
+  var siteUAV=(DB.uavDevices||[]).filter(function(d){return d.location&&d.location.indexOf(site.name)>=0;});
+  xls+='<h3>🛩️ الطائرات المسيرة ('+siteUAV.length+')</h3>';
+  if(siteUAV.length){
+    xls+='<table><thead><tr><th>الاسم</th><th>الموديل</th><th>الشركة</th><th>الحالة</th><th>بحوزة</th></tr></thead><tbody>';
+    siteUAV.forEach(function(d){
+      xls+='<tr><td>'+esc(d.name||d.serial||'')+'</td><td>'+esc(d.model||'')+'</td><td>'+esc(d.brand||'')+'</td><td>'+esc(d.status||'')+'</td><td>'+esc(d.assignedTo||'')+'</td></tr>';
+    });
+    xls+='</tbody></table>';
+  } else { xls+='<p style="color:#999">لا طائرات مسيرة</p>'; }
+
+  xls+='</body></html>';
+  var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='ميداني_'+esc(site.name).replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click();URL.revokeObjectURL(url);
+  toast('✅ تم تصدير بيانات '+site.name);
+}
+
+
+function exportActLogExcel(){
+  if(CU.role!=='manager'){toast('تصدير السجل للمدير فقط','err');return;}
+  var userName=val('actlog-filter-user')||'';
+  var dateFrom=val('actlog-filter-from')||'';
+  var dateTo=val('actlog-filter-to')||'';
+  var logs=DB.actlog||[];
+  if(userName) logs=logs.filter(function(l){return l.name&&l.name.indexOf(userName)>=0;});
+  if(dateFrom){var df=new Date(dateFrom);logs=logs.filter(function(l){return new Date(l._ts||0)>=df;});}
+  if(dateTo){var dt=new Date(dateTo);dt.setDate(dt.getDate()+1);logs=logs.filter(function(l){return new Date(l._ts||0)<=dt;});}
+  if(!logs.length){toast('لا سجلات للتصدير','warn');return;}
+  var h=['الاسم','الدور','الإجراء','التفاصيل','الوقت'];
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a2332;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  xls+='<h2>📋 سجل النشاط</h2><p style="color:#666">'+logs.length+' سجل'+(userName?' — '+userName:'')+'</p>';
+  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
+  logs.forEach(function(l){
+    xls+='<tr><td>'+esc(l.name||'')+'</td><td>'+esc(ROLES[l.role]||l.role||'')+'</td><td>'+esc(l.action||'')+'</td><td>'+esc(l.details||'')+'</td><td>'+esc(l.time||'')+'</td></tr>';
+  });
+  xls+='</tbody></table></body></html>';
+  var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='سجل_النشاط_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click();URL.revokeObjectURL(url);
+  toast('✅ تم تصدير '+logs.length+' سجل');
+}
+
+function exportTechMapExcel(){
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
+  var locs=DB.techLocations||{};
+  var users=DB.users||[];
+  function toDMS(deg){
+    var d=Math.floor(Math.abs(deg));
+    var mf=(Math.abs(deg)-d)*60;
+    var m=Math.floor(mf);
+    var s=((mf-m)*60).toFixed(1);
+    return d+'° '+m+"' "+s+'"';
+  }
+  var h=['الاسم','الدور','آخر ظهور','خط العرض','خط الطول','DMS (خط العرض)','DMS (خط الطول)','Lat,Lng'];
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a2332;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  xls+='<h2>🗺️ مواقع الفنيين</h2><p style="color:#666">'+new Date().toLocaleDateString('ar-IQ')+'</p>';
+  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
+  users.forEach(function(u){
+    var uid=u.uid||u.id;
+    var loc=locs[uid];
+    if(!loc||!loc.lat) return;
+    var lastTime=loc._ts?new Date(loc._ts).toLocaleString('ar-IQ'):(loc.time||'');
+    var lat=parseFloat(loc.lat)||0;
+    var lng=parseFloat(loc.lng)||0;
+    var latDMS=(lat<0?'S ':'N ')+toDMS(lat);
+    var lngDMS=(lng<0?'W ':'E ')+toDMS(lng);
+    xls+='<tr><td>'+esc(u.name||'')+'</td><td>'+esc(ROLES[u.role]||u.role||'')+'</td><td>'+esc(lastTime)+'</td><td>'+lat.toFixed(6)+'</td><td>'+lng.toFixed(6)+'</td><td style="direction:ltr">'+latDMS+'</td><td style="direction:ltr">'+lngDMS+'</td><td style="direction:ltr">'+lat.toFixed(6)+','+lng.toFixed(6)+'</td></tr>';
+  });
+  xls+='</tbody></table></body></html>';
+  var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='مواقع_الفنيين_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click();URL.revokeObjectURL(url);
+  toast('✅ تم تصدير مواقع الفنيين');
+}
+
+
+function exportRadioExcel(){
+  if(CU.role!=='manager'){toast('تصدير أجهزة المناداة للمدير فقط','err');return;}
+  var devs=DB.radioDevices||[];
+  if(!devs.length){toast('لا أجهزة للتصدير','warn');return;}
+  var h=['الاسم','الموديل','التردد','الرقم التسلسلي','الحالة','بحوزة','الموقع','ملاحظات'];
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  xls+='<h2>📻 جرد أجهزة المناداة</h2><p style="color:#666">'+devs.length+' جهاز — '+new Date().toLocaleDateString('ar-IQ')+'</p>';
+  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
+  devs.forEach(function(d){
+    var row=[d.name||d.serial||'',d.model||'',d.frequency||'',d.serial||'',d.status||'',d.assignedTo||'',d.location||'',d.notes||''];
+    xls+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
+  });
+  xls+='</tbody></table></body></html>';
+  var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='أجهزة_المناداة_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click();URL.revokeObjectURL(url);
+  toast('✅ تم تصدير '+devs.length+' جهاز');
+}
+
 function exportUAVExcel(){
+  if(CU.role!=='manager'){toast('تصدير الطائرات للمدير فقط','err');return;}
   var devs=DB.uavDevices||[];
   if(!devs.length){toast('لا طائرات للتصدير','warn');return;}
   var h=['الاسم','الشركة','الموديل','النوع','الكاميرا','السيريال','زمن الطيران','المدى','الحالة','الحالة التقنية','بحوزة','الموقع','الملحقات','ملاحظات','التاريخ'];
@@ -8770,6 +9027,51 @@ function exportUAVExcel(){
   a.click(); URL.revokeObjectURL(url);
   toast('✅ تم تصدير '+devs.length+' طائرة');
 }
+
+
+// ══ السحب والتحريك للعناصر العائمة ══
+function makeDraggable(btnEl, containerEl){
+  var isDragging=false, startX=0, startY=0, startLeft=0, startBottom=0, moved=false;
+  var longPressTimer=null;
+  btnEl.addEventListener('touchstart',function(e){
+    moved=false;
+    longPressTimer=setTimeout(function(){
+      isDragging=true;
+      var touch=e.touches[0];
+      startX=touch.clientX; startY=touch.clientY;
+      var rect=(containerEl||btnEl).getBoundingClientRect();
+      startLeft=rect.left; startBottom=window.innerHeight-rect.bottom;
+      (containerEl||btnEl).style.transition='none';
+    },400);
+  },{passive:true});
+  btnEl.addEventListener('touchmove',function(e){
+    moved=true;
+    clearTimeout(longPressTimer);
+    if(!isDragging) return;
+    e.preventDefault();
+    var touch=e.touches[0];
+    var dx=touch.clientX-startX, dy=touch.clientY-startY;
+    var el=containerEl||btnEl;
+    var newLeft=Math.max(0,Math.min(window.innerWidth-60,startLeft+dx));
+    var newBottom=Math.max(0,Math.min(window.innerHeight-60,startBottom-dy));
+    el.style.left=newLeft+'px'; el.style.right='auto';
+    el.style.bottom=newBottom+'px'; el.style.top='auto';
+  },{passive:false});
+  btnEl.addEventListener('touchend',function(){
+    clearTimeout(longPressTimer);
+    (containerEl||btnEl).style.transition='';
+    isDragging=false;
+  });
+}
+
+// تطبيق السحب عند التحميل
+document.addEventListener('DOMContentLoaded',function(){
+  var bubbleBtn=document.getElementById('msg-bubble-btn');
+  var bubbleWrap=document.getElementById('msg-bubble-wrap');
+  if(bubbleBtn&&bubbleWrap) makeDraggable(bubbleBtn,bubbleWrap);
+  var fabBtn=document.getElementById('quick-fab');
+  if(fabBtn) makeDraggable(fabBtn,fabBtn);
+});
 
 </script>
 </body>
