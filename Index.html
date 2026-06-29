@@ -540,6 +540,12 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const FBAUTH = firebase.auth();
+
+// ✅ تفعيل الجلسة الدائمة فوراً عند بدء التطبيق
+// هذا يضمن أن الجلسة تبقى حتى بعد إغلاق المتصفح أو الجهاز
+FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){
+  console.warn('setPersistence error:', e);
+});
 const FBDB   = firebase.database();
 let FBMSG = null;
 
@@ -865,9 +871,7 @@ function doLogin(){
   btn.disabled=true;
   btn.textContent='⏳ جار التحقق...';
   $('lerr').style.display='none';
-  FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(()=>{
-    return FBAUTH.signInWithEmailAndPassword(email,pw);
-  }).catch(err=>{
+  FBAUTH.signInWithEmailAndPassword(email,pw).catch(err=>{
     const msgs={
       'auth/user-not-found':'❌ البريد غير موجود',
       'auth/wrong-password':'❌ كلمة المرور خاطئة',
