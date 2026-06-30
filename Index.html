@@ -5299,8 +5299,8 @@ function pgReports(){
   <div class="ph">
     <div class="pt">📊 التقارير والإحصائيات</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" style="background:#238636;color:#fff" onclick="printFullReport(${totalFaults},${openF},${resolvedF},${highF},${avgSLA},${totalItems},${deployedItems},${totalCams})">🖨️ طباعة / PDF</button>
-      <button class="btn btn-bl" onclick="exportReportCSV()">⬇️ تصدير CSV</button>
+      ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printFullReport(${totalFaults},${openF},${resolvedF},${highF},${avgSLA},${totalItems},${deployedItems},${totalCams})">🖨️ طباعة / PDF</button>
+      <button class="btn btn-bl" onclick="exportReportCSV()">⬇️ تصدير CSV</button>`:''}
     </div>
   </div>
 
@@ -5525,6 +5525,7 @@ function filterInvTable(){
 }
 
 function exportReportCSV(){
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const rows=[['الموقع','النقطة','السبب','الأولوية','الحالة','المبلغ','التاريخ','تاريخ الحل']];
   DB.faults.forEach(f=>rows.push([f.location,f.pointId,f.reason,f.priority==='high'?'عاجل':'عادي',f.status,f.by,f.date,f.resolvedAt||'']));
   const csv=rows.map(r=>r.map(v=>'"'+(v||'').split('"').join('""')+'"').join(',')).join('\n');
@@ -5679,7 +5680,7 @@ function showQR(data, title){
   <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:10px">
     <div id="qr-box" style="background:#fff;padding:16px;border-radius:12px"></div>
     <div style="font-size:12px;color:var(--mt);text-align:center;max-width:220px;word-break:break-all">${esc(data)}</div>
-    <button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل</button>
+    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل</button>`:''}
   </div>`);
   setTimeout(()=>{
     const box = document.getElementById('qr-box');
@@ -5691,6 +5692,7 @@ function showQR(data, title){
 }
 
 function downloadQR(title){
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const canvas = document.querySelector('#qr-box canvas');
   if(!canvas){ toast('QR غير جاهز','err'); return; }
   const a = document.createElement('a');
@@ -5796,7 +5798,7 @@ function pgBarcode(){
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📦 باركود المخزن</div>
-    <button class="btn btn-bl" onclick="printAllBarcodes()">🖨️ طباعة الكل</button>
+    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="printAllBarcodes()">🖨️ طباعة الكل</button>`:''}
   </div>
   <div style="padding:0 16px">
     <input style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:16px"
@@ -5830,6 +5832,7 @@ function filterBarcodes(q){
 }
 
 function printAllBarcodes(){
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   toast('جار التجهيز للطباعة...','warn');
   // فتح نافذة طباعة
   setTimeout(()=>window.print(), 500);
@@ -5839,6 +5842,7 @@ function printAllBarcodes(){
 //  🗺️ تصدير خريطة الكاميرات PDF (نص)
 // ═══════════════════════════════════════════════════════
 function exportMapReport(){
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const lines = [];
   lines.push('تقرير المواقع الميدانية والكاميرات');
   lines.push('تاريخ التقرير: '+new Date().toLocaleDateString('ar-IQ'));
@@ -6451,6 +6455,7 @@ function saveHandover(type){
 }
 
 function printHandover(h){
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const isDelivery = h.type==='delivery';
   const win = window.open('','_blank','width=600,height=700');
   win.document.write(`
@@ -6510,7 +6515,7 @@ function pgHandovers(){
           <div style="font-size:12px;color:var(--mt)">${esc(h.person)} — ${esc(h.site)}</div>
           <div style="font-size:11px;color:var(--mt)">${esc(h.by)} | ${esc(h.date)}</div>
         </div>
-        <button class="btn btn-sm btn-bl" onclick="printHandover(${JSON.stringify(h).split('"').join('&quot;')})">🖨️</button>
+        ${CU.role==='manager'?`<button class="btn btn-sm btn-bl" onclick="printHandover(${JSON.stringify(h).split('"').join('&quot;')})">🖨️</button>`:''}
       </div>`).join('')
       :'<div style="text-align:center;padding:40px;color:var(--mt)">لا نماذج بعد</div>'}
     </div>`;
@@ -7221,7 +7226,7 @@ function pgSiteInventory(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openEditFieldSite('${site.id}')">⚙️ ربط مستودع</button>`:''}
         ${CU.role==='manager'||p('addItem')?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
-        <button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>
+        ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>`:''}
       </div>
     </div>
 
@@ -7511,6 +7516,7 @@ function delSiteItem(siteId, ptId, itemId){
 
 // ── تصدير الجرد ──
 function exportSiteInventory(siteId, siteName){
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   FBDB.ref('cctv/siteInventory/'+siteId).once('value').then(snap=>{
     const points = snap.val() ? Object.values(snap.val()) : [];
 
@@ -8757,7 +8763,7 @@ function pgUAV(){
   html+='</div></div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
   if(canEdit) html+='<button class="btn btn-bl" onclick="openAddUAV()">+ إضافة طائرة</button>';
-  html+='<button class="btn btn-gy" onclick="exportUAVExcel()">⬇️ Excel</button>';
+  html+=(CU.role==='manager')?'<button class="btn btn-gy" onclick="exportUAVExcel()">⬇️ Excel</button>':'';
   html+='</div></div>';
 
   // فلاتر
