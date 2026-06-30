@@ -632,13 +632,13 @@ const PERM_DEF = {
 };
 
 const DEF_PERMS = {
-  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1},
-  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
-  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:1,radioEdit:0},
-  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
-  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
-  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0},
-  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0},
+  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1,maintain:1,reports:1,siteinv:1},
+  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0},
+  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1},
+  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1},
+  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:1,siteinv:1},
+  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:0,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0},
 };
 
 const FAULT_ST = [
@@ -721,9 +721,14 @@ function p(k){
 function canUserSeeFieldSite(site) {
   if(!CU) return false;
   if(CU.role==='manager') return true;
+  // فحص perms.allowedSites أولاً (من إدارة المستخدمين)
+  if(CU.perms&&CU.perms.allowedSites&&CU.perms.allowedSites.length){
+    return CU.perms.allowedSites.indexOf(site.id)>=0;
+  }
+  // فحص allowedUsers في الموقع (من صفحة الميدانية)
   if(!site.allowedUsers || site.allowedUsers.length===0) return false;
   const myUid = CU.uid||CU.id;
-  return site.allowedUsers.some(u=>u===myUid);
+  return site.allowedUsers.some(function(u){return u===myUid;});
 }
 
 // فلترة المواقع الميدانية حسب صلاحيات المستخدم
@@ -1047,11 +1052,15 @@ FBAUTH.onAuthStateChanged(function(fbUser){
           <button class="btn btn-rd" style="margin-top:16px" onclick="location.reload()">🔄 إعادة المحاولة</button>`;
       }
     }, 10000);
-    // إظهار زر الويدجت العائم
+    // إظهار زر الويدجت العائم — يخفى عن دور المخابر
     const fab = document.getElementById('quick-fab');
-    if(fab) fab.style.display='block';
-    // إظهار فقاعة الدردشة
-    showMsgBubble();
+    if(fab) fab.style.display=(CU&&CU.role==='signals')?'none':'block';
+    // إظهار فقاعة الدردشة — تخفى عن دور المخابر
+    if(!(CU&&CU.role==='signals')) showMsgBubble();
+    else hideMsgBubble();
+    // إخفاء البحث السريع وزر طباعة العاجلة عن دور المخابر
+    const qsWrap = document.getElementById('qs-wrap');
+    if(qsWrap) qsWrap.style.display=(CU&&CU.role==='signals')?'none':'';
     // طلب إذن الإشعارات — مرة واحدة فقط
     if(!localStorage.getItem('notif_perm_asked')){
       setTimeout(()=>{ requestNotifPermission(); localStorage.setItem('notif_perm_asked','1'); }, 2000);
@@ -1296,7 +1305,7 @@ function buildNav(){
       {id:'faults',    label:'الأعطال',          icon:'⚠️', perm:'faults'},
       {id:'urgent',    label:'الأعطال العاجلة', icon:'⚡', perm:'faults'},
       {id:'notifs',    label:'الإشعارات'+(unread?` (${unread})`:''), icon:'🔔', perm:'notifs'},
-      {id:'search',    label:'بحث شامل',         icon:'🔍', perm:null},
+      {id:'search',    label:'بحث شامل',         icon:'🔍', perm:'inv'},
     ]},
     // ── المخزن والمواد ──
     { group: '📦 المخزن', items: [
@@ -1482,8 +1491,8 @@ function pgDash(){
         {id:'fieldmap',  ic:'🗺️', lb:'الميدانية',      perm:'fieldmap'},
         {id:'notifs',    ic:'🔔', lb:'الإشعارات',       perm:'notifs', badge: unread||0},
         {id:'invoices',  ic:'🧾', lb:'الفواتير',        perm:'invoices'},
-        {id:'maintain',  ic:'🗓️', lb:'الصيانة',        perm:'faults'},
-        {id:'reports',   ic:'📊', lb:'التقارير',        perm:'faults'},
+        {id:'maintain',  ic:'🗓️', lb:'الصيانة',        perm:'maintain'},
+        {id:'reports',   ic:'📊', lb:'التقارير',        perm:'reports'},
         {id:'search',    ic:'🔍', lb:'بحث',             perm:null},
         {id:'sites',     ic:'📍', lb:'المواقع',         perm:'sites'},
         {id:'users',     ic:'👥', lb:'المستخدمون',     perm:'users'},
@@ -1493,12 +1502,12 @@ function pgDash(){
         {id:'backup',     ic:'🔐', lb:'احتياطي',         perm:'users'},
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
-        {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'fieldmap'},
+        {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'siteinv'},
         {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:'radio'},
         {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
-        {id:'docs',       ic:'📁', lb:'المستندات',         perm:null},
+        {id:'docs',       ic:'📁', lb:'المستندات',         perm:'docs'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
       return tiles.map(t=>`
@@ -2188,7 +2197,7 @@ function pgFaults(){
   let html=`<div class="ph">
     <div><div class="pt">⚠️ الأعطال</div><div class="ps">${active} نشط — ${visibleFaults.filter(f=>f.status==='resolved').length} محلول</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>
+      ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>`:''}
       <button class="btn btn-rd" onclick="openAddFault()">🚨 إبلاغ عن عطل</button>
     </div>
   </div>`;
@@ -2377,6 +2386,7 @@ function saveFault(){
 }
 
 function printFaultsReport(){
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   const visibleFaults = getVisibleFaults();
   const now = new Date().toLocaleString('ar-IQ');
   const rows = visibleFaults.map(f=>`
@@ -2723,7 +2733,7 @@ function openPerms(i){
   const cur=u.perms||DEF_PERMS[u.role]||{};
   const isViewer=u.role==='viewer';
   const isTechOrField = u.role!=='manager'&&u.role!=='viewer';
-  const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','docs','downloadDocs','radio','uav'];
+  const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','radio','uav','maintain','reports','docs','downloadDocs','siteinv'];
   const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit'];
   const PERM_LABELS ={
     inv:'عرض المخزن', faults:'عرض الأعطال', notifs:'الإشعارات',
@@ -2794,18 +2804,29 @@ function syncUserFieldSitePerms(userIdx, siteId, allow){
 }
 
 function savePerms(i){
-  const ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users'];
-  const perms={};
-  ALL_KEYS.forEach(k=>{
-    const el=document.getElementById('pm_'+k);
-    perms[k]=k==='notifs'?true:(el?el.checked:false);
+  var ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv'];
+  var perms={};
+  ALL_KEYS.forEach(function(k){
+    var el=document.getElementById('pm_'+k);
+    perms[k]=(el?el.checked:false);
   });
-  // حفظ المواقع الميدانية المصرح بها للفني والصاعود
-  const u2=DB.users[i];
-  if(u2&&(u2.role==='technician'||u2.role==='field')){
-    perms.allowedSites = DB.fieldSites
-      .filter(fs=>document.getElementById('site_'+fs.id)?.checked)
-      .map(fs=>fs.id);
+  // حفظ المواقع الميدانية المصرح بها — لكل الأدوار ما عدا المدير
+  var u2=DB.users[i];
+  if(u2&&u2.role!=='manager'&&u2.role!=='viewer'){
+    var allowedSiteIds=DB.fieldSites
+      .filter(function(fs){var el=document.getElementById('site_'+fs.id);return el&&el.checked;})
+      .map(function(fs){return fs.id;});
+    perms.allowedSites=allowedSiteIds;
+    // مزامنة مع allowedUsers في كل موقع ميداني
+    var uid2=u2.uid||u2.id;
+    DB.fieldSites.forEach(function(fs){
+      var allowed=fs.allowedUsers?[].concat(fs.allowedUsers):[];
+      var hasIt=allowed.indexOf(uid2)>=0;
+      var wantsIt=allowedSiteIds.indexOf(fs.id)>=0;
+      if(wantsIt&&!hasIt) allowed.push(uid2);
+      else if(!wantsIt&&hasIt) allowed=allowed.filter(function(x){return x!==uid2;});
+      fbSet('fieldSites/'+fs.id+'/allowedUsers', allowed);
+    });
   }
   if(u2) fbUpdate('users/'+(u2.uid||u2.id),{perms});
   closeModal(); toast('✅ تم حفظ الصلاحيات');
@@ -2813,12 +2834,12 @@ function savePerms(i){
 function resetPerms(i){ const u=DB.users[i]; if(u) fbUpdate('users/'+(u.uid||u.id),{perms:null}); closeModal(); toast('تم إعادة الصلاحيات للافتراضي'); }
 
 function revokeAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=false;
   });
 }
 function grantAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=true;
   });
 }
@@ -4461,6 +4482,7 @@ function importKML(input){
 
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
   openModal(mhd('📸 تصدير الخريطة')
     +'<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">'
@@ -5233,6 +5255,10 @@ function pgActLog(){
 //  📊 التقارير والإحصائيات + ⏱️ SLA
 // ═══════════════════════════════════════════════════════
 function pgReports(){
+  if(!p('reports')&&CU.role!=='manager'){
+    $('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px">⛔</div><div style="margin-top:12px">ليس لديك صلاحية لعرض التقارير</div></div>';
+    return;
+  }
   // ✅ استخدام الأعطال المصرح بها فقط
   const visibleFaults = getVisibleFaults();
   const totalFaults = visibleFaults.length;
@@ -5395,6 +5421,7 @@ function exportDeployedOnly(){
 }
 
 function exportFilteredInv(){
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   const AT=allT();
   // جلب المواد الصحيحة — تجاهل عناصر ___init
   let sItems;
@@ -5513,6 +5540,10 @@ function exportReportCSV(){
 //  🗓️ جدول الصيانة الدورية + تقويم
 // ═══════════════════════════════════════════════════════
 function pgMaintain(){
+  if(!p('maintain')&&CU.role!=='manager'){
+    $('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px">⛔</div><div style="margin-top:12px">ليس لديك صلاحية لعرض الصيانة</div></div>';
+    return;
+  }
   const tasks = DB.maintain || [];
   const today = new Date();
   const overdue = tasks.filter(t=>!t.done && new Date(t.dueDate) < today);
@@ -6869,6 +6900,10 @@ function sendChat(){
 //  📁 إدارة المستندات والعقود
 // ═══════════════════════════════════════════════════════
 function pgDocs(){
+  if(!p('docs')&&CU.role!=='manager'){
+    $('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px">⛔</div><div style="margin-top:12px">ليس لديك صلاحية لعرض المستندات</div></div>';
+    return;
+  }
   // المدير فقط دائماً، أو من يمنحه المدير صلاحية
   const canViewDocs = CU.role==='manager' || CU.perms?.docs;
   if(!canViewDocs){
@@ -7140,6 +7175,10 @@ function hideMsgBubble(){
 // ═══════════════════════════════════════════════════════
 
 function pgSiteInventory(){
+  if(!p('siteinv')&&CU.role!=='manager'){
+    $('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px">⛔</div><div style="margin-top:12px">ليس لديك صلاحية لعرض جرد الموجودات</div></div>';
+    return;
+  }
   const sites = getVisibleFieldSites();
   if(!sites.length){
     $('page').innerHTML=`<div style="text-align:center;padding:60px;color:var(--mt)">لا مواقع متاحة</div>`;
@@ -8488,6 +8527,7 @@ function quickSearch(q){
 //  🖨️ طباعة التقرير الكامل PDF
 // ============================================
 function printFullReport(totalFaults,openF,resolvedF,highF,avgSLA,totalItems,deployedItems,totalCams){
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   const now = new Date().toLocaleString('ar-IQ');
   const topFaults = [...(DB.faults||[])].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)).slice(0,20);
   const rows = topFaults.map(f=>`
