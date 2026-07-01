@@ -1872,22 +1872,119 @@ function openMoveItem(i,site){
   <div class="field"><label>${isOut?'الموقع الوجهة / اسم النقطة المنصوب بها':'المستودع الوجهة'}</label>
     <select id="mds">${dests.map(d=>`<option value="${esc(d)}">${isMainSite(d)?'🏭 ':'🏪 '}${esc(d)}</option>`).join('')}</select></div>
   ${isOut?`<div class="field"><label>اسم النقطة المنصوب بها (اختياري)</label>
-    <input id="mv-point" placeholder="مثال: كاميرا بوابة رئيسية، NVR غرفة الموزع..."></div>`:''}
+    <input id="mv-point" placeholder="مثال: كاميرا بوابة رئيسية، NVR غرفة الموزع..."></div>
+  <div class="field"><label>اسم المستلم <span style="color:var(--rd)">*</span></label>
+    <input id="mv-receiver" placeholder="اسم الشخص المستلم للمادة..."></div>
+  <div class="field"><label>المسلّم</label>
+    <input id="mv-sender" value="${CU.name}" readonly style="opacity:.7"></div>`:''}
   <div class="field"><label>ملاحظات</label><textarea id="mnt" placeholder="سبب الصرف أو الإعادة..."></textarea></div>
   ${mft(isOut?'🔼 تأكيد':'🔽 تأكيد',`confirmMove(${i},'${s}',${isOut})`,isOut?'btn-rd':'btn-gn')}`);
+}
+
+
+function returnSiteItemToWarehouse(siteId, warehouse, ptId, itemId, itemName){
+  if(CU.role!=='manager'){toast('العملية للمدير فقط','err');return;}
+  if(!warehouse){
+    var site=DB.fieldSites.find(function(s){return s.id===siteId;});
+    warehouse=site?site.warehouse:'';
+  }
+  if(!warehouse){toast('لا يوجد مستودع مرتبط بهذا الموقع','err');return;}
+  // نخزن المعطيات في window لتجنب مشاكل الاقتباس
+  window._retPending={siteId:siteId,warehouse:warehouse,ptId:ptId,itemId:itemId,itemName:itemName};
+  openModal('<div class="mhd">↩️ إرجاع للمخزن</div>'+
+    '<div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px">'+
+    '<div style="font-weight:700">'+esc(itemName)+'</div>'+
+    '<div style="font-size:12px;color:var(--mt);margin-top:4px">سيُضاف إلى مستودع: <b>'+esc(warehouse)+'</b></div></div>'+
+    '<div class="field"><label>سبب الإرجاع</label>'+
+    '<select id="ret-reason">'+
+    '<option value="عطل">🔧 عطل / يحتاج صيانة</option>'+
+    '<option value="تلف">💥 تلف</option>'+
+    '<option value="استبدال">🔄 استبدال بجهاز آخر</option>'+
+    '<option value="انتهاء مهمة">✅ انتهاء مهمة</option>'+
+    '<option value="أخرى">📝 أخرى</option>'+
+    '</select></div>'+
+    '<div class="field"><label>ملاحظات</label>'+
+    '<textarea id="ret-notes" placeholder="تفاصيل إضافية..."></textarea></div>'+
+    '<button class="btn btn-rd" onclick="confirmReturnToWarehouse()">↩️ تأكيد الإرجاع</button>');
+}
+
+function confirmReturnToWarehouse(){
+  var p=window._retPending||{};
+  var siteId=p.siteId,warehouse=p.warehouse,ptId=p.ptId,itemId=p.itemId,itemName=p.itemName||'';
+  var reason=val('ret-reason')||'';
+  var notes=val('ret-notes')||'';
+  if(!siteId){toast('خطأ: بيانات ناقصة','err');return;}
+  FBDB.ref('cctv/siteInventory/'+siteId+'/'+ptId+'/items/'+itemId).once('value').then(function(snap){
+    var it=snap.val();
+    if(!it){
+      FBDB.ref('cctv/siteInventory/'+siteId+'/'+ptId+'/'+itemId).once('value').then(function(snap2){
+        doReturn(siteId,warehouse,ptId,itemId,snap2.val()||{name:itemName},reason,notes,'cctv/siteInventory/'+siteId+'/'+ptId+'/'+itemId);
+      });
+    } else {
+      doReturn(siteId,warehouse,ptId,itemId,it,reason,notes,'cctv/siteInventory/'+siteId+'/'+ptId+'/items/'+itemId);
+    }
+  });
+}
+
+function doReturn(siteId,warehouse,ptId,itemId,it,reason,notes,fbPath){
+  // 1. حذف من siteInventory
+  FBDB.ref(fbPath).remove();
+  // 2. إضافة للمخزن
+  var newId='ret_'+Date.now()+'_'+Math.random().toString(36).slice(2,5);
+  var site=DB.fieldSites.find(function(s){return s.id===siteId;})||{};
+  fbSet('inv/'+fbKey(warehouse)+'/'+newId, {
+    id: newId,
+    name: it.name||'',
+    type: it.type||'',
+    serial: it.serial||'',
+    model: it.model||'',
+    mfr: it.mfr||'',
+    qty: parseInt(it.qty)||1,
+    status: 'returned',
+    notes: (notes?notes+' — ':'')+reason,
+    addedBy: CU.name,
+    addedAt: ts(),
+    returnedFrom: (site.name||siteId),
+    returnedAt: ts(),
+    _ts: Date.now()
+  });
+  // 3. تسجيل في حركات المواد
+  fbPush('moves',{
+    name: '↩️ '+(it.name||itemId),
+    dir: 'in',
+    from: (site.name||siteId),
+    to: warehouse,
+    by: CU.name,
+    date: ts(),
+    notes: reason+(notes?' — '+notes:''),
+    status: 'returned',
+    returnReason: reason,
+    _ts: Date.now()
+  });
+  // 4. إشعار
+  pushN('↩️ إرجاع للمخزن: '+(it.name||itemId)+' من '+(site.name||siteId)+' → '+warehouse);
+  closeModal();
+  toast('✅ تم إرجاع المادة إلى مستودع '+warehouse);
+  // إعادة تحميل الصفحة
+  setTimeout(function(){pgSiteInventory();},500);
 }
 
 function confirmMove(i,src,isOut){
   const item=DB.inv[src][i], dest=val('mds'), notes=val('mnt');
   const newStatus = val('mv-status') || (isOut?'deployed':'warehouse');
   const installPoint = val('mv-point')||'';
+  const receiver = isOut?(val('mv-receiver')||''):'';
+  const sender = isOut?CU.name:'';
   if(!item){ closeModal(); return; }
+  if(isOut && !receiver){ toast('يرجى إدخال اسم المستلم','err'); return; }
   const icon = allT()[item.type]?.icon||'';
   fbPush('moves',{
     name:icon+' '+(item.name||item.serial||''),
     dir:isOut?'out':'in', from:src, to:dest,
     by:CU.name, date:ts(), notes,
-    status:newStatus, point:installPoint, _ts:Date.now()
+    status:newStatus, point:installPoint,
+    receiver: receiver, sender: sender,
+    _ts:Date.now()
   });
   if(isOut){
     fbDel('inv/'+fbKey(src)+'/'+item.id);
@@ -2170,16 +2267,17 @@ function pgMoves(){
   $('page').innerHTML=`
   <div class="ph"><div class="pt">🔄 سجل حركة المواد (${DB.moves.length})</div></div>
   <div class="tw"><table>
-    <thead><tr><th>العنصر</th><th>الحركة</th><th>من</th><th>إلى</th><th>بواسطة</th><th>ملاحظات</th><th>التاريخ</th></tr></thead>
+    <thead><tr><th>العنصر</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th></tr></thead>
     <tbody>
-      ${DB.moves.length===0?`<tr class="erow"><td colspan="7">لا حركات مسجلة</td></tr>`:
+      ${DB.moves.length===0?`<tr class="erow"><td colspan="8">لا حركات مسجلة</td></tr>`:
         [...DB.moves].reverse().map(m=>`<tr>
           <td class="tm">${esc(m.name)}</td>
           <td><span class="badge" style="background:${m.dir==='out'?'#f8514922':'#3fb95022'};color:${m.dir==='out'?'var(--rd)':'var(--gn)'}">
             ${m.dir==='out'?'↑ صرف':'↓ إيداع'}</span></td>
           <td style="color:var(--mt)">${esc(m.from||'—')}</td>
           <td style="color:var(--mt)">${esc(m.to||'—')}</td>
-          <td style="color:var(--mt)">${esc(m.by)}</td>
+          <td style="color:var(--mt)">${esc(m.sender||m.by||'—')}</td>
+          <td style="color:var(--mt);font-weight:${m.receiver?'700':'400'}">${esc(m.receiver||'—')}</td>
           <td style="color:var(--mt);font-size:12px">${esc(m.notes||'—')}</td>
           <td style="color:var(--mt);font-size:12px;white-space:nowrap">${esc(m.date)}</td>
         </tr>`).join('')}
@@ -5398,8 +5496,18 @@ function exportFixedAssetsFromInv(){
   var today=fmtDate(new Date().toISOString());
   var sites=DB.fieldSites||[];
   if(!sites.length){toast('لا مواقع ميدانية','warn');return;}
-  // إذا كان هناك موقع محدد في جرد الموجودات، نصدّره وحده؛ وإلا نصدّر الكل
-  var targetSites=window._invSite?sites.filter(function(s){return s.id===window._invSite;}):sites;
+  var isMain=isMainSite(ISITE);
+  var targetSites;
+  if(window._invSite){
+    // موقع محدد في صفحة جرد الموجودات
+    targetSites=sites.filter(function(s){return s.id===window._invSite;});
+  } else if(isMain){
+    // المستودع المركزي → كل المواقع
+    targetSites=sites;
+  } else {
+    // مستودع محدد → فقط المواقع المرتبطة به
+    targetSites=sites.filter(function(s){return s.warehouse===ISITE;});
+  }
   if(!targetSites.length) targetSites=sites;
   var allRows=[];
   var pending=targetSites.length;
@@ -5450,9 +5558,16 @@ function exportFixedAssetsFromInv(){
 
 function exportWarehouseOnly(){
   if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
-  var site=ISITE;
-  var sItems=(DB.inv[site]||[]).filter(function(it){return it.status==='warehouse'||it.status==='returned'||!it.status;});
+  var isMain=isMainSite(ISITE);
+  var exportSites=isMain?DB.sites:[ISITE];
+  var allItems=[];
+  exportSites.forEach(function(site){
+    (DB.inv[site]||[]).filter(function(it){return it.status==='warehouse'||it.status==='returned'||!it.status;})
+    .forEach(function(it){allItems.push({_site:site,item:it});});
+  });
+  var sItems=allItems;
   if(!sItems.length){toast('لا مواد في المخزن للتصدير','warn');return;}
+  var site=isMain?'كل المستودعات':ISITE;
   var AT=allT();
   // تجميع بالنوع لحساب الكميات
   var byType={};
@@ -5463,12 +5578,14 @@ function exportWarehouseOnly(){
   });
   var totalTypes=Object.keys(byType).length;
   var totalQty=sItems.reduce(function(s,it){return s+(parseInt(it.qty)||1);},0);
-  var h=['النوع','الاسم','السيريال','الموديل','الشركة','العدد','الحالة','أضيف بواسطة','التاريخ'];
   var tableRows='';
-  sItems.forEach(function(it){
+  var h=isMain?['المستودع','النوع','الاسم','السيريال','الموديل','الشركة','العدد','الحالة','أضيف بواسطة','التاريخ']:['النوع','الاسم','السيريال','الموديل','الشركة','العدد','الحالة','أضيف بواسطة','التاريخ'];
+  sItems.forEach(function(entry){
+    var it=isMain?entry.item:entry.item||entry;
+    var siteName=isMain?entry._site:'';
     var typeLbl=AT[it.type]?AT[it.type].label:(it.type||'');
     var qty=parseInt(it.qty)||1;
-    var row=[typeLbl,it.name||'',it.serial||'',it.model||'',it.mfr||'',qty,it.status||'warehouse',it.addedBy||'',fmtDate(it.addedAt)];
+    var row=isMain?[siteName,typeLbl,it.name||'',it.serial||'',it.model||'',it.mfr||'',qty,it.status||'warehouse',it.addedBy||'',fmtDate(it.addedAt)]:[typeLbl,it.name||'',it.serial||'',it.model||'',it.mfr||'',qty,it.status||'warehouse',it.addedBy||'',fmtDate(it.addedAt)];
     tableRows+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
   });
   var today=fmtDate(new Date().toISOString());
@@ -5480,7 +5597,7 @@ function exportWarehouseOnly(){
   var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
-  a.href=url;a.download='مخزن_'+site+'_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.href=url;a.download='مخزن_'+site.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+today+'.xls';
   a.click();URL.revokeObjectURL(url);
   toast('✅ تم تصدير '+sItems.length+' مادة من المخزن');
 }
@@ -5489,29 +5606,32 @@ function exportDeployedOnly(){
   if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   var site=ISITE;
   var AT=allT();
-  // كاميرات منصوبة فقط (نوع camera)
-  var camTypes=Object.keys(AT).filter(function(k){return AT[k].label&&(AT[k].label.indexOf('كاميرا')>=0||AT[k].label.indexOf('Camera')>=0||k==='camera'||k==='cam');});
-  var sItems=(DB.inv[site]||[]).filter(function(it){
-    return it.status==='deployed'&&(camTypes.indexOf(it.type)>=0||it.type==='camera'||it.type==='cam'||(it.cT&&it.cT.length>0));
+  var isMain=isMainSite(ISITE);
+  var exportSites=isMain?DB.sites:[ISITE];
+  var siteLabel=isMain?'كل المستودعات':ISITE;
+  // كاميرات وجميع المنصوبات
+  var allDeployed=[];
+  exportSites.forEach(function(s){
+    (DB.inv[s]||[]).filter(function(it){return it.status==='deployed';})
+    .forEach(function(it){allDeployed.push({_site:s,item:it});});
   });
-  // إذا لم يوجد تصفية بالكاميرا، خذ كل المنصوبات
-  if(!sItems.length){
-    sItems=(DB.inv[site]||[]).filter(function(it){return it.status==='deployed';});
-  }
+  var sItems=allDeployed;
   if(!sItems.length){toast('لا كاميرات منصوبة للتصدير','warn');return;}
   var today=fmtDate(new Date().toISOString());
-  var h=['النوع','الاسم','السيريال','موقع النصب','الموديل','الشركة','العدد','أضيف بواسطة','التاريخ'];
   var tableRows='';
-  sItems.forEach(function(it){
+  var h2=isMain?['المستودع','النوع','الاسم','السيريال','موقع النصب','الموديل','الشركة','العدد','أضيف بواسطة','التاريخ']:['النوع','الاسم','السيريال','موقع النصب','الموديل','الشركة','العدد','أضيف بواسطة','التاريخ'];
+  sItems.forEach(function(entry){
+    var it=entry.item||entry;
+    var siteName=isMain?(entry._site||''):'';
     var typeLbl=AT[it.type]?AT[it.type].label:(it.cT||it.type||'');
     var qty=parseInt(it.qty)||1;
-    var row=[typeLbl,it.name||it.serial||'',it.serial||'',it.installedAt||it.installDesc||'',it.model||'',it.mfr||'',qty,it.addedBy||'',fmtDate(it.addedAt)];
+    var row=isMain?[siteName,typeLbl,it.name||it.serial||'',it.serial||'',it.installedAt||it.installDesc||'',it.model||'',it.mfr||'',qty,it.addedBy||'',fmtDate(it.addedAt)]:[typeLbl,it.name||it.serial||'',it.serial||'',it.installedAt||it.installDesc||'',it.model||'',it.mfr||'',qty,it.addedBy||'',fmtDate(it.addedAt)];
     tableRows+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
   });
   var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a7f37;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f0fff4}.summary{background:#e8fff0;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px}</style></head><body>';
-  xls+='<h2>📷 الكاميرات المنصوبة — '+site+'</h2>';
-  xls+='<div class="summary">📊 إجمالي الكاميرات المنصوبة: <b>'+sItems.length+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
-  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
+  xls+='<h2>📷 الكاميرات المنصوبة — '+siteLabel+'</h2>';
+  xls+='<div class="summary">📊 إجمالي المنصوبات: <b>'+sItems.length+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
+  xls+='<table><thead><tr>'+h2.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
   xls+='</body></html>';
   var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
   var url=URL.createObjectURL(blob);
