@@ -5394,44 +5394,57 @@ function fmtDateTime(val){
 
 function exportFixedAssetsFromInv(){
   if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
-  var site=ISITE;
+  // نستخدم الموقع الميداني المحدد حالياً، أو نصدّر كل المواقع
   var today=fmtDate(new Date().toISOString());
-  FBDB.ref('cctv/siteInventory/'+site).once('value').then(function(snap){
-    var points=snap.val()?Object.values(snap.val()):[];
-    var rows=[];
-    points.forEach(function(pt){
-      var items=pt.items?Object.values(pt.items):[];
-      items.forEach(function(it){
-        rows.push({
-          point: pt.name||'',
-          name: it.name||'',
-          qty: parseInt(it.qty)||1,
-          serial: it.serial||'',
-          status: it.status||'',
-          notes: it.notes||'',
-          date: fmtDate(it.date)
+  var sites=DB.fieldSites||[];
+  if(!sites.length){toast('لا مواقع ميدانية','warn');return;}
+  // إذا كان هناك موقع محدد في جرد الموجودات، نصدّره وحده؛ وإلا نصدّر الكل
+  var targetSites=window._invSite?sites.filter(function(s){return s.id===window._invSite;}):sites;
+  if(!targetSites.length) targetSites=sites;
+  var allRows=[];
+  var pending=targetSites.length;
+  targetSites.forEach(function(site){
+    FBDB.ref('cctv/siteInventory/'+site.id).once('value').then(function(snap){
+      var points=snap.val()?Object.values(snap.val()):[];
+      points.forEach(function(pt){
+        var items=pt.items?Object.values(pt.items):[];
+        items.forEach(function(it){
+          allRows.push({
+            site: site.name||site.id,
+            point: pt.name||'',
+            name: it.name||'',
+            qty: parseInt(it.qty)||1,
+            serial: it.serial||'',
+            status: it.status||'',
+            notes: it.notes||'',
+            date: fmtDate(it.date)
+          });
         });
       });
-    });
-    if(!rows.length){toast('لا موجودات ثابتة للتصدير','warn');return;}
-    var totalQty=rows.reduce(function(s,r){return s+r.qty;},0);
-    var h=['النقطة','الاسم','العدد','السيريال','الحالة','ملاحظات','التاريخ'];
-    var tableRows='';
-    rows.forEach(function(r){
-      tableRows+='<tr><td>'+esc(r.point)+'</td><td>'+esc(r.name)+'</td><td>'+r.qty+'</td><td>'+esc(r.serial)+'</td><td>'+esc(r.status)+'</td><td>'+esc(r.notes)+'</td><td>'+esc(r.date)+'</td></tr>';
-    });
-    var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#6f42c1;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f8f5ff}.summary{background:#f3eeff;border:1px solid #6f42c1;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px}</style></head><body>';
-    xls+='<h2>🏛️ جرد الموجودات الثابتة — '+site+'</h2>';
-    xls+='<div class="summary">📊 إجمالي العناصر: <b>'+rows.length+'</b> &nbsp;|&nbsp; إجمالي القطع: <b>'+totalQty+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
+      pending--;
+      if(pending===0){
+        if(!allRows.length){toast('لا موجودات ثابتة للتصدير','warn');return;}
+        var totalQty=allRows.reduce(function(s,r){return s+r.qty;},0);
+        var siteLabel=targetSites.length===1?targetSites[0].name:'كل المواقع ('+targetSites.length+')';
+        var h=['الموقع','النقطة','الاسم','العدد','السيريال','الحالة','ملاحظات','التاريخ'];
+        var tableRows='';
+        allRows.forEach(function(r){
+          tableRows+='<tr><td>'+esc(r.site)+'</td><td>'+esc(r.point)+'</td><td>'+esc(r.name)+'</td><td>'+r.qty+'</td><td>'+esc(r.serial)+'</td><td>'+esc(r.status)+'</td><td>'+esc(r.notes)+'</td><td>'+esc(r.date)+'</td></tr>';
+        });
+        var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#6f42c1;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f8f5ff}.summary{background:#f3eeff;border:1px solid #6f42c1;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px}</style></head><body>';
+        xls+='<h2>🏛️ جرد الموجودات الثابتة — '+siteLabel+'</h2>';
+        xls+='<div class="summary">📊 إجمالي العناصر: <b>'+allRows.length+'</b> &nbsp;|&nbsp; إجمالي القطع: <b>'+totalQty+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
     xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
-    xls+='</body></html>';
-    var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
-    var url=URL.createObjectURL(blob);
-    var a=document.createElement('a');
-    a.href=url;
-    a.download='موجودات_ثابتة_'+site+'_'+today+'.xls';
-    a.click();URL.revokeObjectURL(url);
-    toast('✅ تم تصدير '+rows.length+' عنصر');
+        xls+='</body></html>';
+        var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+        var url=URL.createObjectURL(blob);
+        var a=document.createElement('a');
+        a.href=url;
+        a.download='موجودات_ثابتة_'+siteLabel.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+today+'.xls';
+        a.click();URL.revokeObjectURL(url);
+        toast('✅ تم تصدير '+allRows.length+' عنصر من '+siteLabel);
+      }
+    });
   });
 }
 
