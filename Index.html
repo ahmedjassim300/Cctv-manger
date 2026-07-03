@@ -902,6 +902,7 @@ function doLogin(){
 function doLogout(){
   _isLoggingOut = true;
   _loginAttempted = false;
+  localStorage.removeItem('cctv_had_session'); // مسح صريح — لا نريد محاولة استرجاع بعد خروج مقصود
   stopGPSTracking();
   const fab = document.getElementById('quick-fab');
   if(fab) fab.style.display='none';
@@ -956,10 +957,47 @@ function _confirmExit(){
 }
 loadBranding();
 
+// ══════════════════════════════════════════════════════
+//  🔐 نظام مقاومة انقطاع الجلسة — خط دفاع إضافي
+//  يعمل جنباً إلى جنب مع setPersistence(LOCAL) وليس بديلاً عنه
+// ══════════════════════════════════════════════════════
+const SESSION_FLAG_KEY = 'cctv_had_session';
+let _sessionRecoveryTimer = null;
+let _sessionRecoveryAttempted = false;
+
 FBAUTH.onAuthStateChanged(function(fbUser){
   if(_isLoggingOut) return; // تجاهل أي حدث أثناء تسجيل الخروج
+
   if(!fbUser){
-    // إخفاء Splash وإظهار شاشة الدخول
+    // هل كان هناك جلسة سابقة محفوظة؟ (يعني المستخدم سجّل دخول قبل ولم يخرج يدوياً)
+    const hadSession = localStorage.getItem(SESSION_FLAG_KEY) === '1';
+
+    if(hadSession && !_sessionRecoveryAttempted){
+      // ⏳ ننتظر قليلاً قبل الحكم بأن الجلسة انتهت فعلاً —
+      // أحياناً Firebase يحتاج وقتاً لاسترجاع التوكن من IndexedDB
+      // خصوصاً بعد إعادة تشغيل كاملة للمتصفح/التطبيق
+      _sessionRecoveryAttempted = true;
+      const splash = $('splash');
+      if(splash){
+        splash.style.display='flex';
+        const splashMsg = splash.querySelector('.sp-sub');
+        if(splashMsg) splashMsg.textContent='جاري استعادة الجلسة...';
+      }
+      _sessionRecoveryTimer = setTimeout(function(){
+        // انتهت المهلة ولم تُسترجع الجلسة فعلاً → نعرض شاشة الدخول الآن
+        localStorage.removeItem(SESSION_FLAG_KEY);
+        const splash2 = $('splash');
+        if(splash2) splash2.style.display='none';
+        $('ls').style.display='flex';
+        const btn=$('login-btn');
+        if(btn){ btn.disabled=false; btn.textContent='تسجيل الدخول'; }
+        _loginAttempted = false;
+      }, 4000); // 4 ثوانٍ مهلة كافية لاسترجاع IndexedDB دون إزعاج المستخدم
+      return;
+    }
+
+    // لا توجد جلسة سابقة، أو انتهت مهلة الاسترجاع فعلاً → شاشة دخول عادية
+    if(_sessionRecoveryTimer) clearTimeout(_sessionRecoveryTimer);
     const splash = $('splash');
     if(splash) splash.style.display='none';
     $('ls').style.display='flex';
@@ -968,6 +1006,11 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     _loginAttempted = false;
     return;
   }
+
+  // ✅ نجحت استعادة الجلسة أو تسجيل دخول جديد — نحفظ البصمة ونلغي أي مؤقت انتظار
+  if(_sessionRecoveryTimer){ clearTimeout(_sessionRecoveryTimer); _sessionRecoveryTimer=null; }
+  localStorage.setItem(SESSION_FLAG_KEY, '1');
+
   console.log('Auth OK, uid:', fbUser.uid, 'email:', fbUser.email);
   // جلب بيانات المستخدم من قاعدة البيانات
   FBDB.ref('cctv/users/'+fbUser.uid).once('value').then(snap=>{
