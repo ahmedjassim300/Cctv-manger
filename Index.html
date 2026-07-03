@@ -5539,7 +5539,7 @@ function exportFixedAssetsFromInv(){
         allRows.forEach(function(r){
           tableRows+='<tr><td>'+esc(r.site)+'</td><td>'+esc(r.point)+'</td><td>'+esc(r.name)+'</td><td>'+r.qty+'</td><td>'+esc(r.serial)+'</td><td>'+esc(r.status)+'</td><td>'+esc(r.notes)+'</td><td>'+esc(r.date)+'</td></tr>';
         });
-        var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#6f42c1;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f8f5ff}.summary{background:#f3eeff;border:1px solid #6f42c1;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px}</style></head><body>';
+        var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#6f42c1;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f8f5ff}.summary{background:#f3eeff;border:1px solid #6f42c1;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:16px}</style></head><body>';
         xls+='<h2>🏛️ جرد الموجودات الثابتة — '+siteLabel+'</h2>';
         xls+='<div class="summary">📊 إجمالي العناصر: <b>'+allRows.length+'</b> &nbsp;|&nbsp; إجمالي القطع: <b>'+totalQty+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
     xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
@@ -5589,7 +5589,7 @@ function exportWarehouseOnly(){
     tableRows+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
   });
   var today=fmtDate(new Date().toISOString());
-  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}.summary{background:#e8f4fd;border:1px solid #0969da;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px}</style></head><body>';
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#0969da;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}.summary{background:#e8f4fd;border:1px solid #0969da;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:16px}h2{font-size:18px;font-weight:600}</style></head><body>';
   xls+='<h2>📦 مواد المخزن — '+site+'</h2>';
   xls+='<div class="summary">📊 إجمالي الأنواع: <b>'+totalTypes+'</b> &nbsp;|&nbsp; إجمالي القطع: <b>'+totalQty+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
   xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
@@ -5602,43 +5602,63 @@ function exportWarehouseOnly(){
   toast('✅ تم تصدير '+sItems.length+' مادة من المخزن');
 }
 
+function toDMSFull(deg, isLat){
+  if(deg===undefined||deg===null||isNaN(deg)) return '';
+  var abs=Math.abs(deg);
+  var d=Math.floor(abs);
+  var mf=(abs-d)*60;
+  var m=Math.floor(mf);
+  var s=((mf-m)*60).toFixed(1);
+  var dir=isLat?(deg<0?'S':'N'):(deg<0?'W':'E');
+  return d+"°"+m+"'"+s+'"'+dir;
+}
+
 function exportDeployedOnly(){
   if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
-  var site=ISITE;
-  var AT=allT();
   var isMain=isMainSite(ISITE);
-  var exportSites=isMain?DB.sites:[ISITE];
+  // المواقع الميدانية المرتبطة بالمستودع الحالي (أو كل المواقع إن كان المستودع المركزي)
+  var targetSites=isMain?(DB.fieldSites||[]):(DB.fieldSites||[]).filter(function(s){return s.warehouse===ISITE;});
   var siteLabel=isMain?'كل المستودعات':ISITE;
-  // كاميرات وجميع المنصوبات
-  var allDeployed=[];
-  exportSites.forEach(function(s){
-    (DB.inv[s]||[]).filter(function(it){return it.status==='deployed';})
-    .forEach(function(it){allDeployed.push({_site:s,item:it});});
+  var rows=[];
+  targetSites.forEach(function(fs){
+    (fs.cameras||[]).forEach(function(c){
+      rows.push({
+        site: fs.name||fs.id,
+        name: c.name||c.serial||'',
+        cT: c.cT||'',
+        serial: c.serial||'',
+        model: c.model||'',
+        installDesc: c.installDesc||c.dc||'',
+        dir: c.dir||'',
+        lat: c.lat,
+        lng: c.lng
+      });
+    });
   });
-  var sItems=allDeployed;
-  if(!sItems.length){toast('لا كاميرات منصوبة للتصدير','warn');return;}
+  if(!rows.length){toast('لا كاميرات منصوبة للتصدير','warn');return;}
   var today=fmtDate(new Date().toISOString());
   var tableRows='';
-  var h2=isMain?['المستودع','النوع','الاسم','السيريال','موقع النصب','الموديل','الشركة','العدد','أضيف بواسطة','التاريخ']:['النوع','الاسم','السيريال','موقع النصب','الموديل','الشركة','العدد','أضيف بواسطة','التاريخ'];
-  sItems.forEach(function(entry){
-    var it=entry.item||entry;
-    var siteName=isMain?(entry._site||''):'';
-    var typeLbl=AT[it.type]?AT[it.type].label:(it.cT||it.type||'');
-    var qty=parseInt(it.qty)||1;
-    var row=isMain?[siteName,typeLbl,it.name||it.serial||'',it.serial||'',it.installedAt||it.installDesc||'',it.model||'',it.mfr||'',qty,it.addedBy||'',fmtDate(it.addedAt)]:[typeLbl,it.name||it.serial||'',it.serial||'',it.installedAt||it.installDesc||'',it.model||'',it.mfr||'',qty,it.addedBy||'',fmtDate(it.addedAt)];
+  var h2=isMain?['الموقع','الاسم','النوع','السيريال','الموديل','موقع التنصيب','الاتجاه','خط العرض DMS','خط الطول DMS']
+               :['الاسم','النوع','السيريال','الموديل','موقع التنصيب','الاتجاه','خط العرض DMS','خط الطول DMS'];
+  rows.forEach(function(r){
+    var latDMS=toDMSFull(r.lat,true);
+    var lngDMS=toDMSFull(r.lng,false);
+    var dirTxt=r.dir?(r.dir+'°'):'';
+    var row=isMain?[r.site,r.name,r.cT,r.serial,r.model,r.installDesc,dirTxt,latDMS,lngDMS]
+                  :[r.name,r.cT,r.serial,r.model,r.installDesc,dirTxt,latDMS,lngDMS];
     tableRows+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
   });
-  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a7f37;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f0fff4}.summary{background:#e8fff0;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px}</style></head><body>';
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:16px}th{background:#1a7f37;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f0fff4}.summary{background:#e8fff0;border:1px solid #1a7f37;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:16px}h2{font-size:18px;font-weight:600}</style></head><body>';
   xls+='<h2>📷 الكاميرات المنصوبة — '+siteLabel+'</h2>';
-  xls+='<div class="summary">📊 إجمالي المنصوبات: <b>'+sItems.length+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
+  xls+='<div class="summary">📊 إجمالي الكاميرات: <b>'+rows.length+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
   xls+='<table><thead><tr>'+h2.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>';
   xls+='</body></html>';
   var blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
-  a.href=url;a.download='منصوبات_'+site+'_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.href=url;a.download='كاميرات_منصوبة_'+siteLabel.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+today+'.xls';
   a.click();URL.revokeObjectURL(url);
-  toast('✅ تم تصدير '+sItems.length+' مادة منصوبة');
+  toast('✅ تم تصدير '+rows.length+' كاميرا');
 }
 
 function exportFilteredInv(){
@@ -5675,9 +5695,9 @@ function exportFilteredInv(){
   htmlStr+='<style>body{font-family:Arial;direction:rtl}';
   htmlStr+='h2{color:#0969da;margin-bottom:4px}';
   htmlStr+='.info{color:#666;font-size:12px;margin-bottom:12px}';
-  htmlStr+='table{width:100%;border-collapse:collapse;font-size:12px}';
-  htmlStr+='th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}';
-  htmlStr+='td{border:1px solid #ddd;padding:6px 10px}';
+  htmlStr+='table{width:100%;border-collapse:collapse}';
+  htmlStr+='th{background:#0969da;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}';
+  htmlStr+='td{border:1px solid #ddd;padding:8px 12px;font-size:16px}';
   htmlStr+='tr:nth-child(even) td{background:#f5f8ff}';
   htmlStr+='</style></head><body>';
   htmlStr+='<h2>📦 تقرير المخزن — '+esc(ISITE)+'</h2>';
@@ -7759,7 +7779,7 @@ function exportSiteInventory(siteId, siteName){
     // بناء HTML Table يفتحه Excel بشكل صحيح كجداول
     let html = '<html dir="rtl" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">';
     html += '<head><meta charset="utf-8">';
-    html += '<style>table{border-collapse:collapse}th,td{border:1px solid #999;padding:6px 10px;font-family:Arial;font-size:12px}th{background:#1e3a5f;color:#fff;font-weight:bold}tr:nth-child(even) td{background:#f0f4f8}</style>';
+    html += '<style>table{border-collapse:collapse}th,td{border:1px solid #999;padding:8px 12px;font-family:Arial;font-size:16px}th{background:#1e3a5f;color:#fff;font-weight:600;font-size:18px}tr:nth-child(even) td{background:#f0f4f8}</style>';
     html += '</head><body><table>';
     rows.forEach((row, ri)=>{
       html += '<tr>';
@@ -8778,9 +8798,9 @@ function printFullReport(totalFaults,openF,resolvedF,highF,avgSLA,totalItems,dep
     .card{border:1px solid #ddd;border-radius:8px;padding:14px;text-align:center}
     .card .val{font-size:28px;font-weight:700}
     .card .lbl{font-size:12px;color:#666;margin-top:4px}
-    table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
-    th{background:#1e3a5f;color:#fff;padding:8px;text-align:right}
-    td{border:1px solid #ddd;padding:6px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th{background:#1e3a5f;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}
+    td{border:1px solid #ddd;padding:8px 12px;font-size:16px}
     tr:nth-child(even){background:#f5f5f5}
     .sec{font-weight:700;font-size:15px;margin:20px 0 8px;color:#1d4ed8;border-bottom:2px solid #1d4ed8;padding-bottom:4px}
     @media print{.no-print{display:none}}
@@ -9130,7 +9150,7 @@ function exportFieldSiteExcel(siteId){
   var site=DB.fieldSites.find(function(s){return s.id===siteId;});
   if(!site){toast('الموقع غير موجود','err');return;}
   var AT=allT();
-  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#0969da}h3{color:#1a7f37;border-bottom:2px solid #1a7f37;padding-bottom:4px;margin-top:20px}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px}th{background:#1a2332;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#0969da}h3{color:#1a7f37;border-bottom:2px solid #1a7f37;padding-bottom:4px;margin-top:20px}table{width:100%;border-collapse:collapse;margin-bottom:20px}th{background:#1a2332;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
   xls+='<h2>🗺️ تصدير الموقع الميداني — '+esc(site.name)+'</h2>';
   xls+='<p style="color:#666">تاريخ التصدير: '+fmtDate(new Date().toISOString())+'</p>';
 
@@ -9216,7 +9236,7 @@ function exportTechPerformance(){
   var today=fmtDate(new Date().toISOString());
   var periodLabel=(filterFrom?filterFrom:'البداية')+' → '+(filterTo?filterTo:'اليوم');
 
-  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#1a2332}h3{color:#0969da;border-bottom:2px solid #0969da;padding-bottom:4px;margin-top:20px}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px}th{background:#1a2332;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}.summary{background:#e8f4fd;border:1px solid #0969da;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:13px}.perf-card{margin-bottom:24px}</style></head><body>';
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}h2{color:#1a2332}h3{color:#0969da;border-bottom:2px solid #0969da;padding-bottom:4px;margin-top:20px}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#1a2332;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}.summary{background:#e8f4fd;border:1px solid #0969da;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:16px}.perf-card{margin-bottom:24px}</style></head><body>';
   xls+='<h2>📈 أداء الفنيين والكوادر</h2>';
   xls+='<div class="summary">📅 الفترة: <b>'+periodLabel+'</b> &nbsp;|&nbsp; إجمالي السجلات: <b>'+logs.length+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>';
 
@@ -9258,7 +9278,7 @@ function exportActLogExcel(){
   if(dateTo){var dt=new Date(dateTo);dt.setDate(dt.getDate()+1);logs=logs.filter(function(l){return new Date(l._ts||0)<=dt;});}
   if(!logs.length){toast('لا سجلات للتصدير','warn');return;}
   var h=['الاسم','الدور','الإجراء','التفاصيل','الوقت'];
-  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a2332;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#1a2332;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
   xls+='<h2>📋 سجل النشاط</h2><p style="color:#666">'+logs.length+' سجل'+(userName?' — '+userName:'')+'</p>';
   xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
   logs.forEach(function(l){
@@ -9285,7 +9305,7 @@ function exportTechMapExcel(){
     return d+'° '+m+"' "+s+'"';
   }
   var h=['الاسم','الدور','آخر ظهور','خط العرض','خط الطول','DMS (خط العرض)','DMS (خط الطول)','Lat,Lng'];
-  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#1a2332;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#1a2332;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
   xls+='<h2>🗺️ مواقع الفنيين</h2><p style="color:#666">'+fmtDate(new Date().toISOString())+'</p>';
   xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
   users.forEach(function(u){
@@ -9314,7 +9334,7 @@ function exportRadioExcel(){
   var devs=DB.radioDevices||[];
   if(!devs.length){toast('لا أجهزة للتصدير','warn');return;}
   var h=['الاسم','الموديل','التردد','الرقم التسلسلي','الحالة','بحوزة','الموقع','ملاحظات'];
-  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#0969da;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
   xls+='<h2>📻 جرد أجهزة المناداة</h2><p style="color:#666">'+devs.length+' جهاز — '+fmtDate(new Date().toISOString())+'</p>';
   xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
   devs.forEach(function(d){
@@ -9335,7 +9355,7 @@ function exportUAVExcel(){
   var devs=DB.uavDevices||[];
   if(!devs.length){toast('لا طائرات للتصدير','warn');return;}
   var h=['الاسم','الشركة','الموديل','النوع','الكاميرا','السيريال','زمن الطيران','المدى','الحالة','الحالة التقنية','بحوزة','الموقع','الملحقات','ملاحظات','التاريخ'];
-  var html='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0969da;color:#fff;padding:7px 10px;text-align:right}td{border:1px solid #ddd;padding:6px 10px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  var html='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#0969da;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
   html+='<h2>🛩️ جرد الطائرات المسيرة</h2><p style="color:#666">'+devs.length+' طائرة — '+fmtDate(new Date().toISOString())+'</p>';
   html+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
   devs.forEach(function(d){
