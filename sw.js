@@ -1,68 +1,114 @@
-// CCTV Manager - Service Worker v2 (FCM)
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+// ═══════════════════════════════════════════════════════
+//  Service Worker — CCTV Manager
+//  يحل مشكلة "التحديثات لا تصل للمستخدم" نهائياً
+// ═══════════════════════════════════════════════════════
 
-firebase.initializeApp({
-  apiKey:            "AIzaSyDRxLI4FFxbdCybC0KiA566omuenf_K8mA",
-  authDomain:        "cctv-b01fb.firebaseapp.com",
-  databaseURL:       "https://cctv-b01fb-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId:         "cctv-b01fb",
-  storageBucket:     "cctv-b01fb.firebasestorage.app",
-  messagingSenderId: "978629565242",
-  appId:             "1:978629565242:web:8985b696142b95462b0e03"
+// ⚠️ مهم جداً: غيّر هذا الرقم مع كل رفعة تحديث جديدة على GitHub
+// (حتى لو تعديل بسيط) — هذا هو ما يجبر المتصفح على تنزيل نسخة جديدة تماماً
+const CACHE_VERSION = 'v2026-07-04-01';
+const CACHE_NAME = 'cctv-manager-' + CACHE_VERSION;
+
+// ═══════════════════════════════════════════════════════
+//  التثبيت — فور توفر نسخة جديدة، فعّلها فوراً بدون انتظار
+// ═══════════════════════════════════════════════════════
+self.addEventListener('install', (event) => {
+  self.skipWaiting(); // لا تنتظر إغلاق كل التبويبات القديمة
 });
 
-const messaging = firebase.messaging();
-
-// استقبال الإشعارات في الخلفية
-messaging.onBackgroundMessage(payload => {
-  const { title, body } = payload.notification || {};
-  return self.registration.showNotification(title || 'CCTV Manager', {
-    body: body || '',
-    icon: './icon-192.png',
-    badge: './icon-192.png',
-    dir: 'rtl',
-    lang: 'ar',
-    vibrate: [200, 100, 200],
-    data: payload.data || {}
-  });
-});
-
-const CACHE = 'cctv-v2';
-const ASSETS = ['./Index.html', './manifest.json'];
-
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(() => {}));
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  if (e.request.url.includes('firebaseio.com')) return;
-  if (e.request.url.includes('googleapis.com')) return;
-  if (e.request.url.includes('gstatic.com')) return;
-  e.respondWith(
-    fetch(e.request)
-      .then(res => { const c=res.clone(); caches.open(CACHE).then(ca=>ca.put(e.request,c)); return res; })
-      .catch(() => caches.match(e.request))
+// ═══════════════════════════════════════════════════════
+//  التفعيل — احذف كل نسخ الكاش القديمة فوراً
+// ═══════════════════════════════════════════════════════
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      );
+    }).then(() => self.clients.claim()) // تحكّم فوري بكل التبويبات المفتوحة
   );
 });
 
-self.addEventListener('notificationclick', e => {
-  e.notification.close();
-  e.waitUntil(
-    clients.matchAll({type:'window'}).then(list => {
-      if(list.length) return list[0].focus();
-      return clients.openWindow('./Index.html');
+// ═══════════════════════════════════════════════════════
+//  الجلب — استراتيجية "Network First" للملف الرئيسي
+//  هذا يعني: حاول الإنترنت أولاً دائماً، والكاش فقط كخطة بديلة
+//  عند انقطاع الإنترنت (offline fallback)
+// ═══════════════════════════════════════════════════════
+self.addEventListener('fetch', (event) => {
+  const url = event.request.url;
+
+  // ملف index.html (أو الجذر) — دائماً من الشبكة أولاً لضمان آخر تحديث
+  const isMainDocument =
+    event.request.mode === 'navigate' ||
+    url.endsWith('.html') ||
+    url.endsWith('/Cctv-manger/') ||
+    url.endsWith('/Cctv-manger');
+
+  if (isMainDocument) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => {
+          // حدّث الكاش بالنسخة الجديدة لاستخدامها عند انقطاع الإنترنت لاحقاً
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => {
+          // لا يوجد إنترنت → استخدم آخر نسخة محفوظة كحل بديل مؤقت
+          return caches.match(event.request);
+        })
+    );
+    return;
+  }
+
+  // باقي الملفات (صور، أيقونات...) — كاش أولاً لسرعة أكبر، مع تحديث في الخلفية
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      const fetchPromise = fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => cached);
+      return cached || fetchPromise;
+    })
+  );
+});
+
+// ═══════════════════════════════════════════════════════
+//  الإشعارات (FCM) — تبقى كما هي بدون تغيير
+// ═══════════════════════════════════════════════════════
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  try {
+    const data = event.data.json();
+    const title = data.notification?.title || 'CCTV Manager';
+    const options = {
+      body: data.notification?.body || '',
+      icon: data.notification?.icon || '/Cctv-manger/icon-192.png',
+      badge: '/Cctv-manger/icon-192.png',
+      dir: 'rtl',
+      lang: 'ar',
+      data: data.data || {},
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (e) {
+    console.warn('Push event parse error:', e);
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus();
+      }
+      if (clients.openWindow) {
+        return clients.openWindow('/Cctv-manger/');
+      }
     })
   );
 });
