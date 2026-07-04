@@ -1256,6 +1256,7 @@ function fbStartSync(){
     DB.siteInventory = data.siteInventory || {};
     DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
     DB.uavDevices = data.uavDevices ? Object.values(data.uavDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+    DB.pwVault = data.pwVault ? Object.values(data.pwVault).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
     // تحميل روابط المستودعات الأب
     if(data.siteParents){
       window._siteParents = data.siteParents
@@ -9086,7 +9087,11 @@ function openEditPwVault(idx){
 }
 
 function savePwVault(idx){
+  const list = DB.pwVault ? [...DB.pwVault] : [];
+  const existing = idx>=0 ? list[idx] : null;
+  const id = existing ? existing.id : gid();
   const rec = {
+    id: id,
     site: val('pwv-site')||'',
     deviceType: val('pwv-type')||'',
     username: val('pwv-user')||'',
@@ -9094,17 +9099,16 @@ function savePwVault(idx){
     notes: val('pwv-notes')||'',
     updatedBy: CU.name,
     updatedAt: ts(),
-    _ts: Date.now()
+    _ts: existing ? (existing._ts||Date.now()) : Date.now()
   };
   if(!rec.password){ toast('كلمة المرور مطلوبة','err'); return; }
-  const list = DB.pwVault ? [...DB.pwVault] : [];
-  if(idx>=0){ list[idx] = {...list[idx], ...rec}; }
-  else { list.push(rec); }
-  fbSet('pwVault', list).then(function(){
+  fbSet('pwVault/'+id, rec).then(function(){
     logVaultAccess((idx>=0?'تعديل':'إضافة')+' سجل كلمة مرور — '+rec.site+' / '+rec.deviceType);
     closeModal();
     toast('✅ تم الحفظ');
-    renderPwVaultList();
+    setTimeout(renderPwVaultList, 300);
+  }).catch(function(err){
+    toast('❌ فشل الحفظ: '+err.message,'err');
   });
 }
 
@@ -9112,11 +9116,11 @@ function deletePwVault(idx){
   if(!confirm('هل تريد حذف هذا السجل نهائياً؟')) return;
   const list = DB.pwVault ? [...DB.pwVault] : [];
   const removed = list[idx];
-  list.splice(idx,1);
-  fbSet('pwVault', list).then(function(){
-    logVaultAccess('حذف سجل كلمة مرور — '+(removed?.site||'')+' / '+(removed?.deviceType||''));
+  if(!removed || !removed.id){ toast('خطأ: سجل غير موجود','err'); return; }
+  fbDel('pwVault/'+removed.id).then(function(){
+    logVaultAccess('حذف سجل كلمة مرور — '+(removed.site||'')+' / '+(removed.deviceType||''));
     toast('🗑️ تم الحذف');
-    renderPwVaultList();
+    setTimeout(renderPwVaultList, 300);
   });
 }
 
