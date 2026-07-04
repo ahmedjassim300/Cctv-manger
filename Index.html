@@ -1408,7 +1408,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault})[page]?.();
   });
 }
 
@@ -1546,6 +1546,7 @@ function pgDash(){
         {id:'techmap',    ic:'🗺️', lb:'مواقع الفنيين',  perm:'users'},
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
         {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'siteinv'},
+        {id:'pwvault', ic:'🔐', lb:'سجل كلمات المرور', perm:'__manager_only__'},
         {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:'radio'},
         {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
@@ -8877,6 +8878,274 @@ const RADIO_STATUS=['مخزن','ميدان','صيانة','مفقود','مسلم'
 const RADIO_BRANDS=['موتورولا','هايتيرا','آيكوم','كينوود','HYT','غيرها'];
 const RADIO_TYPES=['جهاز يدوي','جهاز محمول','جهاز ثابت','مكرر'];
 const RADIO_COND=['جيد جداً','جيد','مقبول','عطل','تالف'];
+
+
+// ══════════════════════════════════════════════════════
+//  🔐 سجل كلمات المرور — للمدير فقط، بقفل مزدوج (Hash)
+// ══════════════════════════════════════════════════════
+
+// دالة SHA-256 عبر Web Crypto API (متوفرة أصلاً بكل المتصفحات الحديثة، بدون مكتبات خارجية)
+async function sha256Hash(text){
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+let _pwVaultUnlocked = false; // يُعاد لـ false في كل مرة يغادر القسم — القفل يُطلب دائماً
+
+const PWVAULT_DEVICE_TYPES = ['كاميرات','NVR','P2P','راوتر','سويچ','أخرى'];
+
+function pgPwVault(){
+  if(CU.role!=='manager'){
+    $('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px">⛔</div><div style="margin-top:12px">هذا القسم للمدير فقط</div></div>';
+    return;
+  }
+  // القفل يُطلب في كل مرة — لا نتحقق من _pwVaultUnlocked القديمة
+  _pwVaultUnlocked = false;
+  checkVaultPasswordExists().then(function(exists){
+    if(!exists){
+      showSetupVaultPassword();
+    } else {
+      showVaultLockScreen();
+    }
+  });
+}
+
+function checkVaultPasswordExists(){
+  return FBDB.ref('cctv/settings/vaultPasswordHash').once('value').then(function(snap){
+    return !!snap.val();
+  });
+}
+
+// أول استخدام — إنشاء كلمة مرور القسم لأول مرة
+function showSetupVaultPassword(){
+  $('page').innerHTML=`
+  <div class="ph"><div class="pt">🔐 سجل كلمات المرور</div></div>
+  <div style="padding:16px;max-width:420px;margin:0 auto">
+    <div class="panel" style="padding:20px">
+      <div style="text-align:center;font-size:40px;margin-bottom:12px">🔒</div>
+      <div style="text-align:center;font-weight:700;margin-bottom:16px">إنشاء كلمة مرور هذا القسم لأول مرة</div>
+      <div class="field"><label>كلمة مرور القسم</label><input type="password" id="vault-setup-pw" placeholder="اختر كلمة مرور قوية"></div>
+      <div class="field"><label>تأكيد كلمة المرور</label><input type="password" id="vault-setup-pw2" placeholder="أعد كتابتها"></div>
+      <div id="vault-setup-err" style="color:var(--rd);font-size:13px;margin-bottom:8px;display:none"></div>
+      <button class="btn btn-bl" style="width:100%" onclick="setupVaultPassword()">إنشاء وحفظ</button>
+    </div>
+  </div>`;
+}
+
+async function setupVaultPassword(){
+  const pw = val('vault-setup-pw')||'';
+  const pw2 = val('vault-setup-pw2')||'';
+  const errEl = $('vault-setup-err');
+  if(pw.length<4){ errEl.style.display='block'; errEl.textContent='كلمة المرور قصيرة جداً (4 أحرف على الأقل)'; return; }
+  if(pw!==pw2){ errEl.style.display='block'; errEl.textContent='كلمتا المرور غير متطابقتين'; return; }
+  const hash = await sha256Hash(pw);
+  await fbSet('settings/vaultPasswordHash', hash);
+  logVaultAccess('تم إنشاء كلمة مرور القسم لأول مرة');
+  _pwVaultUnlocked = true;
+  renderPwVaultList();
+}
+
+// شاشة القفل — تُعرض كل مرة يفتح القسم
+function showVaultLockScreen(){
+  $('page').innerHTML=`
+  <div class="ph"><div class="pt">🔐 سجل كلمات المرور</div></div>
+  <div style="padding:16px;max-width:420px;margin:0 auto">
+    <div class="panel" style="padding:20px">
+      <div style="text-align:center;font-size:40px;margin-bottom:12px">🔒</div>
+      <div style="text-align:center;font-weight:700;margin-bottom:16px">هذا القسم مقفل — أدخل كلمة مرور القسم</div>
+      <div class="field"><input type="password" id="vault-unlock-pw" placeholder="كلمة مرور القسم" onkeydown="if(event.key==='Enter')unlockVault()"></div>
+      <div id="vault-unlock-err" style="color:var(--rd);font-size:13px;margin-bottom:8px;display:none"></div>
+      <button class="btn btn-bl" style="width:100%" onclick="unlockVault()">فتح القسم</button>
+    </div>
+  </div>`;
+  setTimeout(()=>{ const el=$('vault-unlock-pw'); if(el) el.focus(); }, 100);
+}
+
+async function unlockVault(){
+  const pw = val('vault-unlock-pw')||'';
+  const errEl = $('vault-unlock-err');
+  const snap = await FBDB.ref('cctv/settings/vaultPasswordHash').once('value');
+  const storedHash = snap.val();
+  const inputHash = await sha256Hash(pw);
+  if(inputHash===storedHash){
+    _pwVaultUnlocked = true;
+    logVaultAccess('تم فتح قسم كلمات المرور بنجاح');
+    renderPwVaultList();
+  } else {
+    errEl.style.display='block';
+    errEl.textContent='كلمة المرور غير صحيحة';
+    logVaultAccess('⚠️ محاولة فتح فاشلة لقسم كلمات المرور');
+  }
+}
+
+function logVaultAccess(action){
+  try{
+    fbPush('actlog', {
+      name: CU.name, role: CU.role, action: action,
+      details: '', time: ts(), _ts: Date.now()
+    });
+  }catch(e){}
+}
+
+// القفل اليدوي الفوري
+function lockVaultNow(){
+  _pwVaultUnlocked = false;
+  logVaultAccess('تم قفل قسم كلمات المرور يدوياً');
+  pgPwVault();
+}
+
+function renderPwVaultList(){
+  if(CU.role!=='manager' || !_pwVaultUnlocked){ pgPwVault(); return; }
+  const records = DB.pwVault || [];
+  let html = `<div class="ph">
+    <div class="pt">🔐 سجل كلمات المرور</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-bl" onclick="openAddPwVault()">+ إضافة</button>
+      <button class="btn btn-gy" onclick="openChangeVaultPassword()">🔑 تغيير كلمة القسم</button>
+      <button class="btn btn-rd" onclick="lockVaultNow()">🔒 قفل الآن</button>
+    </div>
+  </div>`;
+
+  html += '<div style="padding:0 16px">';
+  if(!records.length){
+    html += '<div class="panel" style="text-align:center;padding:40px;color:var(--mt)"><div style="font-size:40px">🔐</div><div style="margin-top:10px">لا توجد سجلات بعد</div></div>';
+  } else {
+    // تجميع حسب الموقع
+    const bySite = {};
+    records.forEach((r,i)=>{
+      const s = r.site || 'غير محدد';
+      if(!bySite[s]) bySite[s]=[];
+      bySite[s].push({...r, _idx:i});
+    });
+    Object.keys(bySite).forEach(function(siteName){
+      html += `<div style="font-weight:700;margin:16px 0 8px;color:var(--bl)">📍 ${esc(siteName)}</div>`;
+      bySite[siteName].forEach(function(r){
+        const pwId = 'pwv_'+r._idx;
+        html += `<div class="panel" style="padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-weight:600">${esc(r.deviceType||'')}</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="openEditPwVault(${r._idx})">✏️</button>
+              <button class="btn btn-sm btn-rd" onclick="deletePwVault(${r._idx})">🗑️</button>
+            </div>
+          </div>
+          ${r.username?`<div style="font-size:13px;color:var(--mt)">👤 ${esc(r.username)}</div>`:''}
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+            <span id="${pwId}" style="font-family:monospace;background:var(--bg);padding:4px 10px;border-radius:6px;flex:1" data-pw="${esc(r.password||'')}">••••••••</span>
+            <button class="btn btn-sm" onclick="togglePwVisibility('${pwId}')">👁️</button>
+            <button class="btn btn-sm" onclick="copyPwVault('${pwId}')">📋</button>
+          </div>
+          ${r.notes?`<div style="font-size:12px;color:var(--mt);margin-top:6px">📝 ${esc(r.notes)}</div>`:''}
+        </div>`;
+      });
+    });
+  }
+  html += '</div>';
+  $('page').innerHTML = html;
+}
+
+function togglePwVisibility(elId){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const isHidden = el.textContent === '••••••••';
+  el.textContent = isHidden ? el.getAttribute('data-pw') : '••••••••';
+}
+
+function copyPwVault(elId){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const pw = el.getAttribute('data-pw');
+  navigator.clipboard.writeText(pw).then(()=>toast('✅ تم نسخ كلمة المرور')).catch(()=>toast('فشل النسخ','err'));
+}
+
+function openAddPwVault(){
+  const sitesOptions = (DB.sites||[]).map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  const typesOptions = PWVAULT_DEVICE_TYPES.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  openModal(`<div class="mhd">+ إضافة كلمة مرور</div>
+    <div class="field"><label>الموقع</label><select id="pwv-site">${sitesOptions}</select></div>
+    <div class="field"><label>نوع الجهاز</label><select id="pwv-type">${typesOptions}</select></div>
+    <div class="field"><label>اسم المستخدم (اختياري)</label><input id="pwv-user" placeholder="admin"></div>
+    <div class="field"><label>كلمة المرور</label><input id="pwv-pass" placeholder="كلمة المرور"></div>
+    <div class="field"><label>ملاحظات</label><textarea id="pwv-notes" placeholder="IP، بورت، أي تفاصيل إضافية..."></textarea></div>
+    <button class="btn btn-bl" onclick="savePwVault(-1)">💾 حفظ</button>`);
+}
+
+function openEditPwVault(idx){
+  const r = (DB.pwVault||[])[idx];
+  if(!r) return;
+  const sitesOptions = (DB.sites||[]).map(s=>`<option value="${esc(s)}" ${s===r.site?'selected':''}>${esc(s)}</option>`).join('');
+  const typesOptions = PWVAULT_DEVICE_TYPES.map(t=>`<option value="${esc(t)}" ${t===r.deviceType?'selected':''}>${esc(t)}</option>`).join('');
+  openModal(`<div class="mhd">✏️ تعديل كلمة مرور</div>
+    <div class="field"><label>الموقع</label><select id="pwv-site">${sitesOptions}</select></div>
+    <div class="field"><label>نوع الجهاز</label><select id="pwv-type">${typesOptions}</select></div>
+    <div class="field"><label>اسم المستخدم (اختياري)</label><input id="pwv-user" value="${esc(r.username||'')}"></div>
+    <div class="field"><label>كلمة المرور</label><input id="pwv-pass" value="${esc(r.password||'')}"></div>
+    <div class="field"><label>ملاحظات</label><textarea id="pwv-notes">${esc(r.notes||'')}</textarea></div>
+    <button class="btn btn-bl" onclick="savePwVault(${idx})">💾 حفظ التعديل</button>`);
+}
+
+function savePwVault(idx){
+  const rec = {
+    site: val('pwv-site')||'',
+    deviceType: val('pwv-type')||'',
+    username: val('pwv-user')||'',
+    password: val('pwv-pass')||'',
+    notes: val('pwv-notes')||'',
+    updatedBy: CU.name,
+    updatedAt: ts(),
+    _ts: Date.now()
+  };
+  if(!rec.password){ toast('كلمة المرور مطلوبة','err'); return; }
+  const list = DB.pwVault ? [...DB.pwVault] : [];
+  if(idx>=0){ list[idx] = {...list[idx], ...rec}; }
+  else { list.push(rec); }
+  fbSet('pwVault', list).then(function(){
+    logVaultAccess((idx>=0?'تعديل':'إضافة')+' سجل كلمة مرور — '+rec.site+' / '+rec.deviceType);
+    closeModal();
+    toast('✅ تم الحفظ');
+    renderPwVaultList();
+  });
+}
+
+function deletePwVault(idx){
+  if(!confirm('هل تريد حذف هذا السجل نهائياً؟')) return;
+  const list = DB.pwVault ? [...DB.pwVault] : [];
+  const removed = list[idx];
+  list.splice(idx,1);
+  fbSet('pwVault', list).then(function(){
+    logVaultAccess('حذف سجل كلمة مرور — '+(removed?.site||'')+' / '+(removed?.deviceType||''));
+    toast('🗑️ تم الحذف');
+    renderPwVaultList();
+  });
+}
+
+function openChangeVaultPassword(){
+  openModal(`<div class="mhd">🔑 تغيير كلمة مرور القسم</div>
+    <div class="field"><label>كلمة المرور الحالية</label><input type="password" id="vault-cur-pw"></div>
+    <div class="field"><label>كلمة المرور الجديدة</label><input type="password" id="vault-new-pw"></div>
+    <div class="field"><label>تأكيد كلمة المرور الجديدة</label><input type="password" id="vault-new-pw2"></div>
+    <div id="vault-change-err" style="color:var(--rd);font-size:13px;margin-bottom:8px;display:none"></div>
+    <button class="btn btn-bl" onclick="changeVaultPassword()">تحديث كلمة المرور</button>`);
+}
+
+async function changeVaultPassword(){
+  const cur = val('vault-cur-pw')||'';
+  const nw = val('vault-new-pw')||'';
+  const nw2 = val('vault-new-pw2')||'';
+  const errEl = $('vault-change-err');
+  const snap = await FBDB.ref('cctv/settings/vaultPasswordHash').once('value');
+  const storedHash = snap.val();
+  const curHash = await sha256Hash(cur);
+  if(curHash!==storedHash){ errEl.style.display='block'; errEl.textContent='كلمة المرور الحالية غير صحيحة'; return; }
+  if(nw.length<4){ errEl.style.display='block'; errEl.textContent='كلمة المرور الجديدة قصيرة جداً'; return; }
+  if(nw!==nw2){ errEl.style.display='block'; errEl.textContent='كلمتا المرور الجديدتان غير متطابقتين'; return; }
+  const newHash = await sha256Hash(nw);
+  await fbSet('settings/vaultPasswordHash', newHash);
+  logVaultAccess('تم تغيير كلمة مرور القسم');
+  closeModal();
+  toast('✅ تم تحديث كلمة مرور القسم');
+}
 
 function pgRadio(){
   if(!p('radio')&&CU.role!=='manager'){
