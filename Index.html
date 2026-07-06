@@ -1858,6 +1858,7 @@ function renderInvRows(isMain,allItems,items,AT){
           ${item.status==='warehouse'?'↑ صرف':'↓ إيداع'}</button>`:''}
         ${!isMainV&&item.status==='warehouse'?`<button class="btn btn-sm btn-pu" title="ترحيل" onclick="openTransferItem(${realIdx},'${realSite}')">🔁</button>`:''}
         <button class="btn btn-sm btn-gy" onclick="openEditItemAt(${realIdx},'${realSite}')">✏️</button>
+        ${item.serial?`<button class="btn btn-sm" style="background:#8957e522;color:#8957e5" onclick="openItemTimeline('${esc(item.serial)}')" title="السجل الكامل">📜</button>`:''}
         ${item.status!=='maintenance'?`<button class="btn btn-sm btn-yl" onclick="setMaintAt(${realIdx},'${realSite}')">🔧</button>`:''}
         <button class="btn btn-sm btn-rd" onclick="delItemAt(${realIdx},'${realSite}')">🗑</button>
       </div></td>`:''}
@@ -9310,6 +9311,123 @@ async function changeVaultPassword(){
   logVaultAccess('تم تغيير كلمة مرور القسم');
   closeModal();
   toast('✅ تم تحديث كلمة مرور القسم');
+}
+
+
+// ══════════════════════════════════════════════════════
+//  📜 السجل الكامل (Timeline) لكل معدة — مربوط بالرقم التسلسلي
+// ══════════════════════════════════════════════════════
+
+function openItemTimeline(serial){
+  if(!serial){ toast('لا يوجد رقم تسلسلي لهذه المادة','warn'); return; }
+  const events = [];
+
+  // 1. من المخزن الحالي (كل المستودعات) — حالة "موجود الآن"
+  Object.entries(DB.inv||{}).forEach(function([site, items]){
+    (items||[]).forEach(function(it){
+      if(it.serial===serial){
+        events.push({
+          type:'current', ts: it._ts || (it.addedAt?new Date(it.addedAt).getTime():0),
+          icon:'📍', title:'الحالة الحالية — '+site,
+          detail: (STATUS_LABELS[it.status]||it.status||'في المخزن') + (it.installedAt?(' — '+it.installedAt):''),
+          by: it.addedBy||''
+        });
+      }
+    });
+  });
+
+  // 2. من حركات المواد (صرف/إيداع/إرجاع)
+  (DB.moves||[]).forEach(function(m){
+    if(m.name && m.name.indexOf(serial)>=0 || (m.serial===serial)){
+      events.push({
+        type:'move', ts: m._ts||0,
+        icon: m.dir==='out'?'📤':'📥',
+        title: (m.dir==='out'?'صرف من ':'إيداع في ')+(m.dir==='out'?m.to:m.from),
+        detail: (m.notes||'') + (m.receiver?(' — المستلم: '+m.receiver):'') + (m.returnReason?(' — السبب: '+m.returnReason):''),
+        by: m.sender||m.by||''
+      });
+    }
+  });
+
+  // 3. من الأعطال (مربوطة بـ camSN)
+  (DB.faults||[]).forEach(function(f){
+    if(f.camSN===serial){
+      events.push({
+        type:'fault', ts: f._ts||(f.date?new Date(f.date).getTime():0),
+        icon:'⚠️', title:'عطل — '+(f.location||'')+' / '+(f.pointId||''),
+        detail: f.reason||'', by: f.by||'',
+        status: f.status
+      });
+      // سجل التحديثات على العطل نفسه (log)
+      (f.log||[]).forEach(function(l){
+        events.push({
+          type:'fault_update', ts: l._ts||0,
+          icon:'🔧', title:'تحديث عطل — '+(f.location||''),
+          detail: l.label||'', by: l.by||''
+        });
+      });
+    }
+  });
+
+  // 4. من الكاميرات المنصوبة بالمواقع الميدانية (fieldSites)
+  (DB.fieldSites||[]).forEach(function(fs){
+    (fs.cameras||[]).forEach(function(c){
+      if(c.serial===serial){
+        events.push({
+          type:'deployed_cam', ts: c._ts||0,
+          icon:'📷', title:'كاميرا منصوبة — '+fs.name,
+          detail: (c.installDesc||c.dc||'') + (c.dir?(' — اتجاه '+c.dir+'°'):''),
+          by: c.by||''
+        });
+      }
+    });
+  });
+
+  // ترتيب زمني تنازلي (الأحدث أولاً)
+  events.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+
+  renderItemTimeline(serial, events);
+}
+
+const STATUS_LABELS = {
+  warehouse:'📦 في المخزن', deployed:'✅ منصوب', consumed:'🔘 مصروف',
+  returned:'↩️ راجع للمخزن', maintenance:'🔧 قيد الصيانة'
+};
+
+function renderItemTimeline(serial, events){
+  let html = `<div class="ph">
+    <div><div class="pt">📜 السجل الكامل للمعدة</div>
+    <div class="ps">SN: ${esc(serial)} — ${events.length} حدث مسجّل</div></div>
+    <button class="btn btn-gy" onclick="go('inventory')">◀ رجوع للمخزن</button>
+  </div>`;
+
+  html += '<div style="padding:0 16px 24px">';
+  if(!events.length){
+    html += '<div class="panel" style="text-align:center;padding:40px;color:var(--mt)"><div style="font-size:40px">📜</div><div style="margin-top:10px">لا يوجد سجل أحداث مرتبط بهذا الرقم التسلسلي بعد</div></div>';
+  } else {
+    html += '<div style="position:relative;padding-right:24px">';
+    html += '<div style="position:absolute;right:8px;top:8px;bottom:8px;width:2px;background:var(--br)"></div>';
+    events.forEach(function(e, i){
+      const dateStr = e.ts ? fmtDateTime(e.ts) : '—';
+      const colorMap = {current:'#0969da', move:'#1a7f37', fault:'#f85149', fault_update:'#d29922', deployed_cam:'#8957e5'};
+      const color = colorMap[e.type]||'#8b949e';
+      html += `<div style="position:relative;margin-bottom:18px;padding-right:20px">
+        <div style="position:absolute;right:-4px;top:4px;width:14px;height:14px;border-radius:50%;background:${color};border:3px solid var(--bg)"></div>
+        <div class="panel" style="padding:12px;border-right:3px solid ${color}">
+          <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+            <div style="font-weight:700">${e.icon} ${esc(e.title)}</div>
+            <div style="font-size:11px;color:var(--mt);white-space:nowrap">${dateStr}</div>
+          </div>
+          ${e.detail?`<div style="font-size:13px;color:var(--mt);margin-top:4px">${esc(e.detail)}</div>`:''}
+          ${e.by?`<div style="font-size:11px;color:var(--mt);margin-top:6px">👤 ${esc(e.by)}</div>`:''}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  $('page').innerHTML = html;
+  PAGE = 'itemTimeline';
 }
 
 function pgRadio(){
