@@ -1301,6 +1301,7 @@ function fbStartSync(){
     DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
     DB.uavDevices = data.uavDevices ? Object.values(data.uavDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
     DB.pwVault = data.pwVault ? Object.values(data.pwVault).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+    DB.faultTemplates = data.faultTemplates || [];
     // تحميل روابط المستودعات الأب
     if(data.siteParents){
       window._siteParents = data.siteParents
@@ -2386,6 +2387,7 @@ function pgFaults(){
     <div><div class="pt">⚠️ الأعطال</div><div class="ps">${active} نشط — ${visibleFaults.filter(f=>f.status==='resolved').length} محلول</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>`:''}
+      ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openManageFaultTemplates()">📋 القوالب</button>`:''}
       <button class="btn btn-rd" onclick="openAddFault()">🚨 إبلاغ عن عطل</button>
     </div>
   </div>`;
@@ -2465,7 +2467,11 @@ function openAddFault(){
       <input id="fpt-custom" placeholder="أو اكتب اسم النقطة يدوياً..." style="margin-top:6px">
     </div>
     <div class="field"><label>الرقم التسلسلي (اختياري)</label><input id="fsn" placeholder="SN-XXXXX"></div>
-    <div class="s2 field"><label>سبب العطل *</label><input id="frsn" placeholder="انقطاع الصورة / لا يستجيب..."></div>
+    <div class="s2 field"><label>سبب العطل *</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${renderFaultTemplateButtons('frsn')}
+      </div>
+      <input id="frsn" placeholder="انقطاع الصورة / لا يستجيب..."></div>
     <div class="s2 field"><label>تفاصيل</label><textarea id="fdsc" placeholder="وصف تفصيلي..."></textarea></div>
     <div class="s2 field"><label>الأولوية</label>
       <select id="fpri"><option value="low">🟢 منخفض</option><option value="medium" selected>🟡 متوسط</option><option value="high">🔴 عالي</option></select></div>
@@ -7205,9 +7211,7 @@ function showQuickFault(){
     </div>
     <div class="field"><label>السبب *</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
-        ${['صورة غير واضحة','انقطاع الصورة','كاميرا لا تعمل','خطأ في الزاوية','مشكلة كهربائية','أخرى'].map(r=>
-          `<button type="button" class="btn btn-sm btn-gy" onclick="this.classList.toggle('act');document.getElementById('qf-rsn').value=this.textContent" style="font-size:12px">${r}</button>`
-        ).join('')}
+        ${renderFaultTemplateButtons('qf-rsn')}
       </div>
       <input id="qf-rsn" placeholder="أو اكتب السبب...">
     </div>
@@ -9428,6 +9432,69 @@ function renderItemTimeline(serial, events){
   html += '</div>';
   $('page').innerHTML = html;
   PAGE = 'itemTimeline';
+}
+
+
+// ══════════════════════════════════════════════════════
+//  📋 قوالب الأعطال الجاهزة — قابلة للإدارة من المدير
+// ══════════════════════════════════════════════════════
+const DEFAULT_FAULT_TEMPLATES = [
+  'صورة غير واضحة','انقطاع الصورة','كاميرا لا تعمل','خطأ في الزاوية',
+  'مشكلة كهربائية','انقطاع كهرباء','تلف كيبل','مشكلة شبكة/انترنت',
+  'تلف بسبب عوامل جوية','سرقة أو تخريب متعمد'
+];
+
+function getFaultTemplates(){
+  return (DB.faultTemplates && DB.faultTemplates.length) ? DB.faultTemplates : DEFAULT_FAULT_TEMPLATES;
+}
+
+function renderFaultTemplateButtons(targetInputId){
+  const templates = getFaultTemplates();
+  return templates.map(function(r){
+    return '<button type="button" class="btn btn-sm btn-gy fault-tmpl-btn" '+
+      'onclick="this.classList.toggle(\'act\');document.getElementById(\''+targetInputId+'\').value=this.textContent" '+
+      'style="font-size:12px">'+esc(r)+'</button>';
+  }).join('');
+}
+
+function openManageFaultTemplates(){
+  if(CU.role!=='manager'){ toast('للمدير فقط','err'); return; }
+  const templates = getFaultTemplates();
+  openModal(`${mhd('📋 إدارة قوالب الأعطال')}
+    <div style="font-size:12px;color:var(--mt);margin-bottom:12px">هذي القوالب تظهر كأزرار سريعة عند إضافة أي عطل</div>
+    <div id="tmpl-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      ${templates.map(function(t,i){
+        return '<div style="display:flex;gap:6px;align-items:center">'+
+          '<input value="'+esc(t)+'" id="tmpl-'+i+'" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx)">'+
+          '<button class="btn btn-sm btn-rd" onclick="this.parentElement.remove()">🗑</button></div>';
+      }).join('')}
+    </div>
+    <button class="btn btn-gy btn-fw" onclick="addTmplField()" style="margin-bottom:14px">+ إضافة قالب جديد</button>
+    ${mft('💾 حفظ القوالب','saveFaultTemplates()')}`);
+}
+
+function addTmplField(){
+  const list = document.getElementById('tmpl-list');
+  const idx = list.children.length;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;align-items:center';
+  div.innerHTML = '<input id="tmpl-'+idx+'" placeholder="نص القالب الجديد..." style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx)">'+
+    '<button class="btn btn-sm btn-rd" onclick="this.parentElement.remove()">🗑</button>';
+  list.appendChild(div);
+  div.querySelector('input').focus();
+}
+
+function saveFaultTemplates(){
+  const list = document.getElementById('tmpl-list');
+  const values = Array.from(list.querySelectorAll('input'))
+    .map(function(inp){return inp.value.trim();})
+    .filter(function(v){return v.length>0;});
+  if(!values.length){ toast('أضف قالب واحد على الأقل','err'); return; }
+  fbSet('faultTemplates', values).then(function(){
+    logAct('تحديث قوالب الأعطال', values.length+' قالب');
+    closeModal();
+    toast('✅ تم حفظ القوالب');
+  });
 }
 
 function pgRadio(){
