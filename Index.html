@@ -435,6 +435,10 @@ tr:hover td{background:rgba(255,255,255,.025);}
     <div id="lerr" class="ebox" style="display:none"></div>
     <div class="field"><label>البريد الإلكتروني</label><input id="lu" type="email" placeholder="user@example.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <div class="field"><label>كلمة المرور</label><input id="lp" type="password" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <input type="checkbox" id="lremember" checked style="width:18px;height:18px;accent-color:var(--bl)">
+      <label for="lremember" style="font-size:13px;color:var(--mt);cursor:pointer;margin:0">تذكرني على هذا الجهاز (يمنع تسجيل الخروج التلقائي)</label>
+    </div>
     <button class="btn btn-bl btn-fw" id="login-btn" onclick="doLogin()">تسجيل الدخول</button>
     <div id="lload" style="display:none;text-align:center;margin-top:12px;color:var(--mt);font-size:17px">⏳ جار التحقق...</div>
   </div>
@@ -872,13 +876,25 @@ function badge(s){
 // ═══════════════════════════════════════════════════════
 function doLogin(){
   const email = val('lu'), pw = $('lp').value;
+  const remember = $('lremember') ? $('lremember').checked : true;
   if(!email||!pw){ const e=$('lerr'); e.textContent='أدخل البريد وكلمة المرور'; e.style.display='block'; return; }
   _loginAttempted = true;
   const btn=$('login-btn');
   btn.disabled=true;
   btn.textContent='⏳ جار التحقق...';
   $('lerr').style.display='none';
-  FBAUTH.signInWithEmailAndPassword(email,pw).catch(err=>{
+  FBAUTH.signInWithEmailAndPassword(email,pw).then(function(){
+    if(remember){
+      try{
+        // ترميز بسيط (ليس تشفيراً حقيقياً) لمنع القراءة المباشرة كنص واضح
+        // الحماية الفعلية تعتمد على قفل الجهاز نفسه (بصمة/رمز)
+        const packed = btoa(unescape(encodeURIComponent(JSON.stringify({e:email,p:pw}))));
+        localStorage.setItem('cctv_remember', packed);
+      }catch(e){ console.warn('Remember-me save failed:', e); }
+    } else {
+      localStorage.removeItem('cctv_remember');
+    }
+  }).catch(err=>{
     const msgs={
       'auth/user-not-found':'❌ البريد غير موجود',
       'auth/wrong-password':'❌ كلمة المرور خاطئة',
@@ -903,6 +919,7 @@ function doLogout(){
   _isLoggingOut = true;
   _loginAttempted = false;
   localStorage.removeItem('cctv_had_session'); // مسح صريح — لا نريد محاولة استرجاع بعد خروج مقصود
+  localStorage.removeItem('cctv_remember'); // مسح بيانات "تذكرني" — خروج صريح يعني عدم رغبة بالبقاء متصلاً
   stopGPSTracking();
   const fab = document.getElementById('quick-fab');
   if(fab) fab.style.display='none';
@@ -984,7 +1001,34 @@ FBAUTH.onAuthStateChanged(function(fbUser){
         if(splashMsg) splashMsg.textContent='جاري استعادة الجلسة...';
       }
       _sessionRecoveryTimer = setTimeout(function(){
-        // انتهت المهلة ولم تُسترجع الجلسة فعلاً → نعرض شاشة الدخول الآن
+        // انتهت المهلة ولم تُسترجع الجلسة تلقائياً — نحاول إعادة تسجيل الدخول
+        // ببيانات "تذكرني" المحفوظة محلياً (إن وُجدت) قبل أن نزعج المستخدم بشاشة الدخول
+        const remembered = localStorage.getItem('cctv_remember');
+        if(remembered){
+          try{
+            const decoded = JSON.parse(decodeURIComponent(escape(atob(remembered))));
+            const splash3 = $('splash');
+            if(splash3){
+              const splashMsg3 = splash3.querySelector('.sp-sub');
+              if(splashMsg3) splashMsg3.textContent='جاري إعادة تسجيل الدخول...';
+            }
+            FBAUTH.signInWithEmailAndPassword(decoded.e, decoded.p).catch(function(){
+              // فشلت إعادة الدخول التلقائي (كلمة مرور تغيّرت مثلاً) → شاشة دخول عادية
+              localStorage.removeItem(SESSION_FLAG_KEY);
+              localStorage.removeItem('cctv_remember');
+              const splash4 = $('splash');
+              if(splash4) splash4.style.display='none';
+              $('ls').style.display='flex';
+              const btn2=$('login-btn');
+              if(btn2){ btn2.disabled=false; btn2.textContent='تسجيل الدخول'; }
+              _loginAttempted = false;
+            });
+            return; // ننتظر نتيجة onAuthStateChanged التالية (نجاح أو فشل)
+          }catch(e){
+            console.warn('Remember-me restore failed:', e);
+          }
+        }
+        // لا توجد بيانات محفوظة أصلاً → شاشة دخول عادية
         localStorage.removeItem(SESSION_FLAG_KEY);
         const splash2 = $('splash');
         if(splash2) splash2.style.display='none';
