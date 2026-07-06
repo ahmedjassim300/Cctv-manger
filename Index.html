@@ -6338,29 +6338,48 @@ const BACKUP_INTERVAL_MS = 7*24*60*60*1000; // أسبوع
 const BACKUP_KEEP_COUNT = 4; // آخر شهر تقريباً (4 نسخ أسبوعية)
 
 function autoBackupCheck(){
-  if(CU.role!=='manager') return; // فقط المدير يُشغّل النسخ التلقائي (يتفادى تكرارها من كل مستخدم)
-  FBDB.ref('cctv/backups/_meta/lastAutoBackup').once('value').then(function(snap){
-    const last = snap.val();
-    const now = Date.now();
-    if(!last || (now - last) > BACKUP_INTERVAL_MS){
-      runAutoBackup(now);
+  if(!CU || CU.role!=='manager') return; // فقط المدير يُشغّل النسخ التلقائي
+  // ⚠️ نؤخّرها لثانيتين بعد تحميل الصفحة، حتى لا تنافس رسم الواجهة على موارد الجهاز
+  // (خصوصاً بالهواتف الأضعف، حيث نسخ بيانات ضخمة بنفس لحظة الرسم قد يجمّد الشاشة لحظياً)
+  setTimeout(function(){
+    try{
+      FBDB.ref('cctv/backups/_meta/lastAutoBackup').once('value').then(function(snap){
+        const last = snap.val();
+        const now = Date.now();
+        if(!last || (now - last) > BACKUP_INTERVAL_MS){
+          runAutoBackup(now);
+        }
+      }).catch(function(err){
+        console.warn('Auto-backup check failed:', err.message);
+      });
+    }catch(e){
+      console.warn('Auto-backup check exception:', e.message);
     }
-  }).catch(function(err){
-    console.warn('Auto-backup check failed:', err.message);
-  });
+  }, 2000);
 }
 
 function runAutoBackup(now){
-  const backup = buildFullBackupPayload();
-  const backupId = 'backup_'+now;
-  fbSet('backups/'+backupId, backup).then(function(){
-    fbSet('backups/_meta/lastAutoBackup', now);
-    logAct('نسخة احتياطية تلقائية (أسبوعية)', fmtDate(new Date(now).toISOString()));
-    // تنظيف: الاحتفاظ بآخر BACKUP_KEEP_COUNT نسخ فقط
-    cleanupOldBackups();
-  }).catch(function(err){
-    console.warn('Auto-backup save failed:', err.message);
-  });
+  try{
+    const backup = buildFullBackupPayload();
+    const backupId = 'backup_'+now;
+    // فحص الحجم قبل الرفع — Firebase RTDB يرفض أي كتابة تتجاوز 10MB لكل عملية
+    const sizeCheck = JSON.stringify(backup).length;
+    if(sizeCheck > 8*1024*1024){ // نتوقف عند 8MB كهامش أمان قبل حد الـ10MB
+      console.warn('Auto-backup skipped: payload too large ('+(sizeCheck/1024/1024).toFixed(1)+'MB)');
+      // نسجّل وقت المحاولة بأي حال حتى لا يعيد المحاولة كل دقيقة بلا فائدة
+      fbSet('backups/_meta/lastAutoBackup', now).catch(function(){});
+      return;
+    }
+    fbSet('backups/'+backupId, backup).then(function(){
+      fbSet('backups/_meta/lastAutoBackup', now);
+      logAct('نسخة احتياطية تلقائية (أسبوعية)', fmtDate(new Date(now).toISOString()));
+      cleanupOldBackups();
+    }).catch(function(err){
+      console.warn('Auto-backup save failed:', err.message);
+    });
+  }catch(e){
+    console.warn('Auto-backup exception (caught safely):', e.message);
+  }
 }
 
 function cleanupOldBackups(){
@@ -6374,6 +6393,8 @@ function cleanupOldBackups(){
     });
     const toDelete = ids.slice(0, ids.length - BACKUP_KEEP_COUNT);
     toDelete.forEach(function(id){ fbDel('backups/'+id); });
+  }).catch(function(err){
+    console.warn('cleanupOldBackups failed:', err.message);
   });
 }
 
