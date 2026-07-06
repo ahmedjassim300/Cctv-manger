@@ -6222,28 +6222,45 @@ function checkAutoRefresh(){
 // ═══════════════════════════════════════════════════════
 //  🔐 نسخة احتياطية تلقائية
 // ═══════════════════════════════════════════════════════
-function doBackup(){
-  const backup = {
+function buildFullBackupPayload(){
+  return {
     date: new Date().toISOString(),
-    version: '1.0',
+    version: '2.0',
     data: {
-      faults:    DB.faults,
-      moves:     DB.moves,
-      invoices:  DB.invoices,
-      fieldSites:DB.fieldSites,
-      maintain:  DB.maintain||[],
-      sites:     DB.sites,
-      inv:       DB.inv,
+      faults:        DB.faults||[],
+      moves:         DB.moves||[],
+      invoices:      DB.invoices||[],
+      fieldSites:    DB.fieldSites||[],
+      maintain:      DB.maintain||[],
+      sites:         DB.sites||[],
+      inv:           DB.inv||{},
+      users:         (DB.users||[]).map(function(u){
+                        // لا نُصدّر أي شيء حسّاس زائد؛ الأدوار والصلاحيات فقط
+                        return {uid:u.uid||u.id, name:u.name, role:u.role, perms:u.perms||null};
+                      }),
+      radioDevices:  DB.radioDevices||[],
+      uavDevices:    DB.uavDevices||[],
+      notifs:        DB.notifs||[],
+      actlog:        DB.actlog||[],
+      siteInventory: DB.siteInventory||{},
+      customTypes:   DB.customTypes||{},
+      mainSite:      DB.mainSite||'',
+      // ⚠️ سجل كلمات المرور (pwVault) عمداً غير مُضمَّن هنا لأسباب أمنية —
+      // نسخته الاحتياطية تتم يدوياً ومنفصلة من داخل القسم نفسه إذا احتجتها
     }
   };
+}
+
+function doBackup(){
+  const backup = buildFullBackupPayload();
   const json = JSON.stringify(backup, null, 2);
   const blob = new Blob([json], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'CCTV_Backup_'+new Date().toISOString().split('T')[0]+'.json';
   a.click();
-  toast('✅ تم تصدير النسخة الاحتياطية');
-  logAct('نسخة احتياطية', fmtDate(new Date().toISOString()));
+  toast('✅ تم تصدير نسخة احتياطية شاملة');
+  logAct('نسخة احتياطية يدوية', fmtDate(new Date().toISOString()));
 }
 
 function restoreBackup(input){
@@ -6279,8 +6296,8 @@ function openBackupManager(){
   <div style="display:flex;flex-direction:column;gap:12px">
     <div class="panel" style="text-align:center">
       <div style="font-size:32px;margin-bottom:8px">⬇️</div>
-      <div style="font-weight:600;margin-bottom:4px">تصدير نسخة احتياطية</div>
-      <div style="font-size:12px;color:var(--mt);margin-bottom:12px">يصدر كل البيانات كملف JSON</div>
+      <div style="font-weight:600;margin-bottom:4px">تصدير نسخة احتياطية الآن</div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:12px">يصدر كل البيانات كملف JSON فوراً</div>
       <button class="btn btn-bl btn-fw" onclick="doBackup()">📥 تصدير الآن</button>
     </div>
     <div class="panel" style="text-align:center">
@@ -6290,20 +6307,99 @@ function openBackupManager(){
       <button class="btn btn-gy btn-fw" onclick="document.getElementById('restore-inp').click()">📤 استعادة</button>
       <input id="restore-inp" type="file" accept=".json" style="display:none" onchange="restoreBackup(this)">
     </div>
+    <div class="panel">
+      <div style="font-weight:600;margin-bottom:10px;text-align:center">🗓️ الأرشيف التلقائي الأسبوعي</div>
+      <div id="auto-backup-list" style="font-size:13px;color:var(--mt);text-align:center">⏳ جاري التحميل...</div>
+    </div>
   </div>
   <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
+
+  listAutoBackups().then(function(backups){
+    const el = document.getElementById('auto-backup-list');
+    if(!el) return;
+    if(!backups.length){
+      el.innerHTML = 'لا توجد نسخ تلقائية بعد — تُنشأ أول نسخة تلقائياً خلال أسبوع من الاستخدام';
+      return;
+    }
+    el.innerHTML = backups.map(function(b){
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--br)">
+        <span>${fmtDate(b.date)}</span>
+        <button class="btn btn-sm btn-bl" onclick="downloadAutoBackup('${b.id}')">⬇️ تنزيل</button>
+      </div>`;
+    }).join('');
+  });
 }
 
-// نسخة احتياطية تلقائية كل 24 ساعة في localStorage
+// ══════════════════════════════════════════════════════
+//  🔄 نسخة احتياطية أسبوعية حقيقية — تُخزَّن داخل Firebase نفسه
+//  (أرشيف دوّار: نحتفظ بآخر 4 نسخ فقط لتوفير المساحة)
+// ══════════════════════════════════════════════════════
+const BACKUP_INTERVAL_MS = 7*24*60*60*1000; // أسبوع
+const BACKUP_KEEP_COUNT = 4; // آخر شهر تقريباً (4 نسخ أسبوعية)
+
 function autoBackupCheck(){
-  const last = localStorage.getItem('lastAutoBackup');
-  const now = Date.now();
-  if(!last || now - parseInt(last) > 24*60*60*1000){
-    localStorage.setItem('lastAutoBackup', now.toString());
-    // حفظ نسخة مصغرة في localStorage
-    const mini = {date:new Date().toISOString(), faultsCount:DB.faults.length, movesCount:DB.moves.length};
-    localStorage.setItem('lastBackupMeta', JSON.stringify(mini));
-  }
+  if(CU.role!=='manager') return; // فقط المدير يُشغّل النسخ التلقائي (يتفادى تكرارها من كل مستخدم)
+  FBDB.ref('cctv/backups/_meta/lastAutoBackup').once('value').then(function(snap){
+    const last = snap.val();
+    const now = Date.now();
+    if(!last || (now - last) > BACKUP_INTERVAL_MS){
+      runAutoBackup(now);
+    }
+  }).catch(function(err){
+    console.warn('Auto-backup check failed:', err.message);
+  });
+}
+
+function runAutoBackup(now){
+  const backup = buildFullBackupPayload();
+  const backupId = 'backup_'+now;
+  fbSet('backups/'+backupId, backup).then(function(){
+    fbSet('backups/_meta/lastAutoBackup', now);
+    logAct('نسخة احتياطية تلقائية (أسبوعية)', fmtDate(new Date(now).toISOString()));
+    // تنظيف: الاحتفاظ بآخر BACKUP_KEEP_COUNT نسخ فقط
+    cleanupOldBackups();
+  }).catch(function(err){
+    console.warn('Auto-backup save failed:', err.message);
+  });
+}
+
+function cleanupOldBackups(){
+  FBDB.ref('cctv/backups').once('value').then(function(snap){
+    const data = snap.val()||{};
+    const ids = Object.keys(data).filter(function(k){return k.startsWith('backup_');});
+    if(ids.length <= BACKUP_KEEP_COUNT) return;
+    // ترتيب تصاعدي حسب الرقم الزمني بالمعرّف، وحذف الأقدم
+    ids.sort(function(a,b){
+      return parseInt(a.replace('backup_','')) - parseInt(b.replace('backup_',''));
+    });
+    const toDelete = ids.slice(0, ids.length - BACKUP_KEEP_COUNT);
+    toDelete.forEach(function(id){ fbDel('backups/'+id); });
+  });
+}
+
+// عرض قائمة النسخ الاحتياطية التلقائية المتوفرة (للمدير فقط)
+function listAutoBackups(){
+  return FBDB.ref('cctv/backups').once('value').then(function(snap){
+    const data = snap.val()||{};
+    return Object.keys(data)
+      .filter(function(k){return k.startsWith('backup_');})
+      .map(function(k){return {id:k, date:data[k].date, ts:parseInt(k.replace('backup_',''))};})
+      .sort(function(a,b){return b.ts-a.ts;});
+  });
+}
+
+function downloadAutoBackup(backupId){
+  FBDB.ref('cctv/backups/'+backupId).once('value').then(function(snap){
+    const backup = snap.val();
+    if(!backup){ toast('النسخة غير موجودة','err'); return; }
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'CCTV_AutoBackup_'+backup.date.split('T')[0]+'.json';
+    a.click();
+    toast('✅ تم تنزيل النسخة');
+  });
 }
 
 // ═══════════════════════════════════════════════════════
