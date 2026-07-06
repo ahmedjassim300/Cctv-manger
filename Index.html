@@ -3988,6 +3988,11 @@ function openCamDetail(fsId, ci){
 
     ${c.installDesc?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">📌 موقع التنصيب</div><div>${esc(c.installDesc)}</div></div>`:''}
     ${c.dir?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🧭 الاتجاه</div><div>${esc(c.dir)}</div></div>`:''}
+    ${c.installChecklist?`<div class="panel" style="padding:10px;background:#3fb95015;border-color:#3fb95040">
+      <div style="font-size:11px;color:var(--gn);margin-bottom:4px">✅ قائمة تحقق التنصيب — مكتملة</div>
+      <div style="font-size:12px;color:var(--mt)">📌 تثبيت ✓ &nbsp;🔌 توصيل ✓ &nbsp;🖥️ اختبار ✓ &nbsp;📸 توثيق ✓</div>
+      <div style="font-size:11px;color:var(--mt);margin-top:4px">أكّدها: ${esc(c.installChecklist.confirmedBy||'')} — ${esc(c.installChecklist.confirmedAt||'')}</div>
+    </div>`:''}
     ${hasGPS?`<div class="panel" style="padding:10px;background:#3fb95015;border-color:#3fb95040">
       <div style="font-size:11px;color:var(--gn);margin-bottom:4px">📍 الموقع الجغرافي</div>
       <div style="direction:ltr;font-size:13px">${parseFloat(c.lat).toFixed(6)}, ${parseFloat(c.lng).toFixed(6)}</div>
@@ -4470,8 +4475,39 @@ function showFieldCamForm(fsId,ci,cam){
       </div>
     </div>
   </div>
+  ${ci<0?`
+  <div class="s2 field" style="background:#d2992211;border:1px solid #d2992244;border-radius:10px;padding:12px;margin-top:6px">
+    <label style="color:var(--yl);font-weight:700;margin-bottom:8px;display:block">✅ قائمة تحقق التنصيب (إجبارية)</label>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="chk-mount" onchange="updateCamChecklist()" style="width:18px;height:18px;accent-color:var(--yl)">
+        📌 تم تثبيت الكاميرا فيزيائياً بشكل آمن
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="chk-cable" onchange="updateCamChecklist()" style="width:18px;height:18px;accent-color:var(--yl)">
+        🔌 تم توصيل الكيبل/الشبكة والكهرباء
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="chk-test" onchange="updateCamChecklist()" style="width:18px;height:18px;accent-color:var(--yl)">
+        🖥️ تم اختبار الصورة على NVR/التطبيق والتأكد من وضوحها
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="chk-photo" onchange="updateCamChecklist()" style="width:18px;height:18px;accent-color:var(--yl)">
+        📸 تم توثيق التنصيب بصورة (خارج التطبيق، محفوظة لدي)
+      </label>
+    </div>
+    <div id="chk-warn" style="color:var(--rd);font-size:12px;margin-top:8px">⚠️ يجب إتمام كل البنود أعلاه قبل الحفظ</div>
+  </div>`:''}
   ${mft(ci>=0?'💾 حفظ':'➕ إضافة',"saveFieldCam('"+fsId+"',"+ci+")")}
   <div id="compass-init-marker"></div>`);
+  if(ci<0){
+    setTimeout(function(){
+      const btn = document.querySelector('.mft button.btn-bl, .mft button.btn-rd, .mft button:last-child');
+      // نعطّل زر الحفظ افتراضياً عند الإضافة الجديدة حتى تكتمل القائمة
+      const saveBtn = Array.from(document.querySelectorAll('.mft button')).find(b=>b.textContent.includes('إضافة'));
+      if(saveBtn){ saveBtn.disabled = true; saveBtn.style.opacity='0.5'; }
+    }, 50);
+  }
   // تشغيل البوصلة بعد إدراج الـ HTML في الـ DOM
   setTimeout(()=>initCompass(), 50);
 }
@@ -5174,6 +5210,20 @@ function initCompass(){
 function saveFieldCam(fsId,ci){
   const nm=val('fcnm');
   if(!nm){ toast('أدخل اسم الكاميرا','err'); return; }
+  // فحص خلفي إجباري (طبقة حماية إضافية، بغض النظر عن حالة الزر بالواجهة)
+  let installChecklist = null;
+  if(ci<0){
+    const ids = ['chk-mount','chk-cable','chk-test','chk-photo'];
+    const allChecked = ids.every(function(id){
+      const el = document.getElementById(id);
+      return el && el.checked;
+    });
+    if(!allChecked){ toast('⚠️ أكمل كل بنود قائمة التحقق أولاً','err'); return; }
+    installChecklist = {
+      mounted:true, wired:true, tested:true, photographed:true,
+      confirmedBy: CU.name, confirmedAt: ts()
+    };
+  }
   const fs=DB.fieldSites.find(x=>x.id===fsId); if(!fs) return;
   const cam={
     id:(ci>=0&&fs.cameras[ci]?.id)||gid(),
@@ -5182,7 +5232,8 @@ function saveFieldCam(fsId,ci){
     installDesc:val('fcdc'), dir:val('fcdir'), status:val('fcst'),
     lat:val('fclat'), lng:val('fclng'),
     beamAngle:$('fcba')?.value||70, beamRot:$('fcbr')?.value||0, viewDist:parseFloat($('fcvd')?.value)||50,
-    addedBy:CU.name, addedAt:(ci>=0&&fs.cameras[ci]?.addedAt)||ts()
+    addedBy:CU.name, addedAt:(ci>=0&&fs.cameras[ci]?.addedAt)||ts(),
+    installChecklist: installChecklist || (fs.cameras[ci]?.installChecklist||null)
   };
   // احفظ الكاميرا في مكانها الصحيح في الـ array
   if(ci>=0){
@@ -9495,6 +9546,22 @@ function saveFaultTemplates(){
     closeModal();
     toast('✅ تم حفظ القوالب');
   });
+}
+
+
+function updateCamChecklist(){
+  const ids = ['chk-mount','chk-cable','chk-test','chk-photo'];
+  const allChecked = ids.every(function(id){
+    const el = document.getElementById(id);
+    return el && el.checked;
+  });
+  const saveBtn = Array.from(document.querySelectorAll('.mft button')).find(function(b){return b.textContent.includes('إضافة');});
+  const warnEl = document.getElementById('chk-warn');
+  if(saveBtn){
+    saveBtn.disabled = !allChecked;
+    saveBtn.style.opacity = allChecked ? '1' : '0.5';
+  }
+  if(warnEl) warnEl.style.display = allChecked ? 'none' : 'block';
 }
 
 function pgRadio(){
