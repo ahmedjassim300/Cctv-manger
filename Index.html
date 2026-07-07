@@ -527,7 +527,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
-<script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@latest"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -10076,6 +10076,9 @@ function startSerialScanner(){
     if(typeof ZXing !== 'undefined'){
       startZXingScan(video);
     } else {
+      const statusEl = document.getElementById('sn-scan-status');
+      if(statusEl) statusEl.innerHTML = '⚠️ وضع محدود (QR فقط، بدون Barcode) — تحقق من الإنترنت';
+      console.warn('ZXing library failed to load — falling back to jsQR (QR only, no Barcode support)');
       scanSerialFrameFallback(video);
     }
   })
