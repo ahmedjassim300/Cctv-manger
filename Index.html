@@ -595,6 +595,7 @@ function fbDel(path){ return FBDB.ref('cctv/'+path).remove(); }
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.L=null;console.warn('Leaflet failed to load - map disabled')"></script>
 <script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 // ============================================
 // الكود مع إضافة نظام الصلاحيات لكل موقع
@@ -1675,7 +1676,7 @@ function pgInv(){
         <button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
         <button class="btn" style="background:#d1242f22;color:var(--rd);border:1px solid #d1242f44" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
       `:''}
-      ${CU.role==='manager'?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📷 الكاميرات المنصوبة</button><button class="btn btn-gy" onclick="exportFixedAssetsFromInv()">🏛️ الموجودات الثابتة</button>':''}
+      ${CU.role==='manager'?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📷 الكاميرات المنصوبة</button><button class="btn btn-gy" onclick="exportFixedAssetsFromInv()">🏛️ الموجودات الثابتة</button><button class="btn btn-pu" onclick="openBulkExcelImport(&quot;warehouse&quot;)">📥 استيراد جماعي</button>':''}
     </div>
     </div>
   </div>
@@ -7733,6 +7734,7 @@ function pgSiteInventory(){
         ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openEditFieldSite('${site.id}')">⚙️ ربط مستودع</button>`:''}
         ${CU.role==='manager'||p('addItem')?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
         ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>`:''}
+        ${CU.role==='manager'?`<button class="btn btn-pu" onclick="openBulkExcelImport('siteinv')">📥 استيراد جماعي</button>`:''}
       </div>
     </div>
 
@@ -9672,6 +9674,163 @@ function openHealthScoreDetail(){
       '</div>'
     }
     <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
+}
+
+
+// ══════════════════════════════════════════════════════
+//  📥 استيراد Excel جماعي — للمخزن أو جرد الموجودات الثابتة
+// ══════════════════════════════════════════════════════
+
+function openBulkExcelImport(mode){
+  // mode: 'warehouse' (المخزن) أو 'siteinv' (جرد الموجودات الثابتة)
+  if(CU.role!=='manager'){ toast('الاستيراد الجماعي للمدير فقط','err'); return; }
+  window._bulkImportMode = mode || 'warehouse';
+  window._bulkImportRows = [];
+
+  const siteOptions = mode==='siteinv'
+    ? (DB.fieldSites||[]).map(function(s){return '<option value="'+s.id+'">'+esc(s.name)+'</option>';}).join('')
+    : (DB.sites||[]).map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>';}).join('');
+
+  openModal(`${mhd(mode==='siteinv'?'📥 استيراد جماعي — جرد الموجودات الثابتة':'📥 استيراد جماعي — المخزن')}
+  <div style="font-size:13px;color:var(--mt);margin-bottom:12px">
+    الأعمدة المطلوبة بالملف (بنفس الترتيب): <b style="color:var(--tx)">النوع، الاسم، السيريال، الموديل، الشركة، العدد، الحالة</b><br>
+    السطر الأول (العناوين) يُتجاهل تلقائياً. صيغ مدعومة: xlsx, xls, csv
+  </div>
+  ${mode==='siteinv'?`<div class="field"><label>الموقع الميداني</label><select id="bulk-site">${siteOptions}</select></div>`
+    :`<div class="field"><label>المستودع</label><select id="bulk-site">${siteOptions}</select></div>`}
+  <div class="imp-area" onclick="document.getElementById('bulk-excel-file').click()" id="bulk-imparea">
+    <div style="font-size:36px;margin-bottom:8px">📊</div>
+    <div style="font-weight:700;margin-bottom:4px">انقر لاختيار ملف Excel</div>
+    <div style="font-size:12px;color:var(--mt)">xlsx / xls / csv</div>
+    <input type="file" id="bulk-excel-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBulkExcelFile(this)">
+  </div>
+  <div id="bulk-preview" style="display:none;margin-top:14px"></div>
+  <div class="mft" id="bulk-mft" style="display:none">
+    <button class="btn btn-pu" onclick="confirmBulkImport()">📥 تأكيد الاستيراد</button>
+  </div>`);
+}
+
+function handleBulkExcelFile(input){
+  const file = input.files[0];
+  if(!file) return;
+  const area = document.getElementById('bulk-imparea');
+  area.style.borderColor = 'var(--gn)';
+  area.innerHTML = '<div style="font-size:36px">⏳</div><div style="font-weight:700">جاري القراءة...</div>';
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, {type:'array'});
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+
+      // تجاهل السطر الأول (العناوين) إذا كان يحتوي نص وليس بيانات فعلية
+      const dataRows = rows.slice(1).filter(function(r){ return r.some(function(c){return String(c).trim()!=='';}); });
+
+      window._bulkImportRows = dataRows.map(function(r){
+        return {
+          type: String(r[0]||'').trim(),
+          name: String(r[1]||'').trim(),
+          serial: String(r[2]||'').trim(),
+          model: String(r[3]||'').trim(),
+          mfr: String(r[4]||'').trim(),
+          qty: parseInt(r[5])||1,
+          status: String(r[6]||'warehouse').trim()
+        };
+      });
+
+      area.innerHTML = '<div style="font-size:36px">✅</div><div style="font-weight:700;color:var(--gn)">'+esc(file.name)+'</div>'+
+        '<div style="font-size:12px;color:var(--mt)">'+window._bulkImportRows.length+' صف تم قراءته</div>';
+
+      renderBulkPreview();
+    }catch(err){
+      area.style.borderColor='var(--rd)';
+      area.innerHTML = '<div style="font-size:36px">❌</div><div style="font-weight:700;color:var(--rd)">فشل قراءة الملف</div><div style="font-size:12px;color:var(--mt)">'+esc(err.message)+'</div>';
+      toast('فشل قراءة الملف — تأكد من الصيغة','err');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderBulkPreview(){
+  const rows = window._bulkImportRows||[];
+  const preview = document.getElementById('bulk-preview');
+  const mft = document.getElementById('bulk-mft');
+  if(!rows.length){ preview.style.display='none'; mft.style.display='none'; return; }
+
+  const AT = allT();
+  let html = '<div style="font-weight:700;margin-bottom:8px">معاينة ('+rows.length+' عنصر):</div>';
+  html += '<div style="max-height:280px;overflow-y:auto;border:1px solid var(--br);border-radius:8px">';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr style="background:var(--bg)"><th style="padding:6px;text-align:right">النوع</th><th style="padding:6px;text-align:right">الاسم</th><th style="padding:6px;text-align:right">السيريال</th><th style="padding:6px;text-align:right">العدد</th></tr></thead><tbody>';
+  rows.slice(0,50).forEach(function(r){
+    const typeLbl = AT[r.type] ? AT[r.type].label : (r.type||'⚠️ غير معروف');
+    html += '<tr style="border-top:1px solid var(--br)"><td style="padding:6px">'+esc(typeLbl)+'</td><td style="padding:6px">'+esc(r.name)+'</td><td style="padding:6px">'+esc(r.serial)+'</td><td style="padding:6px">'+r.qty+'</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  if(rows.length>50) html += '<div style="font-size:11px;color:var(--mt);margin-top:6px">...و'+(rows.length-50)+' عنصر إضافي (لن تظهر بالمعاينة لكن ستُستورد كاملة)</div>';
+
+  preview.innerHTML = html;
+  preview.style.display = 'block';
+  mft.style.display = 'flex';
+}
+
+function confirmBulkImport(){
+  const rows = window._bulkImportRows||[];
+  const mode = window._bulkImportMode;
+  const site = val('bulk-site');
+  if(!rows.length){ toast('لا توجد بيانات للاستيراد','err'); return; }
+  if(!site){ toast('اختر الموقع/المستودع أولاً','err'); return; }
+
+  if(mode==='warehouse'){
+    // كل صف يُضاف كعنصر منفصل بمخزن الـ site المحدد
+    const updates = {};
+    rows.forEach(function(r){
+      const id = gid();
+      updates[id] = {
+        id: id, type:r.type, name:r.name, serial:r.serial, model:r.model, mfr:r.mfr,
+        qty:r.qty, status:r.status||'warehouse',
+        addedBy:CU.name, addedAt:ts(), _ts:Date.now(), importedBulk:true
+      };
+    });
+    // بنية DB.inv الحالية array وليست object بمفاتيح — نتبع نفس القيود الموجودة (fbSet كامل الموقع)
+    const existing = DB.inv[site] ? [...DB.inv[site]] : [];
+    const merged = existing.concat(Object.values(updates));
+    fbSet('inv/'+site, merged).then(function(){
+      logAct('استيراد جماعي — المخزن', rows.length+' عنصر إلى '+site);
+      toast('✅ تم استيراد '+rows.length+' عنصر إلى '+site);
+      closeModal();
+      setTimeout(pgInv, 300);
+    }).catch(function(err){
+      toast('❌ فشل الاستيراد: '+err.message,'err');
+    });
+  } else {
+    // جرد الموجودات الثابتة — نضيف كنقطة واحدة جديدة "استيراد Excel" بها كل العناصر
+    const fs = DB.fieldSites.find(function(s){return s.id===site;});
+    if(!fs){ toast('الموقع غير موجود','err'); return; }
+    const ptId = gid();
+    const items = {};
+    rows.forEach(function(r){
+      const itemId = gid();
+      items[itemId] = {
+        id:itemId, type:r.type, name:r.name, serial:r.serial,
+        qty:r.qty, status:r.status||'', notes:'مستورد من Excel', date:ts()
+      };
+    });
+    fbSet('siteInventory/'+site+'/'+ptId, {
+      id:ptId, name:'📥 استيراد Excel — '+fmtDate(new Date().toISOString()),
+      items: items, addedBy:CU.name, addedAt:ts()
+    }).then(function(){
+      logAct('استيراد جماعي — جرد الموجودات', rows.length+' عنصر إلى '+fs.name);
+      toast('✅ تم استيراد '+rows.length+' عنصر إلى '+fs.name);
+      closeModal();
+      setTimeout(pgSiteInventory, 300);
+    }).catch(function(err){
+      toast('❌ فشل الاستيراد: '+err.message,'err');
+    });
+  }
 }
 
 function pgRadio(){
