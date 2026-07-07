@@ -1469,6 +1469,8 @@ function pgDash(){
   const unread=DB.notifs.filter(n=>!n.read).length;
   const role=CU.role;
 
+  const healthCardH = p('faults') ? `<div style="padding:16px 16px 0">${renderHealthScoreCard()}</div>` : '';
+
   let statsH='';
   if(p('inv')){
     statsH+=`
@@ -1547,6 +1549,7 @@ function pgDash(){
       <div class="ps">${new Date().toLocaleDateString('ar-IQ',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div></div>
     </div>
     <div class="cg">${statsH}</div>
+    ${healthCardH}
     ${myTasksH}
     ${(DB.maintain||[]).filter(t=>!t.done&&new Date(t.dueDate)<new Date()).length?`
   <div style="margin:0 16px 16px;background:#d2992211;border:1px solid #d2992244;border-radius:12px;padding:14px">
@@ -9562,6 +9565,113 @@ function updateCamChecklist(){
     saveBtn.style.opacity = allChecked ? '1' : '0.5';
   }
   if(warnEl) warnEl.style.display = allChecked ? 'none' : 'block';
+}
+
+
+// ══════════════════════════════════════════════════════
+//  💚 Health Score — مؤشر صحة النظام الشامل
+// ══════════════════════════════════════════════════════
+function calcHealthScore(){
+  const ai = Object.values(DB.inv||{}).flat();
+  const visibleFaults = getVisibleFaults();
+  const openFaults = visibleFaults.filter(f=>f.status!=='resolved');
+  const totalFaultsEver = visibleFaults.length || 1; // تفادي القسمة على صفر
+
+  let score = 100;
+  const reasons = [];
+
+  // 1. نسبة الأعطال المفتوحة من إجمالي الأعطال المسجّلة (وزن 30)
+  const openRatio = openFaults.length / totalFaultsEver;
+  const faultsPenalty = Math.min(30, Math.round(openRatio*100*0.3));
+  if(faultsPenalty>0){ score -= faultsPenalty; reasons.push({label:'أعطال مفتوحة ('+openFaults.length+')', penalty:faultsPenalty}); }
+
+  // 2. الأعطال المتأخرة (مفتوحة أكثر من 3 أيام) — وزن أعلى لكل واحدة (حتى 25)
+  const now = Date.now();
+  const overdueFaults = openFaults.filter(function(f){
+    const created = f._ts || (f.date?new Date(f.date).getTime():0);
+    return created && (now-created) > 3*24*60*60*1000;
+  });
+  const overduePenalty = Math.min(25, overdueFaults.length*5);
+  if(overduePenalty>0){ score -= overduePenalty; reasons.push({label:'أعطال متأخرة +3 أيام ('+overdueFaults.length+')', penalty:overduePenalty}); }
+
+  // 3. أعطال بأولوية عالية غير محلولة (وزن حتى 20)
+  const highPriorityOpen = openFaults.filter(function(f){ return f.priority==='high'||f.priority==='عاجل'||f.priority==='urgent'; });
+  const priorityPenalty = Math.min(20, highPriorityOpen.length*7);
+  if(priorityPenalty>0){ score -= priorityPenalty; reasons.push({label:'أعطال عاجلة غير محلولة ('+highPriorityOpen.length+')', penalty:priorityPenalty}); }
+
+  // 4. صيانة متأخرة (وزن حتى 15)
+  const maintainTasks = DB.maintain||[];
+  const overdueMaint = maintainTasks.filter(function(t){ return !t.done && new Date(t.dueDate) < new Date(); });
+  const maintPenalty = Math.min(15, overdueMaint.length*3);
+  if(maintPenalty>0){ score -= maintPenalty; reasons.push({label:'مهام صيانة متأخرة ('+overdueMaint.length+')', penalty:maintPenalty}); }
+
+  // 5. نسبة المعدات بحالة "صيانة/عطل" من إجمالي المنصوب (وزن حتى 10)
+  const deployedItems = ai.filter(function(i){ return i.status==='deployed'; });
+  const maintenanceItems = ai.filter(function(i){ return i.status==='maintenance'; });
+  const deployedTotal = deployedItems.length + maintenanceItems.length || 1;
+  const maintRatio = maintenanceItems.length / deployedTotal;
+  const equipPenalty = Math.min(10, Math.round(maintRatio*100*0.1));
+  if(equipPenalty>0){ score -= equipPenalty; reasons.push({label:'معدات بحالة صيانة ('+maintenanceItems.length+')', penalty:equipPenalty}); }
+
+  score = Math.max(0, Math.min(100, score));
+  return {score, reasons};
+}
+
+function healthScoreColor(score){
+  if(score>=85) return '#3fb950';
+  if(score>=65) return '#d29922';
+  if(score>=40) return '#ff7b00';
+  return '#f85149';
+}
+
+function healthScoreLabel(score){
+  if(score>=85) return 'ممتاز';
+  if(score>=65) return 'جيد';
+  if(score>=40) return 'يحتاج انتباه';
+  return 'حرج';
+}
+
+function renderHealthScoreCard(){
+  const {score, reasons} = calcHealthScore();
+  const color = healthScoreColor(score);
+  const label = healthScoreLabel(score);
+  const circumference = 2*Math.PI*40;
+  const offset = circumference - (score/100)*circumference;
+
+  return `<div class="panel" style="display:flex;align-items:center;gap:16px;cursor:pointer" onclick="openHealthScoreDetail()">
+    <svg width="90" height="90" viewBox="0 0 90 90" style="flex-shrink:0">
+      <circle cx="45" cy="45" r="40" fill="none" stroke="var(--br)" stroke-width="8"/>
+      <circle cx="45" cy="45" r="40" fill="none" stroke="${color}" stroke-width="8"
+        stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+        stroke-linecap="round" transform="rotate(-90 45 45)" style="transition:stroke-dashoffset .6s"/>
+      <text x="45" y="42" text-anchor="middle" font-size="22" font-weight="800" fill="${color}">${score}</text>
+      <text x="45" y="60" text-anchor="middle" font-size="11" fill="var(--mt)">%</text>
+    </svg>
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:16px;color:${color}">💚 صحة النظام — ${label}</div>
+      <div style="font-size:12px;color:var(--mt);margin-top:4px">
+        ${reasons.length===0?'✅ كل المؤشرات ممتازة، لا مشاكل مرصودة':'اضغط لعرض تفاصيل ما يؤثر على النقاط'}
+      </div>
+    </div>
+  </div>`;
+}
+
+function openHealthScoreDetail(){
+  const {score, reasons} = calcHealthScore();
+  const color = healthScoreColor(score);
+  openModal(`${mhd('💚 تفاصيل صحة النظام')}
+    <div style="text-align:center;font-size:36px;font-weight:800;color:${color};margin-bottom:6px">${score}%</div>
+    <div style="text-align:center;color:var(--mt);margin-bottom:16px">${healthScoreLabel(score)}</div>
+    ${reasons.length===0
+      ?'<div class="panel" style="text-align:center;padding:24px;color:var(--gn)">✅ لا توجد نقاط خصم — النظام بأفضل حالاته</div>'
+      :'<div style="display:flex;flex-direction:column;gap:8px">'+
+        reasons.map(function(r){
+          return '<div class="panel" style="display:flex;justify-content:space-between;padding:10px 14px">'+
+            '<span>'+esc(r.label)+'</span><span style="color:var(--rd);font-weight:700">-'+r.penalty+'</span></div>';
+        }).join('')+
+      '</div>'
+    }
+    <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
 }
 
 function pgRadio(){
