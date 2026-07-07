@@ -527,6 +527,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -10029,48 +10030,117 @@ let _serialScannerStream = null;
 
 function openSerialScanner(targetInputId){
   window._serialScanTarget = targetInputId;
+  window._serialScanCandidates = [];
 
-  // إنشاء overlay مستقل بالكامل عن نظام المودال العادي
   const overlay = document.createElement('div');
   overlay.id = 'sn-scanner-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
   overlay.innerHTML = `
     <div style="background:var(--sf);border-radius:16px;padding:20px;max-width:340px;width:100%;text-align:center">
-      <div style="font-weight:700;font-size:16px;margin-bottom:14px">📷 مسح الرقم التسلسلي</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-weight:700;font-size:16px">📷 مسح QR أو باركود</div>
+        <button id="sn-torch-btn" onclick="toggleSerialTorch()" style="display:none;background:none;border:none;font-size:22px;cursor:pointer" title="الفلاش">🔦</button>
+      </div>
       <div style="position:relative;margin-bottom:12px">
-        <video id="sn-scan-video" style="width:100%;border-radius:12px;background:#000" autoplay playsinline></video>
+        <video id="sn-scan-video" style="width:100%;border-radius:12px;background:#000" autoplay playsinline muted></video>
         <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:80%;height:100px;border:2px solid var(--gn);border-radius:8px;pointer-events:none"></div>
       </div>
       <div id="sn-scan-status" style="font-size:14px;color:var(--mt);margin-bottom:10px">جار تشغيل الكاميرا...</div>
-      <div style="font-size:12px;color:var(--mt);margin-bottom:14px">وجّه الكاميرا نحو ملصق الباركود أو QR على الجهاز</div>
+      <div style="font-size:12px;color:var(--mt);margin-bottom:14px">يدعم QR وكل أنواع الباركود</div>
+      <div id="sn-scan-candidates"></div>
       <button class="btn btn-rd btn-fw" onclick="stopSerialScanner()">إيقاف</button>
     </div>`;
   document.body.appendChild(overlay);
   setTimeout(startSerialScanner, 300);
 }
 
+let _serialZXingReader = null;
+let _serialTorchOn = false;
+let _serialVideoTrack = null;
+let _candidateWindow = null;
+
 function startSerialScanner(){
   const video = document.getElementById('sn-scan-video');
   if(!video) return;
+
   navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
   .then(function(stream){
     video.srcObject = stream;
     _serialScannerStream = stream;
-    scanSerialFrame(video);
+    _serialVideoTrack = stream.getVideoTracks()[0];
+
+    const caps = _serialVideoTrack.getCapabilities ? _serialVideoTrack.getCapabilities() : {};
+    const torchBtn = document.getElementById('sn-torch-btn');
+    if(caps && caps.torch && torchBtn) torchBtn.style.display = 'block';
+
+    if(typeof ZXing !== 'undefined'){
+      startZXingScan(video);
+    } else {
+      scanSerialFrameFallback(video);
+    }
   })
   .catch(function(err){
     const el = document.getElementById('sn-scan-status');
-    if(el) el.textContent = '❌ لا يمكن الوصول للكاميرا — تأكد من إذن الكاميرا';
+    if(el) el.textContent = 'لا يمكن الوصول للكاميرا — تأكد من إذن الكاميرا';
   });
 }
 
-function scanSerialFrame(video){
-  if(!document.getElementById('sn-scan-video')) return; // Modal مغلق
+function startZXingScan(video){
+  const hints = new Map();
+  const formats = [
+    ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.UPC_A,
+    ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.ITF, ZXing.BarcodeFormat.DATA_MATRIX
+  ];
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+  _serialZXingReader = new ZXing.BrowserMultiFormatReader(hints);
+  const status = document.getElementById('sn-scan-status');
+
+  _serialZXingReader.decodeFromVideoElementContinuously(video, function(result, err){
+    if(result && result.getText()){
+      registerScanCandidate(result.getText());
+    }
+  });
+  if(status) status.textContent = 'وجّه الكاميرا نحو الرمز...';
+}
+
+function registerScanCandidate(text){
+  if(!window._serialScanCandidates.includes(text)){
+    window._serialScanCandidates.push(text);
+  }
+  if(_candidateWindow) clearTimeout(_candidateWindow);
+  _candidateWindow = setTimeout(function(){
+    const candidates = window._serialScanCandidates;
+    if(candidates.length === 1){
+      handleSerialScanResult(candidates[0]);
+    } else if(candidates.length > 1){
+      showCandidatesChoice(candidates);
+    }
+  }, 500);
+}
+
+function showCandidatesChoice(candidates){
+  const el = document.getElementById('sn-scan-candidates');
+  const status = document.getElementById('sn-scan-status');
+  if(status) status.textContent = 'تم رصد أكثر من رمز — اختر الصحيح:';
+  if(el){
+    el.innerHTML = candidates.map(function(c, i){
+      return '<button type="button" class="btn btn-sm btn-gy sn-cand-btn" data-idx="'+i+'" style="display:block;width:100%;margin-bottom:6px;text-align:right">'+esc(c)+'</button>';
+    }).join('');
+    Array.from(el.querySelectorAll('.sn-cand-btn')).forEach(function(btn, i){
+      btn.addEventListener('click', function(){ handleSerialScanResult(candidates[i]); });
+    });
+  }
+}
+
+function scanSerialFrameFallback(video){
+  if(!document.getElementById('sn-scan-video')) return;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-
   function tick(){
-    if(!document.getElementById('sn-scan-video')){ stopSerialScanner(); return; }
+    if(!document.getElementById('sn-scan-video')) return;
     if(video.readyState === video.HAVE_ENOUGH_DATA){
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -10079,10 +10149,7 @@ function scanSerialFrame(video){
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         if(typeof jsQR !== 'undefined'){
           const code = jsQR(imageData.data, imageData.width, imageData.height);
-          if(code && code.data){
-            handleSerialScanResult(code.data);
-            return;
-          }
+          if(code && code.data){ handleSerialScanResult(code.data); return; }
         }
       }catch(e){}
     }
@@ -10091,40 +10158,57 @@ function scanSerialFrame(video){
   tick();
 }
 
+function toggleSerialTorch(){
+  if(!_serialVideoTrack) return;
+  _serialTorchOn = !_serialTorchOn;
+  _serialVideoTrack.applyConstraints({advanced:[{torch:_serialTorchOn}]}).catch(function(err){
+    toast('الفلاش غير مدعوم على هذا الجهاز','warn');
+    _serialTorchOn = false;
+  });
+  const btn = document.getElementById('sn-torch-btn');
+  if(btn) btn.style.opacity = _serialTorchOn ? '1' : '0.5';
+}
+
 function stopSerialScanner(){
+  if(_candidateWindow){ clearTimeout(_candidateWindow); _candidateWindow=null; }
+  if(_serialZXingReader){
+    try{ _serialZXingReader.reset(); }catch(e){}
+    _serialZXingReader = null;
+  }
+  if(_serialVideoTrack && _serialTorchOn){
+    try{ _serialVideoTrack.applyConstraints({advanced:[{torch:false}]}); }catch(e){}
+  }
   if(_serialScannerStream){
     _serialScannerStream.getTracks().forEach(function(t){t.stop();});
     _serialScannerStream = null;
   }
+  _serialVideoTrack = null;
+  _serialTorchOn = false;
   const overlay = document.getElementById('sn-scanner-overlay');
   if(overlay) overlay.remove();
 }
 
 function handleSerialScanResult(rawData){
   stopSerialScanner();
-  // أي محتوى نصي/رقمي يُقبل كسيريال — نحاول استخراج القيمة إذا كان JSON خاص بنظامنا،
-  // وإلا نأخذ النص كما هو (يدعم باركودات المصنّعين القياسية 1D/2D)
   let serialValue = rawData;
   try{
     const obj = JSON.parse(rawData);
     if(obj && (obj.serial || obj.sn)) serialValue = obj.serial || obj.sn;
-  }catch(e){
-    // ليس JSON — نستخدم النص الخام كما هو (هذا الحال الأشيع لباركود المصنّع)
-  }
+  }catch(e){}
   const targetId = window._serialScanTarget;
   const inputEl = targetId ? document.getElementById(targetId) : null;
   if(inputEl){
     inputEl.value = serialValue.trim();
-    toast('✅ تم قراءة: '+serialValue.trim());
+    toast('تم قراءة: '+serialValue.trim());
   } else {
     toast('تم المسح لكن الحقل غير متاح حالياً','warn');
   }
 }
 
-// زر جاهز لإدراجه بجانب أي حقل سيريال — استخدم: ${serialScanBtn('field-id')}
 function serialScanBtn(inputId){
   return '<button type="button" class="btn btn-sm btn-gy" onclick="openSerialScanner(\''+inputId+'\')" title="مسح بالكاميرا" style="flex-shrink:0">📷</button>';
 }
+
 
 function pgRadio(){
   if(!p('radio')&&CU.role!=='manager'){
