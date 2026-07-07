@@ -1320,7 +1320,7 @@ function fbStartSync(){
     }
 
     if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
-    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); cacheLocalDB(data); }catch(e){}
+    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); monthlyReportAutoCheck(); cacheLocalDB(data); }catch(e){}
 
     // إخفاء Splash فوراً عند أول تحميل للبيانات
     const splash=$('splash');
@@ -1455,7 +1455,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive()})[page]?.();
   });
 }
 
@@ -1597,6 +1597,7 @@ function pgDash(){
         {id:'handovers',  ic:'📝', lb:'تسليم واستلام',  perm:'moves'},
         {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'siteinv'},
         {id:'pwvault', ic:'🔐', lb:'سجل كلمات المرور', perm:'__manager_only__'},
+        {id:'monthlyreports', ic:'📅', lb:'التقارير الشهرية', perm:'__manager_only__'},
         {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:'radio'},
         {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
@@ -9831,6 +9832,188 @@ function confirmBulkImport(){
       toast('❌ فشل الاستيراد: '+err.message,'err');
     });
   }
+}
+
+
+// ══════════════════════════════════════════════════════
+//  📅 التقرير الشهري التلقائي — إحصائيات + أداء الفنيين + Health Score
+// ══════════════════════════════════════════════════════
+
+function buildMonthlyReportHTML(monthLabel, periodFrom, periodTo){
+  const visibleFaults = DB.faults||[];
+  const periodFaults = visibleFaults.filter(function(f){
+    const t = f._ts||(f.date?new Date(f.date).getTime():0);
+    return t>=periodFrom && t<periodTo;
+  });
+  const openF = periodFaults.filter(function(f){return f.status!=='resolved';}).length;
+  const resolvedF = periodFaults.filter(function(f){return f.status==='resolved';}).length;
+  const highF = periodFaults.filter(function(f){return f.priority==='high'||f.priority==='عاجل';}).length;
+
+  const {score} = calcHealthScore();
+  const scoreColor = healthScoreColor(score);
+
+  // أداء الفنيين خلال الفترة
+  const periodLogs = (DB.actlog||[]).filter(function(l){
+    const t = l._ts||0;
+    return t>=periodFrom && t<periodTo;
+  });
+  const byUser = {};
+  periodLogs.forEach(function(l){
+    const name = l.name||'غير محدد';
+    if(!byUser[name]) byUser[name] = {name:name, role:l.role||'', count:0};
+    byUser[name].count++;
+  });
+  const perfRows = Object.values(byUser).sort(function(a,b){return b.count-a.count;});
+
+  const ai = Object.values(DB.inv||{}).flat();
+  const totalItems = ai.length;
+  const deployedItems = ai.filter(function(i){return i.status==='deployed';}).length;
+
+  const now = fmtDateTime(new Date().toISOString());
+
+  let html = '<html dir="rtl"><head><meta charset="utf-8"><title>التقرير الشهري — '+monthLabel+'</title>';
+  html += '<style>body{font-family:Arial,sans-serif;padding:28px;color:#111;direction:rtl}';
+  html += 'h1{text-align:center;color:#1d4ed8;margin-bottom:4px}.sub{text-align:center;color:#666;margin-bottom:24px;font-size:12px}';
+  html += '.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}';
+  html += '.card{border:1px solid #ddd;border-radius:8px;padding:14px;text-align:center}.card .val{font-size:26px;font-weight:700}.card .lbl{font-size:12px;color:#666;margin-top:4px}';
+  html += '.health{text-align:center;padding:16px;border-radius:10px;margin-bottom:20px;background:#f5f5f5}';
+  html += 'table{width:100%;border-collapse:collapse;margin-top:8px}th{background:#1e3a5f;color:#fff;padding:9px 12px;text-align:right;font-size:15px}';
+  html += 'td{border:1px solid #ddd;padding:8px 12px;font-size:14px}tr:nth-child(even){background:#f5f5f5}';
+  html += '.sec{font-weight:700;font-size:16px;margin:22px 0 8px;color:#1d4ed8;border-bottom:2px solid #1d4ed8;padding-bottom:4px}';
+  html += '@media print{.no-print{display:none}}</style></head><body>';
+
+  html += '<h1>📅 التقرير الشهري — '+monthLabel+'</h1>';
+  html += '<div class="sub">تاريخ الإصدار: '+now+'</div>';
+  html += '<button class="no-print" onclick="window.print()" style="display:block;margin:0 auto 20px;padding:8px 24px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>';
+
+  html += '<div class="health" style="color:'+scoreColor+'"><div style="font-size:32px;font-weight:800">'+score+'%</div><div style="font-size:13px">صحة النظام العامة (Health Score)</div></div>';
+
+  html += '<div class="sec">📊 ملخص الشهر</div><div class="grid">';
+  html += '<div class="card"><div class="val" style="color:#2563eb">'+periodFaults.length+'</div><div class="lbl">أعطال هذا الشهر</div></div>';
+  html += '<div class="card"><div class="val" style="color:#dc2626">'+openF+'</div><div class="lbl">مفتوحة</div></div>';
+  html += '<div class="card"><div class="val" style="color:#16a34a">'+resolvedF+'</div><div class="lbl">محلولة</div></div>';
+  html += '<div class="card"><div class="val" style="color:#ff7b00">'+highF+'</div><div class="lbl">عاجلة</div></div>';
+  html += '</div>';
+
+  html += '<div class="sec">📦 حالة المخزون</div><div class="grid">';
+  html += '<div class="card"><div class="val">'+totalItems+'</div><div class="lbl">إجمالي المواد</div></div>';
+  html += '<div class="card"><div class="val" style="color:#16a34a">'+deployedItems+'</div><div class="lbl">منصوبة</div></div>';
+  html += '</div>';
+
+  html += '<div class="sec">📈 أداء الفريق هذا الشهر</div>';
+  if(perfRows.length){
+    html += '<table><thead><tr><th>الاسم</th><th>الدور</th><th>عدد الإجراءات</th></tr></thead><tbody>';
+    perfRows.forEach(function(u){
+      html += '<tr><td>'+esc(u.name)+'</td><td>'+esc(ROLES[u.role]||u.role||'')+'</td><td><b>'+u.count+'</b></td></tr>';
+    });
+    html += '</tbody></table>';
+  } else {
+    html += '<div style="color:#666;text-align:center;padding:20px">لا توجد سجلات نشاط لهذا الشهر</div>';
+  }
+
+  html += '</body></html>';
+  return html;
+}
+
+function printMonthlyReportNow(){
+  if(CU.role!=='manager'){ toast('التقرير الشهري للمدير فقط','err'); return; }
+  const now = new Date();
+  const periodFrom = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const periodTo = Date.now();
+  const monthLabel = now.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  const htmlContent = buildMonthlyReportHTML(monthLabel, periodFrom, periodTo);
+  const win = window.open('','_blank');
+  win.document.write(htmlContent);
+  win.document.close();
+  logAct('تقرير شهري يدوي', monthLabel);
+}
+
+// ── الجدولة التلقائية أول كل شهر (بنفس فلسفة النسخ الاحتياطي) ──
+function monthlyReportAutoCheck(){
+  if(!CU || CU.role!=='manager') return;
+  setTimeout(function(){
+    try{
+      FBDB.ref('cctv/monthlyReports/_meta/lastGenerated').once('value').then(function(snap){
+        const last = snap.val();
+        const now = new Date();
+        const currentMonthKey = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+        if(last !== currentMonthKey){
+          generateAutoMonthlyReport(currentMonthKey);
+        }
+      }).catch(function(err){ console.warn('Monthly report check failed:', err.message); });
+    }catch(e){ console.warn('Monthly report check exception:', e.message); }
+  }, 3000); // بعد النسخة الاحتياطية بثانية إضافية لتفادي التزاحم
+}
+
+function generateAutoMonthlyReport(monthKey){
+  try{
+    const now = new Date();
+    // الشهر الماضي كاملاً (وليس الشهر الحالي غير المكتمل)
+    const prevMonth = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    const periodFrom = prevMonth.getTime();
+    const periodTo = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const monthLabel = prevMonth.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+    const htmlContent = buildMonthlyReportHTML(monthLabel, periodFrom, periodTo);
+
+    const sizeCheck = htmlContent.length;
+    if(sizeCheck > 8*1024*1024){
+      console.warn('Monthly report skipped: too large');
+      fbSet('monthlyReports/_meta/lastGenerated', monthKey).catch(function(){});
+      return;
+    }
+
+    fbSet('monthlyReports/'+monthKey, {
+      generatedAt: ts(), monthLabel: monthLabel, html: htmlContent
+    }).then(function(){
+      fbSet('monthlyReports/_meta/lastGenerated', monthKey);
+      logAct('تقرير شهري تلقائي', monthLabel);
+    }).catch(function(err){ console.warn('Monthly report save failed:', err.message); });
+  }catch(e){ console.warn('Monthly report generation exception:', e.message); }
+}
+
+function listMonthlyReports(){
+  return FBDB.ref('cctv/monthlyReports').once('value').then(function(snap){
+    const data = snap.val()||{};
+    return Object.keys(data)
+      .filter(function(k){return k!=='_meta';})
+      .map(function(k){return {key:k, monthLabel:data[k].monthLabel, generatedAt:data[k].generatedAt};})
+      .sort(function(a,b){return b.key.localeCompare(a.key);});
+  });
+}
+
+function openMonthlyReport(monthKey){
+  FBDB.ref('cctv/monthlyReports/'+monthKey).once('value').then(function(snap){
+    const report = snap.val();
+    if(!report){ toast('التقرير غير موجود','err'); return; }
+    const win = window.open('','_blank');
+    win.document.write(report.html);
+    win.document.close();
+  });
+}
+
+function openMonthlyReportsArchive(){
+  if(CU.role!=='manager'){ toast('للمدير فقط','err'); return; }
+  openModal(`${mhd('📅 التقارير الشهرية')}
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <button class="btn btn-bl btn-fw" onclick="printMonthlyReportNow();">🖨️ إنشاء تقرير الشهر الحالي الآن</button>
+    <div style="font-weight:700;margin-top:10px">🗓️ الأرشيف الشهري التلقائي</div>
+    <div id="monthly-reports-list" style="font-size:13px;color:var(--mt)">⏳ جاري التحميل...</div>
+  </div>
+  <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
+
+  listMonthlyReports().then(function(reports){
+    const el = document.getElementById('monthly-reports-list');
+    if(!el) return;
+    if(!reports.length){
+      el.innerHTML = 'لا توجد تقارير تلقائية بعد — يُنشأ أول تقرير تلقائياً أول الشهر القادم';
+      return;
+    }
+    el.innerHTML = reports.map(function(r){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--br)">'+
+        '<span>'+esc(r.monthLabel)+'</span>'+
+        '<button class="btn btn-sm btn-bl" onclick="openMonthlyReport(\''+r.key+'\')">👁️ عرض</button></div>';
+    }).join('');
+  });
 }
 
 function pgRadio(){
