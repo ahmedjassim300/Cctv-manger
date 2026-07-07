@@ -2186,7 +2186,8 @@ function showItemForm(f){
       </select></div>
     <div class="field"><label>الاسم / التسمية</label><input id="fnm" value="${esc(f.name)}" placeholder="اسم الجهاز أو نقطة التركيب"></div>
     <div class="field"><label>الكمية</label><input id="fqty" type="number" value="${f.qty||1}" min="1" placeholder="العدد"></div>
-    <div class="field"><label>الرقم التسلسلي (SN)</label><input id="fsr" value="${esc(f.serial)}" placeholder="SN-XXXXX"></div>
+    <div class="field"><label>الرقم التسلسلي (SN)</label>
+      <div style="display:flex;gap:6px"><input id="fsr" value="${esc(f.serial)}" placeholder="SN-XXXXX" style="flex:1">${serialScanBtn('fsr')}</div></div>
     <div class="field"><label>الموديل</label><input id="fmd" value="${esc(f.model)}" placeholder="رقم أو اسم الموديل"></div>
     <div class="field"><label>الشركة الصانعة</label><input id="fmf" value="${esc(f.mfr)}" placeholder="Hikvision / Dahua / Cisco..."></div>
     <div class="field"><label>الحالة</label>
@@ -2471,7 +2472,8 @@ function openAddFault(){
       </select>
       <input id="fpt-custom" placeholder="أو اكتب اسم النقطة يدوياً..." style="margin-top:6px">
     </div>
-    <div class="field"><label>الرقم التسلسلي (اختياري)</label><input id="fsn" placeholder="SN-XXXXX"></div>
+    <div class="field"><label>الرقم التسلسلي (اختياري)</label>
+      <div style="display:flex;gap:6px"><input id="fsn" placeholder="SN-XXXXX" style="flex:1">${serialScanBtn('fsn')}</div></div>
     <div class="s2 field"><label>سبب العطل *</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
         ${renderFaultTemplateButtons('frsn')}
@@ -4396,7 +4398,7 @@ function showFieldCamForm(fsId,ci,cam){
     <div class="field"><label>اسم الكاميرا / رقم النقطة *</label>
       <input id="fcnm" value="${esc(c.name||'')}" placeholder="CAM-01 أو بوابة رئيسية..."></div>
     <div class="field"><label>الرقم التسلسلي</label>
-      <input id="fcsr" value="${esc(c.serial||'')}" placeholder="SN-XXXXX"></div>
+      <div style="display:flex;gap:6px"><input id="fcsr" value="${esc(c.serial||'')}" placeholder="SN-XXXXX" style="flex:1">${serialScanBtn('fcsr')}</div></div>
     <div class="field"><label>نوع الكاميرا</label>
       <select id="fccT">${opt(CAM_T,c.camType)}</select></div>
     <div class="field"><label>الدقة</label>
@@ -10016,6 +10018,103 @@ function openMonthlyReportsArchive(){
   });
 }
 
+
+// ══════════════════════════════════════════════════════
+//  📷 ماسح عام للرقم التسلسلي — يعمل مع أي باركود/QR (اختياري، بجانب الكتابة اليدوية)
+// ══════════════════════════════════════════════════════
+let _serialScannerStream = null;
+
+function openSerialScanner(targetInputId){
+  window._serialScanTarget = targetInputId;
+  openModal(`${mhd('📷 مسح الرقم التسلسلي')}
+  <div style="text-align:center">
+    <div style="position:relative;margin-bottom:12px">
+      <video id="sn-scan-video" style="width:100%;max-width:300px;border-radius:12px;background:#000" autoplay playsinline></video>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;height:100px;border:2px solid var(--gn);border-radius:8px;pointer-events:none"></div>
+    </div>
+    <div id="sn-scan-status" style="font-size:15px;color:var(--mt);margin-bottom:12px">جار تشغيل الكاميرا...</div>
+    <div style="font-size:12px;color:var(--mt);margin-bottom:12px">وجّه الكاميرا نحو ملصق الباركود أو QR على الجهاز</div>
+    <div class="mft"><button class="btn btn-rd" onclick="stopSerialScanner()">إيقاف</button></div>
+  </div>`);
+  setTimeout(startSerialScanner, 300);
+}
+
+function startSerialScanner(){
+  const video = document.getElementById('sn-scan-video');
+  if(!video) return;
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+  .then(function(stream){
+    video.srcObject = stream;
+    _serialScannerStream = stream;
+    scanSerialFrame(video);
+  })
+  .catch(function(err){
+    const el = document.getElementById('sn-scan-status');
+    if(el) el.textContent = '❌ لا يمكن الوصول للكاميرا — تأكد من إذن الكاميرا';
+  });
+}
+
+function scanSerialFrame(video){
+  if(!document.getElementById('sn-scan-video')) return; // Modal مغلق
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  function tick(){
+    if(!document.getElementById('sn-scan-video')){ stopSerialScanner(); return; }
+    if(video.readyState === video.HAVE_ENOUGH_DATA){
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      try{
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        if(typeof jsQR !== 'undefined'){
+          const code = jsQR(imageData.data, imageData.width, imageData.height);
+          if(code && code.data){
+            handleSerialScanResult(code.data);
+            return;
+          }
+        }
+      }catch(e){}
+    }
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stopSerialScanner(){
+  if(_serialScannerStream){
+    _serialScannerStream.getTracks().forEach(function(t){t.stop();});
+    _serialScannerStream = null;
+  }
+  closeModal();
+}
+
+function handleSerialScanResult(rawData){
+  stopSerialScanner();
+  // أي محتوى نصي/رقمي يُقبل كسيريال — نحاول استخراج القيمة إذا كان JSON خاص بنظامنا،
+  // وإلا نأخذ النص كما هو (يدعم باركودات المصنّعين القياسية 1D/2D)
+  let serialValue = rawData;
+  try{
+    const obj = JSON.parse(rawData);
+    if(obj && (obj.serial || obj.sn)) serialValue = obj.serial || obj.sn;
+  }catch(e){
+    // ليس JSON — نستخدم النص الخام كما هو (هذا الحال الأشيع لباركود المصنّع)
+  }
+  const targetId = window._serialScanTarget;
+  const inputEl = targetId ? document.getElementById(targetId) : null;
+  if(inputEl){
+    inputEl.value = serialValue.trim();
+    toast('✅ تم قراءة: '+serialValue.trim());
+  } else {
+    toast('تم المسح لكن الحقل غير متاح حالياً','warn');
+  }
+}
+
+// زر جاهز لإدراجه بجانب أي حقل سيريال — استخدم: ${serialScanBtn('field-id')}
+function serialScanBtn(inputId){
+  return '<button type="button" class="btn btn-sm btn-gy" onclick="openSerialScanner(\''+inputId+'\')" title="مسح بالكاميرا" style="flex-shrink:0">📷</button>';
+}
+
 function pgRadio(){
   if(!p('radio')&&CU.role!=='manager'){
     $('page').innerHTML='<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">🔒</div><div style="margin-top:12px">غير مصرح بعرض أجهزة المناداة</div></div>';
@@ -10076,7 +10175,7 @@ function _radioForm(d){
   html+='<div class="field"><label>الاسم</label><input id="rd-name" value="'+esc(f.name||'')+'" placeholder="راديو-01"></div>';
   html+='<div class="field"><label>الشركة</label><select id="rd-brand"><option value="">—</option>'+bOpts+'</select></div>';
   html+='<div class="field"><label>النوع</label><select id="rd-type"><option value="">—</option>'+tOpts+'</select></div>';
-  html+='<div class="field"><label>السيريال</label><input id="rd-serial" value="'+esc(f.serial||'')+'"></div>';
+  html+='<div class="field"><label>السيريال</label><div style="display:flex;gap:6px"><input id="rd-serial" value="'+esc(f.serial||'')+'" style="flex:1">'+serialScanBtn('rd-serial')+'</div></div>';
   html+='<div class="field"><label>القوة (واط)</label><input id="rd-power" value="'+esc(f.power||'')+'"></div>';
   html+='<div class="field"><label>الشفرة</label><input id="rd-code" value="'+esc(f.codeType||'')+'" placeholder="DMR, Analog..."></div>';
   html+='<div class="field"><label>الحالة</label><select id="rd-status">'+sOpts+'</select></div>';
@@ -10278,7 +10377,7 @@ function _uavForm(d){
   html+='<div class="field"><label>الموديل</label><input id="uav-model" value="'+esc(f.model||'')+'" placeholder="مثال: Mavic 3، Mini 4 Pro..."></div>';
   html+='<div class="field"><label>نوع الطائرة</label><select id="uav-type"><option value="">—</option>'+opts(UAV_TYPES,f.type)+'</select></div>';
   html+='<div class="field"><label>نوع الكاميرا</label><select id="uav-camera"><option value="">—</option>'+opts(UAV_CAM,f.camera)+'</select></div>';
-  html+='<div class="field"><label>الرقم التسلسلي</label><input id="uav-serial" value="'+esc(f.serial||'')+'" placeholder="SN-XXXXX"></div>';
+  html+='<div class="field"><label>الرقم التسلسلي</label><div style="display:flex;gap:6px"><input id="uav-serial" value="'+esc(f.serial||'')+'" placeholder="SN-XXXXX" style="flex:1">'+serialScanBtn('uav-serial')+'</div></div>';
   html+='<div class="field"><label>زمن الطيران (دقيقة)</label><input id="uav-flight" type="number" value="'+esc(f.flightTime||'')+'" placeholder="مثال: 45"></div>';
   html+='<div class="field"><label>مدى التحكم (كم)</label><input id="uav-range" value="'+esc(f.range||'')+'" placeholder="مثال: 10"></div>';
   html+='<div class="field"><label>الحالة</label><select id="uav-status">'+opts(UAV_STATUS,f.status)+'</select></div>';
