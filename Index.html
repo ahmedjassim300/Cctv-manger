@@ -10069,9 +10069,18 @@ function startSerialScanner(){
     _serialScannerStream = stream;
     _serialVideoTrack = stream.getVideoTracks()[0];
 
-    const caps = _serialVideoTrack.getCapabilities ? _serialVideoTrack.getCapabilities() : {};
     const torchBtn = document.getElementById('sn-torch-btn');
-    if(caps && caps.torch && torchBtn) torchBtn.style.display = 'block';
+    // نعرض زر الفلاش دائماً بشكل مبدئي — فحص getCapabilities() عند هذه اللحظة
+    // غير موثوق التوقيت على أغلب أجهزة Android (يحتاج للـ track أن يستقر أولاً).
+    // الفحص الحقيقي والدقيق يحصل عند الضغط الفعلي على الزر (انظر toggleSerialTorch).
+    if(torchBtn) torchBtn.style.display = 'block';
+    // فحص إضافي مؤجَّل قليلاً كتأكيد مبكر (تحسين تجربة فقط، ليس شرطاً للعمل)
+    setTimeout(function(){
+      try{
+        const caps = _serialVideoTrack.getCapabilities ? _serialVideoTrack.getCapabilities() : {};
+        if(caps && caps.torch===false && torchBtn) torchBtn.style.display='none';
+      }catch(e){}
+    }, 400);
 
     if(typeof ZXing !== 'undefined'){
       startZXingScan(video);
@@ -10163,13 +10172,18 @@ function scanSerialFrameFallback(video){
 
 function toggleSerialTorch(){
   if(!_serialVideoTrack) return;
-  _serialTorchOn = !_serialTorchOn;
-  _serialVideoTrack.applyConstraints({advanced:[{torch:_serialTorchOn}]}).catch(function(err){
-    toast('الفلاش غير مدعوم على هذا الجهاز','warn');
+  const wantTorch = !_serialTorchOn;
+  _serialVideoTrack.applyConstraints({advanced:[{torch:wantTorch}]}).then(function(){
+    _serialTorchOn = wantTorch;
+    const btn = document.getElementById('sn-torch-btn');
+    if(btn) btn.style.opacity = _serialTorchOn ? '1' : '0.5';
+  }).catch(function(err){
+    toast('الفلاش غير مدعوم على هذا الجهاز/المتصفح','warn');
     _serialTorchOn = false;
+    // فشل فعلي مؤكد (وليس تخمين مسبق) — الآن نخفي الزر لتفادي محاولات فاشلة متكررة
+    const btn = document.getElementById('sn-torch-btn');
+    if(btn) btn.style.display = 'none';
   });
-  const btn = document.getElementById('sn-torch-btn');
-  if(btn) btn.style.opacity = _serialTorchOn ? '1' : '0.5';
 }
 
 function stopSerialScanner(){
