@@ -1729,6 +1729,7 @@ function pgInv(){
   <div class="tw"><table>
     <thead><tr>
       <th>النوع</th><th>الاسم / السيريال</th><th>الموديل / الشركة</th>
+      <th>العدد</th>
       <th>التفاصيل</th><th>الحالة</th>
       ${isMain?'<th>المستودع</th>':''}
       <th>بواسطة</th>
@@ -1822,7 +1823,7 @@ function renderInvRows(isMain,allItems,items,AT){
       })
     : items;
 
-  if(!showItems.length) return `<tr class="erow"><td colspan="9">لا توجد عناصر مطابقة</td></tr>`;
+  if(!showItems.length) return `<tr class="erow"><td colspan="10">لا توجد عناصر مطابقة</td></tr>`;
 
   // ── فصل المواد: في المخزن (عادي) + منصوبة (مطوية حسب الموقع) ──
   const warehouseItems = showItems.filter(i=>i.status==='warehouse'||i.status==='maintenance'||i.status==='returned');
@@ -1856,6 +1857,7 @@ function renderInvRows(isMain,allItems,items,AT){
       <td><div class="tm">${esc(item.name||item.serial||'—')}</div>
         ${item.name&&item.serial?`<div class="ts">${esc(item.serial)}</div>`:''}</td>
       <td><div>${esc(item.model||'—')}</div><div class="ts">${esc(item.mfr||'')}</div></td>
+      <td style="text-align:center;font-weight:700;color:${(parseInt(item.qty)||1)>1?'var(--bl)':'var(--mt)'}">${parseInt(item.qty)||1}</td>
       <td style="font-size:12px;color:var(--mt);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(itemDet(item))}</td>
       <td>${badge(item.status)}</td>
       ${isMainV?`<td><span style="font-size:11px;color:var(--mt)">${esc(realSite)}</span></td>`:''}
@@ -1883,7 +1885,7 @@ function renderInvRows(isMain,allItems,items,AT){
 
   // ── المواد المنصوبة — مطوية حسب الموقع ──
   if(deployedItems.length){
-    const colspan = isMainV ? 8 : 7;
+    const colspan = isMainV ? 9 : 8;
     // فاصل
     html += `<tr><td colspan="${colspan+1}" style="padding:0">
       <div style="margin:6px 0;border-top:2px dashed var(--br)"></div>
