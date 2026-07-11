@@ -3998,6 +3998,7 @@ function openCamDetail(fsId, ci){
 
     ${c.installDesc?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">📌 موقع التنصيب</div><div>${esc(c.installDesc)}</div></div>`:''}
     ${c.dir?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🧭 الاتجاه</div><div>${esc(c.dir)}</div></div>`:''}
+    ${c.floor?`<div class="panel" style="padding:10px;border-right:3px solid ${floorColor(c.floor)}"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🏢 الطابق</div><div style="font-weight:700">${floorLabel(c.floor)}</div></div>`:''}
     ${c.installChecklist?`<div class="panel" style="padding:10px;background:#3fb95015;border-color:#3fb95040">
       <div style="font-size:11px;color:var(--gn);margin-bottom:4px">✅ قائمة تحقق التنصيب — مكتملة</div>
       <div style="font-size:12px;color:var(--mt)">📌 تثبيت ✓ &nbsp;🔌 توصيل ✓ &nbsp;🖥️ اختبار ✓ &nbsp;📸 توثيق ✓</div>
@@ -4097,7 +4098,7 @@ function initFieldMap(){
 
   allCams.forEach(c=>{
     const lat=parseFloat(c.lat), lng=parseFloat(c.lng);
-    const stColor=c.status==='active'?'#3fb950':c.status==='maintenance'?'#d29922':'#58a6ff';
+    const stColor=getCamDisplayColor(c);
     const angle=parseFloat(c.beamAngle)||70;
     const rot=parseFloat(c.beamRot)||0;
     const mid=`${c._fsId}_${c._ci}`;
@@ -4414,6 +4415,8 @@ function showFieldCamForm(fsId,ci,cam){
       <input id="fcmf" value="${esc(c.mfr||'')}" placeholder="Hikvision / Dahua..."></div>
     <div class="field"><label>عنوان IP</label>
       <input id="fcip" value="${esc(c.ip||'')}" placeholder="192.168.1.100"></div>
+    <div class="field"><label>🏢 الطابق (للتمييز بالألوان على الخريطة)</label>
+      <select id="fcfloor">${floorSelectOptions(c.floor||'')}</select></div>
     <div class="s2 field"><label>📌 موقع التنصيب / الوصف</label>
       <input id="fcdc" value="${esc(c.installDesc||'')}" placeholder="مثال: بوابة المجمع الرئيسية، سطح الطابق الثالث، تقاطع شارع الكرادة..."></div>
     <div class="s2 field"><label>🧭 اتجاه الكاميرا (نص حر)</label>
@@ -4820,7 +4823,7 @@ function doExportMap(type){
     // ارسم الشعاع لكل كاميرا
     cams.forEach(({cam:c, ll})=>{
         const [cx,cy] = latlngToXY(ll.lat, ll.lng);
-        const stColor = c.status==='active'?'#3fb950':c.status==='maintenance'?'#d29922':'#58a6ff';
+        const stColor = getCamDisplayColor(c);
         const angle   = parseFloat(c.beamAngle)||70;
         const rot     = parseFloat(c.beamRot)||0;
         const viewDist= parseFloat(c.viewDist)||50;
@@ -4970,7 +4973,7 @@ function finishExport(canvas){
       const x = pt.x * scaleX;
       const y = pt.y * scaleY;
       const c = m.cam;
-      const stColor = c.status==='active'?'#3fb950':c.status==='maintenance'?'#d29922':'#58a6ff';
+      const stColor = getCamDisplayColor(c);
       const angle   = parseFloat(c.beamAngle)||70;
       const rot     = parseFloat(c.beamRot)||0;
       const viewDist= parseFloat(c.viewDist)||50;
@@ -5240,6 +5243,7 @@ function saveFieldCam(fsId,ci){
     name:nm, serial:val('fcsr'), camType:val('fccT'), res:val('fcrs'),
     angle:val('fcan'), model:val('fcmd'), mfr:val('fcmf'), ip:val('fcip'),
     installDesc:val('fcdc'), dir:val('fcdir'), status:val('fcst'),
+    floor:val('fcfloor')||'',
     lat:val('fclat'), lng:val('fclng'),
     beamAngle:$('fcba')?.value||70, beamRot:$('fcbr')?.value||0, viewDist:parseFloat($('fcvd')?.value)||50,
     addedBy:CU.name, addedAt:(ci>=0&&fs.cameras[ci]?.addedAt)||ts(),
@@ -10228,6 +10232,46 @@ function serialScanBtn(inputId){
   return '<button type="button" class="btn btn-sm btn-gy" onclick="openSerialScanner(\''+inputId+'\')" title="مسح بالكاميرا" style="flex-shrink:0">📷</button>';
 }
 
+
+
+// ══════════════════════════════════════════════════════
+//  🏢 نظام تمييز الكاميرات حسب الطابق بالألوان
+// ══════════════════════════════════════════════════════
+const FLOOR_TYPES = [
+  {k:'ground', label:'🟢 أرضي',     color:'#3fb950'},
+  {k:'upper',  label:'🟡 علوي',     color:'#d29922'},
+  {k:'roof',   label:'🔵 سطح',      color:'#58a6ff'},
+  {k:'floor3', label:'🟣 طابق ثالث', color:'#8957e5'},
+  {k:'floor4', label:'🟠 طابق رابع', color:'#ff7b00'},
+];
+
+function floorColor(floorKey){
+  const f = FLOOR_TYPES.find(function(x){return x.k===floorKey;});
+  return f ? f.color : null;
+}
+
+function floorLabel(floorKey){
+  const f = FLOOR_TYPES.find(function(x){return x.k===floorKey;});
+  return f ? f.label : '';
+}
+
+/**
+ * لون الكاميرا النهائي على الخريطة — نفس المنطق يُستخدم بكل أماكن الرسم
+ * الأولوية: صيانة (أصفر تحذيري) > عطل/مجهول (رمادي) > لون الطابق المُختار > أخضر افتراضي (نشط بدون طابق محدد)
+ */
+function getCamDisplayColor(c){
+  if(c.status==='maintenance') return '#d29922';
+  if(c.status && c.status!=='active') return '#8b949e';
+  const fc = floorColor(c.floor);
+  return fc || '#3fb950';
+}
+
+function floorSelectOptions(selected){
+  return '<option value="">— بدون تحديد (افتراضي) —</option>' +
+    FLOOR_TYPES.map(function(f){
+      return '<option value="'+f.k+'"'+(selected===f.k?' selected':'')+'>'+f.label+'</option>';
+    }).join('');
+}
 
 function pgRadio(){
   if(!p('radio')&&CU.role!=='manager'){
