@@ -9126,7 +9126,7 @@ async function sha256Hash(text){
 
 let _pwVaultUnlocked = false; // يُعاد لـ false في كل مرة يغادر القسم — القفل يُطلب دائماً
 
-const PWVAULT_DEVICE_TYPES = ['كاميرات','NVR','P2P','راوتر','سويچ','أخرى'];
+const PWVAULT_DEVICE_TYPES = ['كاميرات','NVR','P2P','راوتر','سويچ','لابتوب','حاسوب','UPS','طابعة','كاميرا حرارية','أخرى'];
 
 function pgPwVault(){
   if(CU.role!=='manager'){
@@ -9235,6 +9235,7 @@ function renderPwVaultList(){
     <div class="pt">🔐 سجل كلمات المرور</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-bl" onclick="openAddPwVault()">+ إضافة</button>
+      <button class="btn btn-gy" onclick="exportPwVaultExcel()">⬇️ Excel</button>
       <button class="btn btn-gy" onclick="openChangeVaultPassword()">🔑 تغيير كلمة القسم</button>
       <button class="btn btn-rd" onclick="lockVaultNow()">🔒 قفل الآن</button>
     </div>
@@ -9257,7 +9258,7 @@ function renderPwVaultList(){
         const pwId = 'pwv_'+r._idx;
         html += `<div class="panel" style="padding:12px;margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-weight:600">${esc(r.deviceType||'')}</span>
+            <span style="font-weight:600">${esc(r.deviceType||'')}${r.itemName?' — '+esc(r.itemName):''}</span>
             <div style="display:flex;gap:6px">
               <button class="btn btn-sm" onclick="openEditPwVault(${r._idx})">✏️</button>
               <button class="btn btn-sm btn-rd" onclick="deletePwVault(${r._idx})">🗑️</button>
@@ -9298,6 +9299,7 @@ function openAddPwVault(){
   openModal(`<div class="mhd">+ إضافة كلمة مرور</div>
     <div class="field"><label>الموقع</label><select id="pwv-site">${sitesOptions}</select></div>
     <div class="field"><label>نوع الجهاز</label><select id="pwv-type">${typesOptions}</select></div>
+    <div class="field"><label>اسم المادة (اختياري)</label><input id="pwv-name" placeholder="مثال: لابتوب المكتب، NVR الرئيسي..."></div>
     <div class="field"><label>اسم المستخدم (اختياري)</label><input id="pwv-user" placeholder="admin"></div>
     <div class="field"><label>كلمة المرور</label><input id="pwv-pass" placeholder="كلمة المرور"></div>
     <div class="field"><label>ملاحظات</label><textarea id="pwv-notes" placeholder="IP، بورت، أي تفاصيل إضافية..."></textarea></div>
@@ -9312,6 +9314,7 @@ function openEditPwVault(idx){
   openModal(`<div class="mhd">✏️ تعديل كلمة مرور</div>
     <div class="field"><label>الموقع</label><select id="pwv-site">${sitesOptions}</select></div>
     <div class="field"><label>نوع الجهاز</label><select id="pwv-type">${typesOptions}</select></div>
+    <div class="field"><label>اسم المادة (اختياري)</label><input id="pwv-name" value="${esc(r.itemName||'')}" placeholder="مثال: لابتوب المكتب، NVR الرئيسي..."></div>
     <div class="field"><label>اسم المستخدم (اختياري)</label><input id="pwv-user" value="${esc(r.username||'')}"></div>
     <div class="field"><label>كلمة المرور</label><input id="pwv-pass" value="${esc(r.password||'')}"></div>
     <div class="field"><label>ملاحظات</label><textarea id="pwv-notes">${esc(r.notes||'')}</textarea></div>
@@ -9326,6 +9329,7 @@ function savePwVault(idx){
     id: id,
     site: val('pwv-site')||'',
     deviceType: val('pwv-type')||'',
+    itemName: val('pwv-name')||'',
     username: val('pwv-user')||'',
     password: val('pwv-pass')||'',
     notes: val('pwv-notes')||'',
@@ -9354,6 +9358,34 @@ function deletePwVault(idx){
     toast('🗑️ تم الحذف');
     setTimeout(renderPwVaultList, 300);
   });
+}
+
+
+function exportPwVaultExcel(){
+  if(CU.role!=='manager' || !_pwVaultUnlocked){ toast('يجب فتح القسم أولاً','err'); return; }
+  const records = DB.pwVault || [];
+  if(!records.length){ toast('لا توجد سجلات للتصدير','warn'); return; }
+  const today = fmtDate(new Date().toISOString());
+  const h = ['الموقع','نوع الجهاز','اسم المادة','اسم المستخدم','كلمة المرور','ملاحظات','آخر تحديث بواسطة','تاريخ التحديث'];
+  let tableRows = '';
+  records.forEach(function(r){
+    const row = [r.site||'', r.deviceType||'', r.itemName||'', r.username||'', r.password||'', r.notes||'', r.updatedBy||'', fmtDate(r.updatedAt||'')];
+    tableRows += '<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
+  });
+  const xls = '<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#8957e5;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f8f5ff}.summary{background:#f3eeff;border:1px solid #8957e5;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:16px}h2{font-size:18px;font-weight:600}</style></head><body>'
+    +'<h2>🔐 سجل كلمات المرور</h2>'
+    +'<div class="summary">⚠️ ملف حساس — للاستخدام الداخلي فقط &nbsp;|&nbsp; إجمالي السجلات: <b>'+records.length+'</b> &nbsp;|&nbsp; تاريخ التصدير: <b>'+today+'</b></div>'
+    +'<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>'+tableRows+'</tbody></table>'
+    +'</body></html>';
+  const blob = new Blob(['\uFEFF'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'سجل_كلمات_المرور_'+today+'.xls';
+  a.click();
+  URL.revokeObjectURL(url);
+  logVaultAccess('تصدير Excel لسجل كلمات المرور — '+records.length+' سجل');
+  toast('✅ تم تصدير '+records.length+' سجل');
 }
 
 function openChangeVaultPassword(){
@@ -10302,6 +10334,7 @@ function pgRadio(){
       html+='<br><span style="font-size:12px;color:var(--mt)">';
       if(d.type) html+=esc(d.type)+' | ';
       if(d.status) html+='<b>'+esc(d.status)+'</b> | ';
+      if(d.deviceId) html+='🆔 '+esc(d.deviceId)+' | ';
       if(d.assignedTo) html+='👤 '+esc(d.assignedTo);
       html+='</span></div>';
       if(canEdit){
@@ -10334,6 +10367,7 @@ function _radioForm(d){
   html+='<div class="field"><label>الشركة</label><select id="rd-brand"><option value="">—</option>'+bOpts+'</select></div>';
   html+='<div class="field"><label>النوع</label><select id="rd-type"><option value="">—</option>'+tOpts+'</select></div>';
   html+='<div class="field"><label>السيريال</label><div style="display:flex;gap:6px"><input id="rd-serial" value="'+esc(f.serial||'')+'" style="flex:1">'+serialScanBtn('rd-serial')+'</div></div>';
+  html+='<div class="field"><label>رقم ID الجهاز</label><input id="rd-devid" value="'+esc(f.deviceId||'')+'" placeholder="مثال: 1024001"></div>';
   html+='<div class="field"><label>القوة (واط)</label><input id="rd-power" value="'+esc(f.power||'')+'"></div>';
   html+='<div class="field"><label>الشفرة</label><input id="rd-code" value="'+esc(f.codeType||'')+'" placeholder="DMR, Analog..."></div>';
   html+='<div class="field"><label>الحالة</label><select id="rd-status">'+sOpts+'</select></div>';
@@ -10362,7 +10396,7 @@ function saveRadio(existId){
     moves.push({date:ts(),by:CU.name,action:(ns!==prev.status?'→'+ns:'')+(na!==prev.assignedTo?' مسلم:'+na:''),_ts:Date.now()});
   }
   var data={id:id,name:val('rd-name'),brand:val('rd-brand'),type:val('rd-type'),
-    serial:val('rd-serial'),power:val('rd-power'),codeType:val('rd-code'),
+    serial:val('rd-serial'),deviceId:val('rd-devid'),power:val('rd-power'),codeType:val('rd-code'),
     status:val('rd-status'),condition:val('rd-cond'),
     assignedTo:val('rd-assigned'),location:val('rd-location'),
     lat:val('rd-lat')||'',lng:val('rd-lng')||'',
@@ -10422,6 +10456,8 @@ var UAV_CAM=['بدون كاميرا','كاميرا RGB','كاميرا حراري
 var UAV_STATUS=['في المخزن','في الميدان','صيانة','معطل','مفقود','خارج الخدمة'];
 var UAV_COND=['ممتاز','جيد جداً','جيد','مقبول','يحتاج صيانة','تالف'];
 var UAV_SC={'في المخزن':'#0969da','في الميدان':'#1a7f37','صيانة':'#9a6700','معطل':'#d1242f','مفقود':'#8250df','خارج الخدمة':'#656d76'};
+var UAV_ITEM_CATS=['طائرة كاملة','ملحق / معدة'];
+var UAV_ACCESSORY_TYPES=['بطارية','هوائي','كاميرا','حقيبة حمل','وصلة كابل','شاحن','ذاكرة SD','مروحة','ريموت تحكم','شاشة عرض','أخرى'];
 
 function pgUAV(){
   if(!p('uav')&&CU.role!=='manager'){
@@ -10480,12 +10516,14 @@ function pgUAV(){
       html+='<div style="flex:1">';
       // العنوان
       html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">';
-      html+='<span style="font-weight:700;font-size:16px">🛩️ '+esc(d.name||d.model||'طائرة')+'</span>';
+      html+='<span style="font-weight:700;font-size:16px">'+(d.itemCategory==='ملحق / معدة'?'📦 ':'🛩️ ')+esc(d.name||d.model||'عنصر')+'</span>';
       html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:'+col+'22;color:'+col+'">'+esc(d.status||'—')+'</span>';
+      if(d.itemCategory==='ملحق / معدة') html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#8957e522;color:#8957e5">'+esc(d.accessoryType||'ملحق')+'</span>';
       if(d.condition) html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg);color:var(--mt)">'+esc(d.condition)+'</span>';
       html+='</div>';
       // التفاصيل
       html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px;font-size:12px;color:var(--mt)">';
+      if(d.itemCategory==='ملحق / معدة'&&d.qty>1) html+='<span>🔢 العدد: <b style="color:var(--tx)">'+d.qty+'</b></span>';
       if(d.brand)       html+='<span>🏭 '+esc(d.brand)+'</span>';
       if(d.model)       html+='<span>✈️ '+esc(d.model)+'</span>';
       if(d.type)        html+='<span>🔧 '+esc(d.type)+'</span>';
@@ -10528,48 +10566,81 @@ function _uavForm(d){
   var f=d||{};
   function opts(arr,cur){return arr.map(function(v){return '<option value="'+v+'"'+((cur||arr[0])===v?' selected':'')+'>'+v+'</option>';}).join('');}
   var accStr=(f.accessories||[]).join('، ');
-  var html=mhd(d?'✏️ تعديل طائرة مسيرة':'🛩️ إضافة طائرة مسيرة');
+  var cat = f.itemCategory || 'طائرة كاملة';
+  var isAccessory = (cat === 'ملحق / معدة');
+  var html=mhd(d?'✏️ تعديل عنصر':'🛩️ إضافة عنصر جديد');
   html+='<div class="fg">';
-  html+='<div class="field"><label>الاسم / الكود *</label><input id="uav-name" value="'+esc(f.name||'')+'" placeholder="مثال: DJI-01، طائرة المراقبة..."></div>';
+  html+='<div class="field s2"><label>نوع العنصر *</label><select id="uav-cat" onchange="toggleUAVFormFields()">'+opts(UAV_ITEM_CATS,cat)+'</select></div>';
+  html+='<div class="field"><label>الاسم / الكود *</label><input id="uav-name" value="'+esc(f.name||'')+'" placeholder="مثال: DJI-01، بطارية رقم 3..."></div>';
+
+  // ── حقول خاصة بالطائرة الكاملة ──
+  html+='<div id="uav-plane-fields" style="display:'+(isAccessory?'none':'contents')+'">';
   html+='<div class="field"><label>الشركة المصنعة</label><select id="uav-brand"><option value="">—</option>'+opts(UAV_BRANDS,f.brand)+'</select></div>';
   html+='<div class="field"><label>الموديل</label><input id="uav-model" value="'+esc(f.model||'')+'" placeholder="مثال: Mavic 3، Mini 4 Pro..."></div>';
   html+='<div class="field"><label>نوع الطائرة</label><select id="uav-type"><option value="">—</option>'+opts(UAV_TYPES,f.type)+'</select></div>';
   html+='<div class="field"><label>نوع الكاميرا</label><select id="uav-camera"><option value="">—</option>'+opts(UAV_CAM,f.camera)+'</select></div>';
-  html+='<div class="field"><label>الرقم التسلسلي</label><div style="display:flex;gap:6px"><input id="uav-serial" value="'+esc(f.serial||'')+'" placeholder="SN-XXXXX" style="flex:1">'+serialScanBtn('uav-serial')+'</div></div>';
   html+='<div class="field"><label>زمن الطيران (دقيقة)</label><input id="uav-flight" type="number" value="'+esc(f.flightTime||'')+'" placeholder="مثال: 45"></div>';
   html+='<div class="field"><label>مدى التحكم (كم)</label><input id="uav-range" value="'+esc(f.range||'')+'" placeholder="مثال: 10"></div>';
+  html+='<div class="field s2"><label>الملحقات المرتبطة (افصل بفاصلة)</label><input id="uav-acc" value="'+esc(accStr)+'" placeholder="مثال: بطاريتان إضافيتان، حقيبة حمل، ND Filters..."></div>';
+  html+='</div>';
+
+  // ── حقول خاصة بالملحق/المعدة المنفصلة ──
+  html+='<div id="uav-accessory-fields" style="display:'+(isAccessory?'contents':'none')+'">';
+  html+='<div class="field"><label>نوع الملحق</label><select id="uav-acc-type"><option value="">—</option>'+opts(UAV_ACCESSORY_TYPES,f.accessoryType)+'</select></div>';
+  html+='<div class="field"><label>الموديل / المواصفة</label><input id="uav-acc-model" value="'+esc(f.model||'')+'" placeholder="مثال: DJI TB60، 128GB..."></div>';
+  html+='<div class="field"><label>العدد</label><input id="uav-acc-qty" type="number" value="'+esc(f.qty||1)+'" min="1"></div>';
+  html+='</div>';
+
+  html+='<div class="field"><label>الرقم التسلسلي</label><div style="display:flex;gap:6px"><input id="uav-serial" value="'+esc(f.serial||'')+'" placeholder="SN-XXXXX" style="flex:1">'+serialScanBtn('uav-serial')+'</div></div>';
   html+='<div class="field"><label>الحالة</label><select id="uav-status">'+opts(UAV_STATUS,f.status)+'</select></div>';
   html+='<div class="field"><label>الحالة التقنية</label><select id="uav-cond"><option value="">—</option>'+opts(UAV_COND,f.condition)+'</select></div>';
   html+='<div class="field"><label>بحوزة / مسلّم لـ</label><input id="uav-assigned" value="'+esc(f.assignedTo||'')+'" placeholder="اسم الشخص..."></div>';
   html+='<div class="field"><label>الموقع / المنطقة</label><input id="uav-location" value="'+esc(f.location||'')+'" placeholder="الحسينية، المقر..."></div>';
-  html+='<div class="field s2"><label>الملحقات (افصل بفاصلة)</label><input id="uav-acc" value="'+esc(accStr)+'" placeholder="مثال: بطاريتان إضافيتان، حقيبة حمل، ND Filters..."></div>';
   html+='<div class="field s2"><label>ملاحظات</label><textarea id="uav-notes" rows="2">'+esc(f.notes||'')+'</textarea></div>';
   html+='</div>';
   html+=mft(d?'💾 حفظ':'➕ إضافة',"saveUAV('"+(d?d.id:'')+"')",'btn-bl');
   openModal(html);
 }
 
+function toggleUAVFormFields(){
+  var cat = val('uav-cat');
+  var isAccessory = (cat === 'ملحق / معدة');
+  var planeEl = document.getElementById('uav-plane-fields');
+  var accEl = document.getElementById('uav-accessory-fields');
+  if(planeEl) planeEl.style.display = isAccessory ? 'none' : 'contents';
+  if(accEl) accEl.style.display = isAccessory ? 'contents' : 'none';
+}
+
 function saveUAV(existId){
   var name=val('uav-name');
-  if(!name){toast('أدخل اسم الطائرة','err');return;}
+  if(!name){toast('أدخل اسم العنصر','err');return;}
   var id=existId||gid();
   var prev=null;
   var devs=DB.uavDevices||[];
   for(var i=0;i<devs.length;i++){if(devs[i].id===existId){prev=devs[i];break;}}
   prev=prev||{};
+  var cat = val('uav-cat')||'طائرة كاملة';
+  var isAccessory = (cat==='ملحق / معدة');
   var accRaw=val('uav-acc')||'';
   var accessories=accRaw?accRaw.split(/[،,]/).map(function(s){return s.trim();}).filter(Boolean):[];
   var data={
-    id:id, name:val('uav-name'), brand:val('uav-brand'), model:val('uav-model'),
-    type:val('uav-type'), camera:val('uav-camera'), serial:val('uav-serial'),
-    flightTime:val('uav-flight'), range:val('uav-range'),
+    id:id, itemCategory:cat, name:val('uav-name'),
+    brand:isAccessory?'':val('uav-brand'),
+    model:isAccessory?val('uav-acc-model'):val('uav-model'),
+    type:isAccessory?'':val('uav-type'),
+    camera:isAccessory?'':val('uav-camera'),
+    serial:val('uav-serial'),
+    flightTime:isAccessory?'':val('uav-flight'),
+    range:isAccessory?'':val('uav-range'),
+    accessoryType:isAccessory?val('uav-acc-type'):'',
+    qty:isAccessory?(parseInt(val('uav-acc-qty'))||1):1,
     status:val('uav-status'), condition:val('uav-cond'),
     assignedTo:val('uav-assigned'), location:val('uav-location'),
-    accessories:accessories, notes:val('uav-notes'),
+    accessories:isAccessory?[]:accessories, notes:val('uav-notes'),
     by:prev.by||CU.name, date:prev.date||ts(), _ts:Date.now()
   };
   fbSet('uavDevices/'+id, data);
-  logAct(existId?'تعديل طائرة مسيرة':'إضافة طائرة مسيرة', data.name||data.model);
+  logAct(existId?'تعديل عنصر (طائرات/ملحقات)':'إضافة عنصر (طائرات/ملحقات)', data.name||data.model);
   closeModal();
   toast(existId?'✅ تم التعديل':'✅ تمت الإضافة');
   setTimeout(pgUAV, 400);
@@ -10771,12 +10842,12 @@ function exportRadioExcel(){
   if(CU.role!=='manager'){toast('تصدير أجهزة المناداة للمدير فقط','err');return;}
   var devs=DB.radioDevices||[];
   if(!devs.length){toast('لا أجهزة للتصدير','warn');return;}
-  var h=['الاسم','الموديل','التردد','الرقم التسلسلي','الحالة','بحوزة','الموقع','ملاحظات'];
+  var h=['الاسم','الموديل','التردد','رقم ID الجهاز','الرقم التسلسلي','الحالة','بحوزة','الموقع','ملاحظات'];
   var xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#0969da;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
   xls+='<h2>📻 جرد أجهزة المناداة</h2><p style="color:#666">'+devs.length+' جهاز — '+fmtDate(new Date().toISOString())+'</p>';
   xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
   devs.forEach(function(d){
-    var row=[d.name||d.serial||'',d.model||'',d.frequency||'',d.serial||'',d.status||'',d.assignedTo||'',d.location||'',d.notes||''];
+    var row=[d.name||d.serial||'',d.model||'',d.frequency||'',d.deviceId||'',d.serial||'',d.status||'',d.assignedTo||'',d.location||'',d.notes||''];
     xls+='<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
   });
   xls+='</tbody></table></body></html>';
