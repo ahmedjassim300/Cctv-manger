@@ -9303,7 +9303,7 @@ function openAddPwVault(){
     <div class="field"><label>اسم المستخدم (اختياري)</label><input id="pwv-user" placeholder="admin"></div>
     <div class="field"><label>كلمة المرور</label><input id="pwv-pass" placeholder="كلمة المرور"></div>
     <div class="field"><label>ملاحظات</label><textarea id="pwv-notes" placeholder="IP، بورت، أي تفاصيل إضافية..."></textarea></div>
-    <button class="btn btn-bl" onclick="savePwVault(-1)">💾 حفظ</button>`);
+    <button class="btn btn-bl" onclick="savePwVault(null)">💾 حفظ</button>`);
 }
 
 function openEditPwVault(idx){
@@ -9318,12 +9318,14 @@ function openEditPwVault(idx){
     <div class="field"><label>اسم المستخدم (اختياري)</label><input id="pwv-user" value="${esc(r.username||'')}"></div>
     <div class="field"><label>كلمة المرور</label><input id="pwv-pass" value="${esc(r.password||'')}"></div>
     <div class="field"><label>ملاحظات</label><textarea id="pwv-notes">${esc(r.notes||'')}</textarea></div>
-    <button class="btn btn-bl" onclick="savePwVault(${idx})">💾 حفظ التعديل</button>`);
+    <button class="btn btn-bl" onclick="savePwVault('${r.id}')">💾 حفظ التعديل</button>`);
 }
 
-function savePwVault(idx){
+function savePwVault(existingId){
+  // ⚠️ نعتمد على id ثابت (وليس index متغيّر بالمصفوفة) لتفادي الإشارة لعنصر خاطئ
+  //    لو تغيّر ترتيب DB.pwVault بالخلفية أثناء فتح النموذج (نفس نمط الراديو/UAV الآمن)
   const list = DB.pwVault ? [...DB.pwVault] : [];
-  const existing = idx>=0 ? list[idx] : null;
+  const existing = existingId ? list.find(function(r){return r.id===existingId;}) : null;
   const id = existing ? existing.id : gid();
   const rec = {
     id: id,
@@ -9338,13 +9340,16 @@ function savePwVault(idx){
     _ts: existing ? (existing._ts||Date.now()) : Date.now()
   };
   if(!rec.password){ toast('كلمة المرور مطلوبة','err'); return; }
+  const btn = document.querySelector('.mft button.btn-bl, .mft button:not(.btn-gy)');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ جار الحفظ...'; }
   fbSet('pwVault/'+id, rec).then(function(){
-    logVaultAccess((idx>=0?'تعديل':'إضافة')+' سجل كلمة مرور — '+rec.site+' / '+rec.deviceType);
+    logVaultAccess((existing?'تعديل':'إضافة')+' سجل كلمة مرور — '+rec.site+' / '+rec.deviceType);
     closeModal();
     toast('✅ تم الحفظ');
     setTimeout(renderPwVaultList, 300);
   }).catch(function(err){
     toast('❌ فشل الحفظ: '+err.message,'err');
+    if(btn){ btn.disabled = false; btn.textContent = existing?'💾 حفظ التعديل':'💾 حفظ'; }
   });
 }
 
@@ -9352,11 +9357,13 @@ function deletePwVault(idx){
   if(!confirm('هل تريد حذف هذا السجل نهائياً؟')) return;
   const list = DB.pwVault ? [...DB.pwVault] : [];
   const removed = list[idx];
-  if(!removed || !removed.id){ toast('خطأ: سجل غير موجود','err'); return; }
+  if(!removed || !removed.id){ toast('السجل لم يعد موجوداً، أعد تحميل الصفحة','err'); setTimeout(renderPwVaultList, 300); return; }
   fbDel('pwVault/'+removed.id).then(function(){
     logVaultAccess('حذف سجل كلمة مرور — '+(removed.site||'')+' / '+(removed.deviceType||''));
     toast('🗑️ تم الحذف');
     setTimeout(renderPwVaultList, 300);
+  }).catch(function(err){
+    toast('❌ فشل الحذف: '+err.message,'err');
   });
 }
 
