@@ -15,6 +15,14 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{--bg:#f0f2f5;--sf:#ffffff;--br:#d0d7de;--tx:#1f2328;--mt:#656d76;--bl:#0969da;--gn:#1a7f37;--rd:#d1242f;--yl:#9a6700;--pu:#8250df;}
+/* منع قائمة "تنزيل/مشاركة/طباعة" الافتراضية التي تظهر على الموبايل عند الضغط
+   المطول على بلاطات الخريطة (Leaflet tiles هي عناصر <img>) — ضرورية لعمل
+   ميزة الضغط المطول لإضافة عناصر (كاميرا/برج/P2P/راديو/NVR) بدون تعارض */
+.leaflet-container, .leaflet-container img, .leaflet-tile, .leaflet-tile-pane{
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;font-size:17px;}
 body { overflow-x: hidden; font-size: 17px; }
@@ -3597,7 +3605,7 @@ function pgFieldMap(){
       `:''}
       `:''}
     </div>
-    <div id="fld-map" style="height:490px;border-radius:10px;border:1px solid var(--br);margin-bottom:16px;z-index:1;position:relative;"></div>
+    <div id="fld-map" style="height:490px;border-radius:10px;border:1px solid var(--br);margin-bottom:16px;z-index:1;position:relative;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none" oncontextmenu="return false;"></div>
 
     <!-- شريط الطبقات -->
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--sf);border-radius:10px;border:1px solid var(--br);align-items:center">
@@ -10338,6 +10346,9 @@ function setupLongPressAddMenu(map){
     // لا نفعّل الميزة أثناء أي وضع رسم آخر نشط (حدود/قياس/شبكة)
     if(_drawingBoundary || _measuringMode || _drawingNet) return;
     _longPressMoved = false;
+    // نمنع قائمة المتصفح الافتراضية (حفظ/مشاركة الصورة) التي تظهر عادة
+    // عند الضغط المطول على بلاطات الخريطة (وهي عناصر <img>)
+    if(map.getContainer()){ map.getContainer().style.webkitTouchCallout='none'; }
     startPoint = containerPoint;
     _longPressStartLatLng = latlng;
     // دائرة تصويرية تكبر تدريجياً لإعطاء تغذية راجعة بصرية أثناء الضغط
@@ -10380,6 +10391,23 @@ function setupLongPressAddMenu(map){
   });
   map.on('touchend', cancelLongPress);
   map.on('touchcancel', cancelLongPress);
+
+  // منع قائمة المتصفح الافتراضية (تنزيل/مشاركة/طباعة) عند الضغط المطول على بلاطات الخريطة
+  map.on('contextmenu', function(e){
+    if(e.originalEvent && e.originalEvent.preventDefault) e.originalEvent.preventDefault();
+  });
+  const container = map.getContainer();
+  if(container){
+    container.addEventListener('contextmenu', function(ev){ ev.preventDefault(); return false; }, {passive:false});
+    // منع سلوك اللمس الطويل الأصلي للمتصفح مباشرة عند لمسة الخريطة
+    container.addEventListener('touchstart', function(ev){
+      if(ev.touches && ev.touches.length===1){
+        // لا نمنع الحدث بالكامل (حتى لا نكسر التمرير أو التكبير)،
+        // فقط نلغي احتمال ظهور قائمة الصورة الافتراضية لاحقاً
+        ev.target.style.webkitTouchCallout = 'none';
+      }
+    }, {passive:true});
+  }
 }
 
 // نافذة اختيار نوع العنصر — تفتح عند نجاح الضغط المطول
