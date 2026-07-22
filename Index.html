@@ -4187,6 +4187,8 @@ function initFieldMap(){
   addMyLocationToMap();
   // ══ تحميل الحدود المحفوظة ══
   loadBoundaries();
+  // ══ الضغط المطول لإضافة عنصر جديد بسرعة (كاميرا/برج/P2P/راديو/NVR) ══
+  setupLongPressAddMenu(_map);
   // ══ listener لرسم الحدود ══
   _map.on('click', e=>{
     if(!_drawingBoundary) return;
@@ -10310,6 +10312,119 @@ function floorSelectOptions(selected){
     FLOOR_TYPES.map(function(f){
       return '<option value="'+f.k+'"'+(selected===f.k?' selected':'')+'>'+f.label+'</option>';
     }).join('');
+}
+
+
+// ══════════════════════════════════════════════════════
+//  📍 الضغط المطول على الخريطة — إضافة سريعة (Pin Quest style)
+// ══════════════════════════════════════════════════════
+let _longPressTimer = null;
+let _longPressStartLatLng = null;
+let _longPressIndicator = null;
+let _longPressMoved = false;
+
+function setupLongPressAddMenu(map){
+  const LONG_PRESS_MS = 550;
+  const MOVE_TOLERANCE_PX = 12;
+  let startPoint = null;
+
+  function cancelLongPress(){
+    if(_longPressTimer){ clearTimeout(_longPressTimer); _longPressTimer=null; }
+    if(_longPressIndicator){ map.removeLayer(_longPressIndicator); _longPressIndicator=null; }
+    startPoint = null;
+  }
+
+  function beginLongPress(latlng, containerPoint){
+    // لا نفعّل الميزة أثناء أي وضع رسم آخر نشط (حدود/قياس/شبكة)
+    if(_drawingBoundary || _measuringMode || _drawingNet) return;
+    _longPressMoved = false;
+    startPoint = containerPoint;
+    _longPressStartLatLng = latlng;
+    // دائرة تصويرية تكبر تدريجياً لإعطاء تغذية راجعة بصرية أثناء الضغط
+    _longPressIndicator = L.circleMarker(latlng, {
+      radius: 8, color:'#8957e5', weight:2, fillColor:'#8957e5', fillOpacity:.3
+    }).addTo(map);
+    _longPressTimer = setTimeout(function(){
+      if(_longPressIndicator){ map.removeLayer(_longPressIndicator); _longPressIndicator=null; }
+      if(!_longPressMoved) openQuickAddMenu(latlng);
+    }, LONG_PRESS_MS);
+  }
+
+  map.on('mousedown', function(e){
+    if(e.originalEvent.button !== 0) return; // يسار الفأرة فقط
+    beginLongPress(e.latlng, e.containerPoint);
+  });
+  map.on('mousemove', function(e){
+    if(!startPoint) return;
+    const dx = e.containerPoint.x - startPoint.x, dy = e.containerPoint.y - startPoint.y;
+    if(Math.sqrt(dx*dx+dy*dy) > MOVE_TOLERANCE_PX){ _longPressMoved = true; cancelLongPress(); }
+  });
+  map.on('mouseup', cancelLongPress);
+  map.on('dragstart', cancelLongPress);
+
+  // دعم اللمس على الموبايل
+  map.on('touchstart', function(e){
+    if(!e.originalEvent.touches || e.originalEvent.touches.length!==1) return;
+    const touch = e.originalEvent.touches[0];
+    const rect = map.getContainer().getBoundingClientRect();
+    const containerPoint = L.point(touch.clientX-rect.left, touch.clientY-rect.top);
+    const latlng = map.containerPointToLatLng(containerPoint);
+    beginLongPress(latlng, containerPoint);
+  });
+  map.on('touchmove', function(e){
+    if(!startPoint || !e.originalEvent.touches || !e.originalEvent.touches[0]) return;
+    const touch = e.originalEvent.touches[0];
+    const rect = map.getContainer().getBoundingClientRect();
+    const dx = (touch.clientX-rect.left) - startPoint.x, dy = (touch.clientY-rect.top) - startPoint.y;
+    if(Math.sqrt(dx*dx+dy*dy) > MOVE_TOLERANCE_PX){ _longPressMoved = true; cancelLongPress(); }
+  });
+  map.on('touchend', cancelLongPress);
+  map.on('touchcancel', cancelLongPress);
+}
+
+// نافذة اختيار نوع العنصر — تفتح عند نجاح الضغط المطول
+function openQuickAddMenu(latlng){
+  if(!_FSITE){ toast('اختر موقعاً ميدانياً أولاً','warn'); return; }
+  if(!p('addItem') && CU.role!=='manager'){ toast('لا صلاحية للإضافة','err'); return; }
+
+  const lat = latlng.lat.toFixed(6), lng = latlng.lng.toFixed(6);
+  const items = [
+    {type:'camera', icon:'📷', label:'كاميرا'},
+    {type:'tower',  icon:'🗼', label:'برج'},
+    {type:'p2p',    icon:'📡', label:'رابط P2P'},
+    {type:'radio',  icon:'📻', label:'جهاز راديو'},
+    {type:'nvr',    icon:'💾', label:'NVR'},
+  ];
+
+  openModal(`${mhd('➕ إضافة عنصر بهذا الموقع')}
+    <div style="font-size:12px;color:var(--mt);text-align:center;margin-bottom:14px;direction:ltr">📍 ${lat}, ${lng}</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+      ${items.map(function(it){
+        return '<button type="button" class="btn btn-gy" style="padding:16px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:14px" '+
+          'onclick="closeModal();quickAddAtLocation(\''+it.type+'\','+lat+','+lng+')">'+
+          '<span style="font-size:26px">'+it.icon+'</span>'+esc(it.label)+'</button>';
+      }).join('')}
+    </div>
+    <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إلغاء</button></div>`);
+}
+
+// يفتح نموذج الإضافة المناسب مع تعبئة الإحداثيات تلقائياً
+function quickAddAtLocation(type, lat, lng){
+  if(type==='camera'){
+    openAddFieldCam(_FSITE);
+    setTimeout(function(){
+      const latEl=document.getElementById('fclat'), lngEl=document.getElementById('fclng');
+      if(latEl) latEl.value=lat;
+      if(lngEl) lngEl.value=lng;
+    }, 100);
+  } else {
+    openAddFieldEquip(_FSITE, type);
+    setTimeout(function(){
+      const latEl=document.getElementById('feq-lat'), lngEl=document.getElementById('feq-lng');
+      if(latEl) latEl.value=lat;
+      if(lngEl) lngEl.value=lng;
+    }, 100);
+  }
 }
 
 function pgRadio(){
