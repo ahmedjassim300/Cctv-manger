@@ -643,16 +643,17 @@ const PERM_DEF = {
   radioEdit: 'تعديل أجهزة المناداة',
   uav      : 'عرض الطائرات المسيرة',
   uavEdit  : 'تعديل الطائرات المسيرة',
+  camDrag  : 'تحريك الكاميرا بالسحب على الخريطة',
 };
 
 const DEF_PERMS = {
-  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1,maintain:1,reports:1,siteinv:1},
-  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0},
-  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1},
-  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1},
-  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1},
-  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:1,siteinv:1},
-  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:0,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0},
+  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1,maintain:1,reports:1,siteinv:1,camDrag:1},
+  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0},
+  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
+  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
+  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:1,siteinv:1,camDrag:0},
+  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:0,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0},
 };
 
 const FAULT_ST = [
@@ -3067,14 +3068,18 @@ function openPerms(i){
   const isViewer=u.role==='viewer';
   const isTechOrField = u.role!=='manager'&&u.role!=='viewer';
   const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','radio','uav','maintain','reports','docs','downloadDocs','siteinv'];
-  const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit'];
+  const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit','camDrag'];
   const PERM_LABELS ={
     inv:'عرض المخزن', faults:'عرض الأعطال', notifs:'الإشعارات',
     invoices:'عرض الفواتير', moves:'عرض حركة المواد', sites:'عرض المواقع والمخازن',
     types:'عرض أنواع المواد', fieldmap:'خريطة المواقع الميدانية',
     docs:'عرض المستندات', downloadDocs:'تحميل المستندات',
     addItem:'إضافة وتعديل المواد', updFault:'تحديث حالة الأعطال',
-    importInv:'استيراد الفواتير', users:'إدارة المستخدمين'
+    importInv:'استيراد الفواتير', users:'إدارة المستخدمين',
+    radio:'عرض أجهزة المناداة', radioEdit:'تعديل أجهزة المناداة',
+    uav:'عرض الطائرات المسيرة', uavEdit:'تعديل الطائرات المسيرة',
+    maintain:'عرض جدول الصيانة', reports:'عرض التقارير', siteinv:'جرد الموجودات الثابتة',
+    camDrag:'تحريك الكاميرا بالسحب على الخريطة'
   };
   function permRow(k){
     const locked=k==='notifs';
@@ -3137,7 +3142,7 @@ function syncUserFieldSitePerms(userIdx, siteId, allow){
 }
 
 function savePerms(i){
-  var ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv'];
+  var ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'];
   var perms={};
   ALL_KEYS.forEach(function(k){
     var el=document.getElementById('pm_'+k);
@@ -3167,12 +3172,12 @@ function savePerms(i){
 function resetPerms(i){ const u=DB.users[i]; if(u) fbUpdate('users/'+(u.uid||u.id),{perms:null}); closeModal(); toast('تم إعادة الصلاحيات للافتراضي'); }
 
 function revokeAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=false;
   });
 }
 function grantAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=true;
   });
 }
@@ -4275,7 +4280,7 @@ function initFieldMap(){
       <circle cx="11" cy="16" r="2" fill="${stColor}"/>
     </svg>`;
     const icon=L.divIcon({html:svgIcon,className:'',iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
-    const isDraggable=CU&&(CU.role==='manager'||CU.role==='engineer');
+    const isDraggable=CU&&(CU.role==='manager'||p('camDrag'));
     const marker=L.marker([lat,lng],{icon,zIndexOffset:500,draggable:isDraggable}).addTo(camGroup);
 
     if(isDraggable){
