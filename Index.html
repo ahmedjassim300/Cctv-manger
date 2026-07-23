@@ -1961,6 +1961,11 @@ function openMoveItem(i,site){
   const item=DB.inv[s][i];
   const isOut=item.status==='warehouse'||item.status==='returned';
   const dests=DB.sites.filter(x=>x!==s);
+  // عند الصرف (نصب في الميدان)، نضيف أيضاً المواقع الميدانية كخيارات وجهة —
+  // يُميَّز الموقع الميداني بالبادئة "field:" بقيمة الـ option حتى تُعالَج بشكل مختلف
+  // عن النقل بين مستودعات (نفس مفهوم الحقيقة الأساسي: المخزون في مستودعات فقط،
+  // لكن التنصيب الفعلي يكون بموقع ميداني)
+  const fieldDests = isOut ? (DB.fieldSites||[]).filter(function(fs){return fs.warehouse===s || !fs.warehouse;}) : [];
   openModal(`${mhd(isOut?'🔼 صرف / نصب من المخزن':'🔽 إيداع / إعادة للمخزن')}
   <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px">
     <div style="font-weight:700">${allT()[item.type]?.icon||''} ${esc(item.name||item.serial||'—')}</div>
@@ -1977,7 +1982,14 @@ function openMoveItem(i,site){
     </select>
   </div>
   <div class="field"><label>${isOut?'الموقع الوجهة / اسم النقطة المنصوب بها':'المستودع الوجهة'}</label>
-    <select id="mds">${dests.map(d=>`<option value="${esc(d)}">${isMainSite(d)?'🏭 ':'🏪 '}${esc(d)}</option>`).join('')}</select></div>
+    <select id="mds">
+      ${fieldDests.length?`<optgroup label="📍 مواقع ميدانية (تنصيب فعلي)">
+        ${fieldDests.map(fs=>`<option value="field:${fs.id}:${esc(fs.name)}">📍 ${esc(fs.name)}</option>`).join('')}
+      </optgroup>`:''}
+      <optgroup label="🏭 مستودعات (نقل مخزني)">
+        ${dests.map(d=>`<option value="${esc(d)}">${isMainSite(d)?'🏭 ':'🏪 '}${esc(d)}</option>`).join('')}
+      </optgroup>
+    </select></div>
   ${isOut?`<div class="field"><label>اسم النقطة المنصوب بها (اختياري)</label>
     <input id="mv-point" placeholder="مثال: كاميرا بوابة رئيسية، NVR غرفة الموزع..."></div>
   <div class="field"><label>اسم المستلم <span style="color:var(--rd)">*</span></label>
@@ -2077,7 +2089,7 @@ function doReturn(siteId,warehouse,ptId,itemId,it,reason,notes,fbPath){
 }
 
 function confirmMove(i,src,isOut){
-  const item=DB.inv[src][i], dest=val('mds'), notes=val('mnt');
+  const item=DB.inv[src][i], destRaw=val('mds'), notes=val('mnt');
   const newStatus = val('mv-status') || (isOut?'deployed':'warehouse');
   const installPoint = val('mv-point')||'';
   const receiver = isOut?(val('mv-receiver')||''):'';
@@ -2085,6 +2097,32 @@ function confirmMove(i,src,isOut){
   if(!item){ closeModal(); return; }
   if(isOut && !receiver){ toast('يرجى إدخال اسم المستلم','err'); return; }
   const icon = allT()[item.type]?.icon||'';
+
+  // ── الصرف لموقع ميداني فعلي (وليس نقل بين مستودعات) ──
+  // القيمة تكون بصيغة "field:الآيدي:الاسم" — نميّزها ونتعامل معها بشكل مختلف
+  // لأن DB.inv مُنظّمة حصراً بمفاتيح المستودعات، والمواقع الميدانية ليست مستودعات
+  if(isOut && destRaw.startsWith('field:')){
+    const parts = destRaw.split(':');
+    const fsName = parts.slice(2).join(':'); // احتياطاً لو الاسم نفسه فيه ':'
+    fbPush('moves',{
+      name:icon+' '+(item.name||item.serial||''),
+      dir:'out', from:src, to:fsName,
+      by:CU.name, date:ts(), notes,
+      status:newStatus, point:installPoint,
+      receiver: receiver, sender: sender,
+      isFieldSite: true,
+      _ts:Date.now()
+    });
+    // تُحذف من مخزن المستودع نهائياً — أصبحت مادة منصوبة بموقع ميداني،
+    // ولا تُضاف لأي DB.inv[...] لأن المواقع الميدانية ليست مستودعات مخزنية
+    fbDel('inv/'+fbKey(src)+'/'+item.id);
+    pushN('🔼 صرف — منصوب في موقع ميداني — '+(item.name||item.serial)+' → 📍 '+fsName);
+    closeModal(); toast('✅ تم الصرف لموقع '+fsName);
+    return;
+  }
+
+  // ── النقل بين مستودعات (السلوك الأصلي، بدون تغيير) ──
+  const dest = destRaw;
   fbPush('moves',{
     name:icon+' '+(item.name||item.serial||''),
     dir:isOut?'out':'in', from:src, to:dest,
