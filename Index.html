@@ -1972,6 +1972,10 @@ function openMoveItem(i,site){
     <div style="font-size:12px;color:var(--mt);margin-top:4px">${esc([item.serial,item.model,item.mfr].filter(Boolean).join(' | '))}</div>
     <div style="margin-top:8px">${badge(item.status)}</div>
   </div>
+  ${(parseInt(item.qty)||1)>1?`<div class="field"><label>الكمية ${isOut?'المصروفة':'المُعادة'} <span style="color:var(--rd)">*</span></label>
+    <input id="mv-qty" type="number" min="1" max="${item.qty}" value="${item.qty}">
+    <div style="font-size:11px;color:var(--mt);margin-top:4px">الكمية الكلية المتوفرة: <b>${item.qty}</b> — أدخل عدداً أقل لصرف جزء فقط</div>
+  </div>`:''}
   <div class="field"><label>الحالة الجديدة</label>
     <select id="mv-status">
       ${isOut
@@ -2089,13 +2093,32 @@ function doReturn(siteId,warehouse,ptId,itemId,it,reason,notes,fbPath){
 }
 
 function confirmMove(i,src,isOut){
-  const item=DB.inv[src][i], destRaw=val('mds'), notes=val('mnt');
+  const originalItem=DB.inv[src][i], destRaw=val('mds'), notes=val('mnt');
   const newStatus = val('mv-status') || (isOut?'deployed':'warehouse');
   const installPoint = val('mv-point')||'';
   const receiver = isOut?(val('mv-receiver')||''):'';
   const sender = isOut?CU.name:'';
-  if(!item){ closeModal(); return; }
+  if(!originalItem){ closeModal(); return; }
   if(isOut && !receiver){ toast('يرجى إدخال اسم المستلم','err'); return; }
+
+  // ── التعامل مع الكمية الجزئية ──
+  // لو المادة عندها qty>1 وأُدخلت كمية أقل من الإجمالي، نقسّمها:
+  // الأصل بالمخزن يُخصَم منه العدد المصروف فقط ويبقى موجوداً،
+  // ونسخة منفصلة (بنفس بيانات المادة) بالكمية المصروفة فقط تذهب للوجهة.
+  const totalQty = parseInt(originalItem.qty)||1;
+  const qtyInput = document.getElementById('mv-qty');
+  const movedQty = qtyInput ? Math.min(Math.max(1, parseInt(qtyInput.value)||1), totalQty) : totalQty;
+  const isPartial = movedQty < totalQty;
+
+  let item = originalItem;
+  if(isPartial){
+    // ننقص الكمية من العنصر الأصلي ونبقيه بالمخزن كما هو (بدون حذفه)
+    fbSet('inv/'+fbKey(src)+'/'+originalItem.id, {...originalItem, qty: totalQty-movedQty});
+    // ننشئ "نسخة منطقية" بمعرّف جديد بنفس بيانات المادة، بالكمية المصروفة فقط،
+    // وهذه هي التي تُصرف/تُنقل عبر بقية الكود أدناه بدل الأصل
+    item = {...originalItem, id: gid(), qty: movedQty};
+  }
+
   const icon = allT()[item.type]?.icon||'';
 
   // ── الصرف لموقع ميداني فعلي (وليس نقل بين مستودعات) ──
@@ -2114,9 +2137,11 @@ function confirmMove(i,src,isOut){
       isFieldSite: true,
       _ts:Date.now()
     });
-    // تُحذف من مخزن المستودع نهائياً — أصبحت مادة منصوبة بموقع ميداني،
-    // ولا تُضاف لأي DB.inv[...] لأن المواقع الميدانية ليست مستودعات مخزنية
-    fbDel('inv/'+fbKey(src)+'/'+item.id);
+    // تُحذف من مخزن المستودع نهائياً فقط لو كان صرفاً كاملاً (وليس جزئياً)
+    // — في حالة التقسيم الجزئي، الأصل بقي بمخزنه بكمية مخصومة أعلاه، ولا يوجد شيء لحذفه هنا
+    if(!isPartial){
+      fbDel('inv/'+fbKey(src)+'/'+item.id);
+    }
 
     // ── 🔗 الربط العكسي: تسجيل المادة فعلياً بالموقع الميداني ──
     // بدون هذا، المادة "تختفي" من المخزن دون أن تظهر بأي مكان بالموقع الميداني
@@ -2162,10 +2187,10 @@ function confirmMove(i,src,isOut){
     return;
   }
 
-  // ── النقل بين مستودعات (السلوك الأصلي، بدون تغيير) ──
+  // ── النقل بين مستودعات (يدعم الآن الكمية الجزئية أيضاً) ──
   const dest = destRaw;
   fbPush('moves',{
-    name:icon+' '+(item.name||item.serial||''),
+    name:icon+' '+(item.name||item.serial||'')+(isPartial?' (كمية: '+movedQty+')':''),
     dir:isOut?'out':'in', from:src, to:dest,
     by:CU.name, date:ts(), notes,
     status:newStatus, point:installPoint,
@@ -2173,7 +2198,8 @@ function confirmMove(i,src,isOut){
     _ts:Date.now()
   });
   if(isOut){
-    fbDel('inv/'+fbKey(src)+'/'+item.id);
+    // نحذف الأصل من المصدر فقط لو كان نقلاً كاملاً — التقسيم الجزئي تكفّل به الخصم بالأعلى
+    if(!isPartial){ fbDel('inv/'+fbKey(src)+'/'+item.id); }
     fbSet('inv/'+fbKey(dest)+'/'+item.id,{
       ...item, status:newStatus, currentSite:dest,
       installedAt:installPoint||dest, movedAt:ts()
@@ -2185,7 +2211,7 @@ function confirmMove(i,src,isOut){
     });
   }
   const statusLabel = {deployed:'منصوب',consumed:'مصروف',warehouse:'في المخزن',returned:'راجع'}[newStatus]||newStatus;
-  pushN((isOut?'🔼 صرف':'🔽 إيداع')+' — '+statusLabel+' — '+(item.name||item.serial)+' → '+dest);
+  pushN((isOut?'🔼 صرف':'🔽 إيداع')+' — '+statusLabel+' — '+(item.name||item.serial)+(isPartial?' (كمية: '+movedQty+')':'')+' → '+dest);
   closeModal(); toast(isOut?'✅ تم الصرف':'✅ تم الإيداع');
 }
 
@@ -2198,20 +2224,36 @@ function openTransferItem(i,site){
     <div style="font-weight:700">${allT()[item.type]?.icon} ${esc(item.name||item.serial||'—')}</div>
     <div style="font-size:12px;color:var(--mt);margin-top:3px">من: <b>${esc(s)}</b></div>
   </div>
+  ${(parseInt(item.qty)||1)>1?`<div class="field"><label>الكمية المُرحَّلة <span style="color:var(--rd)">*</span></label>
+    <input id="tr-qty" type="number" min="1" max="${item.qty}" value="${item.qty}">
+    <div style="font-size:11px;color:var(--mt);margin-top:4px">الكمية الكلية المتوفرة: <b>${item.qty}</b> — أدخل عدداً أقل لترحيل جزء فقط</div>
+  </div>`:''}
   <div class="field"><label>الترحيل إلى</label>
     <select id="trdest">${dests.map(d=>`<option value="${esc(d)}">${isMainSite(d)?'🏭 ':'🏪 '}${esc(d)}</option>`).join('')}</select></div>
   <div class="field"><label>سبب الترحيل</label><textarea id="trnote" placeholder="نقل للمشروع، طلب من الفرع..."></textarea></div>
   ${mft('🔁 تأكيد الترحيل',`confirmTransfer(${i},'${s}')`)}`);
 }
 function confirmTransfer(i,src){
-  const item=DB.inv[src][i], dest=val('trdest'), note=val('trnote');
+  const originalItem=DB.inv[src][i], dest=val('trdest'), note=val('trnote');
   if(!dest){ toast('اختر المستودع','err'); return; }
-  if(!item){ closeModal(); return; }
-  fbDel('inv/'+fbKey(src)+'/'+item.id);
+  if(!originalItem){ closeModal(); return; }
+
+  const totalQty = parseInt(originalItem.qty)||1;
+  const qtyInput = document.getElementById('tr-qty');
+  const movedQty = qtyInput ? Math.min(Math.max(1, parseInt(qtyInput.value)||1), totalQty) : totalQty;
+  const isPartial = movedQty < totalQty;
+
+  let item = originalItem;
+  if(isPartial){
+    fbSet('inv/'+fbKey(src)+'/'+originalItem.id, {...originalItem, qty: totalQty-movedQty});
+    item = {...originalItem, id: gid(), qty: movedQty};
+  } else {
+    fbDel('inv/'+fbKey(src)+'/'+item.id);
+  }
   fbSet('inv/'+fbKey(dest)+'/'+item.id,{...item,currentSite:dest});
-  fbPush('moves',{name:'🔁 '+(allT()[item.type]?.icon||'')+' '+(item.name||item.serial||''),
+  fbPush('moves',{name:'🔁 '+(allT()[item.type]?.icon||'')+' '+(item.name||item.serial||'')+(isPartial?' (كمية: '+movedQty+')':''),
     dir:'transfer',from:src,to:dest,by:CU.name,date:ts(),notes:note||'ترحيل بين مستودعات',_ts:Date.now()});
-  pushN('🔁 ترحيل: '+(item.name||item.serial||'—')+' من '+src+' إلى '+dest);
+  pushN('🔁 ترحيل: '+(item.name||item.serial||'—')+(isPartial?' (كمية: '+movedQty+')':'')+' من '+src+' إلى '+dest);
   closeModal(); toast('تم الترحيل');
 }
 
