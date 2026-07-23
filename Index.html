@@ -2103,6 +2103,7 @@ function confirmMove(i,src,isOut){
   // لأن DB.inv مُنظّمة حصراً بمفاتيح المستودعات، والمواقع الميدانية ليست مستودعات
   if(isOut && destRaw.startsWith('field:')){
     const parts = destRaw.split(':');
+    const fsId = parts[1];
     const fsName = parts.slice(2).join(':'); // احتياطاً لو الاسم نفسه فيه ':'
     fbPush('moves',{
       name:icon+' '+(item.name||item.serial||''),
@@ -2116,6 +2117,46 @@ function confirmMove(i,src,isOut){
     // تُحذف من مخزن المستودع نهائياً — أصبحت مادة منصوبة بموقع ميداني،
     // ولا تُضاف لأي DB.inv[...] لأن المواقع الميدانية ليست مستودعات مخزنية
     fbDel('inv/'+fbKey(src)+'/'+item.id);
+
+    // ── 🔗 الربط العكسي: تسجيل المادة فعلياً بالموقع الميداني ──
+    // بدون هذا، المادة "تختفي" من المخزن دون أن تظهر بأي مكان بالموقع الميداني
+    if(item.type==='camera'){
+      // كاميرا → تُضاف مباشرة لقائمة كاميرات الموقع (بانتظار إحداثيات دقيقة من الفني لاحقاً)
+      const fs = DB.fieldSites.find(function(x){return x.id===fsId;});
+      if(fs){
+        const camId = gid();
+        const centerLat = fs.cameras&&fs.cameras.length ? fs.cameras[0].lat : (fs.lat||'');
+        const centerLng = fs.cameras&&fs.cameras.length ? fs.cameras[0].lng : (fs.lng||'');
+        fbSet('fieldSites/'+fsId+'/cameras/'+camId, {
+          id:camId, name:item.name||item.serial||'كاميرا جديدة', serial:item.serial||'',
+          model:item.model||'', mfr:item.mfr||'',
+          installDesc:installPoint||'', status:'active',
+          lat: centerLat, lng: centerLng, // إحداثيات مبدئية تقريبية — الفني يعدّلها لاحقاً من الخريطة
+          addedBy:CU.name, addedAt:ts(), _ts:Date.now(),
+          fromWarehouse: true // علامة تدل أنها أُضيفت تلقائياً من الصرف، ولم تُضبط إحداثياتها الدقيقة بعد
+        });
+      }
+    } else {
+      // أي معدة أخرى → تُسجَّل بجرد الموجودات الثابتة للموقع، بنقطة "من المخزن"
+      const ptId = 'from_warehouse_'+fsId;
+      const itemId = gid();
+      const AT = allT();
+      const typeLbl = AT[item.type]?AT[item.type].label:(item.type||'');
+      FBDB.ref('cctv/siteInventory/'+fsId+'/'+ptId).once('value').then(function(snap){
+        const existing = snap.val();
+        const items = (existing&&existing.items) ? existing.items : {};
+        items[itemId] = {
+          id:itemId, name:(typeLbl?typeLbl+' — ':'')+(item.name||item.serial||''),
+          qty:parseInt(item.qty)||1, serial:item.serial||'',
+          status:newStatus, notes:'صُرفت من مخزن '+src, date:ts()
+        };
+        fbSet('siteInventory/'+fsId+'/'+ptId, {
+          id:ptId, name:'📦 من المخزن',
+          items: items, addedBy:CU.name, addedAt: (existing&&existing.addedAt)||ts()
+        });
+      });
+    }
+
     pushN('🔼 صرف — منصوب في موقع ميداني — '+(item.name||item.serial)+' → 📍 '+fsName);
     closeModal(); toast('✅ تم الصرف لموقع '+fsName);
     return;
@@ -4044,6 +4085,10 @@ function openCamDetail(fsId, ci){
 
     ${c.installDesc?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">📌 موقع التنصيب</div><div>${esc(c.installDesc)}</div></div>`:''}
     ${c.dir?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🧭 الاتجاه</div><div>${esc(c.dir)}</div></div>`:''}
+    ${c.fromWarehouse?`<div class="panel" style="padding:10px;background:#f8514915;border-color:#f8514940">
+      <div style="font-size:12px;color:var(--rd);font-weight:700">⚠️ تحتاج ضبط الموقع الدقيق</div>
+      <div style="font-size:11px;color:var(--mt);margin-top:2px">أُضيفت تلقائياً عند الصرف من المخزن بإحداثيات تقريبية — عدّل موقعها على الخريطة</div>
+    </div>`:''}
     ${c.floor?`<div class="panel" style="padding:10px;border-right:3px solid ${floorColor(c.floor)}"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🏢 الطابق</div><div style="font-weight:700">${floorLabel(c.floor)}</div></div>`:''}
     ${c.installChecklist?`<div class="panel" style="padding:10px;background:#3fb95015;border-color:#3fb95040">
       <div style="font-size:11px;color:var(--gn);margin-bottom:4px">✅ قائمة تحقق التنصيب — مكتملة</div>
@@ -5295,7 +5340,8 @@ function saveFieldCam(fsId,ci){
     lat:val('fclat'), lng:val('fclng'),
     beamAngle:$('fcba')?.value||70, beamRot:$('fcbr')?.value||0, viewDist:parseFloat($('fcvd')?.value)||50,
     addedBy:CU.name, addedAt:(ci>=0&&fs.cameras[ci]?.addedAt)||ts(),
-    installChecklist: installChecklist || (fs.cameras[ci]?.installChecklist||null)
+    installChecklist: installChecklist || (fs.cameras[ci]?.installChecklist||null),
+    fromWarehouse: false
   };
   // احفظ الكاميرا في مكانها الصحيح في الـ array
   if(ci>=0){
@@ -10349,6 +10395,7 @@ function floorLabel(floorKey){
 function getCamDisplayColor(c){
   if(c.status==='maintenance') return '#d29922';
   if(c.status && c.status!=='active') return '#8b949e';
+  if(c.fromWarehouse) return '#f85149'; // أحمر تنبيهي: أُضيفت تلقائياً من صرف المخزن، تحتاج ضبط إحداثيات دقيقة
   const fc = floorColor(c.floor);
   return fc || '#3fb950';
 }
