@@ -4059,7 +4059,7 @@ function initFieldMap(){
   const cLat=allCams.length?allCams.reduce((s,c)=>s+parseFloat(c.lat),0)/allCams.length:defLat;
   const cLng=allCams.length?allCams.reduce((s,c)=>s+parseFloat(c.lng),0)/allCams.length:defLng;
 
-  _map=L.map('fld-map',{maxZoom:22}).setView([cLat,cLng],allCams.length?18:7);
+  _map=L.map('fld-map',{maxZoom:22,tap:true,tapTolerance:15}).setView([cLat,cLng],allCams.length?18:7);
 
   const _googleTiles = {
     satellite: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
@@ -10332,82 +10332,22 @@ let _longPressIndicator = null;
 let _longPressMoved = false;
 
 function setupLongPressAddMenu(map){
-  const LONG_PRESS_MS = 550;
-  const MOVE_TOLERANCE_PX = 12;
-  let startPoint = null;
-
-  function cancelLongPress(){
-    if(_longPressTimer){ clearTimeout(_longPressTimer); _longPressTimer=null; }
-    if(_longPressIndicator){ map.removeLayer(_longPressIndicator); _longPressIndicator=null; }
-    startPoint = null;
-  }
-
-  function beginLongPress(latlng, containerPoint){
-    // لا نفعّل الميزة أثناء أي وضع رسم آخر نشط (حدود/قياس/شبكة)
-    if(_drawingBoundary || _measuringMode || _drawingNet) return;
-    _longPressMoved = false;
-    // نمنع قائمة المتصفح الافتراضية (حفظ/مشاركة الصورة) التي تظهر عادة
-    // عند الضغط المطول على بلاطات الخريطة (وهي عناصر <img>)
-    if(map.getContainer()){ map.getContainer().style.webkitTouchCallout='none'; }
-    startPoint = containerPoint;
-    _longPressStartLatLng = latlng;
-    // دائرة تصويرية تكبر تدريجياً لإعطاء تغذية راجعة بصرية أثناء الضغط
-    _longPressIndicator = L.circleMarker(latlng, {
-      radius: 8, color:'#8957e5', weight:2, fillColor:'#8957e5', fillOpacity:.3
-    }).addTo(map);
-    _longPressTimer = setTimeout(function(){
-      if(_longPressIndicator){ map.removeLayer(_longPressIndicator); _longPressIndicator=null; }
-      if(!_longPressMoved) openQuickAddMenu(latlng);
-    }, LONG_PRESS_MS);
-  }
-
-  map.on('mousedown', function(e){
-    if(e.originalEvent.button !== 0) return; // يسار الفأرة فقط
-    beginLongPress(e.latlng, e.containerPoint);
-  });
-  map.on('mousemove', function(e){
-    if(!startPoint) return;
-    const dx = e.containerPoint.x - startPoint.x, dy = e.containerPoint.y - startPoint.y;
-    if(Math.sqrt(dx*dx+dy*dy) > MOVE_TOLERANCE_PX){ _longPressMoved = true; cancelLongPress(); }
-  });
-  map.on('mouseup', cancelLongPress);
-  map.on('dragstart', cancelLongPress);
-
-  // دعم اللمس على الموبايل
-  map.on('touchstart', function(e){
-    if(!e.originalEvent.touches || e.originalEvent.touches.length!==1) return;
-    const touch = e.originalEvent.touches[0];
-    const rect = map.getContainer().getBoundingClientRect();
-    const containerPoint = L.point(touch.clientX-rect.left, touch.clientY-rect.top);
-    const latlng = map.containerPointToLatLng(containerPoint);
-    beginLongPress(latlng, containerPoint);
-  });
-  map.on('touchmove', function(e){
-    if(!startPoint || !e.originalEvent.touches || !e.originalEvent.touches[0]) return;
-    const touch = e.originalEvent.touches[0];
-    const rect = map.getContainer().getBoundingClientRect();
-    const dx = (touch.clientX-rect.left) - startPoint.x, dy = (touch.clientY-rect.top) - startPoint.y;
-    if(Math.sqrt(dx*dx+dy*dy) > MOVE_TOLERANCE_PX){ _longPressMoved = true; cancelLongPress(); }
-  });
-  map.on('touchend', cancelLongPress);
-  map.on('touchcancel', cancelLongPress);
-
-  // منع قائمة المتصفح الافتراضية (تنزيل/مشاركة/طباعة) عند الضغط المطول على بلاطات الخريطة
+  // ⚠️ نعتمد حصراً على حدث contextmenu المدمج بـ Leaflet نفسها (map.on('contextmenu'))
+  //    بدل مؤقتات touchstart/touchmove يدوية، لأن Leaflet لديها معالجة داخلية
+  //    خاصة بها لتفادي تعارضها مع قائمة المتصفح الافتراضية (Tap.js handler)،
+  //    وتفعيل نظامين متوازيين لنفس اللمسة الطويلة كان يسبب فوز قائمة
+  //    المتصفح الأصلية على الهاتف تحديداً (لا يحدث على الحاسوب لأن الفأرة
+  //    تستخدم click اليمنى الصريحة بدل محاكاة touch timing).
   map.on('contextmenu', function(e){
     if(e.originalEvent && e.originalEvent.preventDefault) e.originalEvent.preventDefault();
+    if(_drawingBoundary || _measuringMode || _drawingNet) return;
+    // ومضة بصرية سريعة بمكان الضغط لتأكيد الاستجابة للمستخدم
+    const flash = L.circleMarker(e.latlng, {
+      radius: 10, color:'#8957e5', weight:2, fillColor:'#8957e5', fillOpacity:.35
+    }).addTo(map);
+    setTimeout(function(){ map.removeLayer(flash); }, 400);
+    openQuickAddMenu(e.latlng);
   });
-  const container = map.getContainer();
-  if(container){
-    container.addEventListener('contextmenu', function(ev){ ev.preventDefault(); return false; }, {passive:false});
-    // منع سلوك اللمس الطويل الأصلي للمتصفح مباشرة عند لمسة الخريطة
-    container.addEventListener('touchstart', function(ev){
-      if(ev.touches && ev.touches.length===1){
-        // لا نمنع الحدث بالكامل (حتى لا نكسر التمرير أو التكبير)،
-        // فقط نلغي احتمال ظهور قائمة الصورة الافتراضية لاحقاً
-        ev.target.style.webkitTouchCallout = 'none';
-      }
-    }, {passive:true});
-  }
 }
 
 // نافذة اختيار نوع العنصر — تفتح عند نجاح الضغط المطول
