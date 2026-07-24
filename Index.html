@@ -5090,6 +5090,9 @@ function doExportMap(type){
     ctx.font='11px Arial'; ctx.fillStyle='#aaa';
     ctx.fillText(fmtDateTime(new Date().toISOString()), W-10, H-8);
 
+    // ── رسم مفتاح الخريطة (Legend) على الصورة المصدَّرة ──
+    drawLegendOnCanvas(ctx, W, H);
+
     // تصدير
     ctx.setTransform(1,0,0,1,0,0);
     const link = document.createElement('a');
@@ -5137,6 +5140,70 @@ function captureMapFallback(){ doLeafletImageExport(); }
 
 function drawCamerasOnCanvas(canvas){
   finishExport(canvas);
+}
+
+
+// رسم مفتاح الخريطة (Legend) على canvas التصدير — نسخة مطابقة لمحتوى الـ Legend الحي
+function drawLegendOnCanvas(ctx, W, H){
+  const rows = [];
+  FLOOR_TYPES.forEach(function(f){ rows.push({color:f.color, label:f.label}); });
+  rows.push({color:'#d29922', label:'🔧 صيانة'});
+  rows.push({color:'#8b949e', label:'⚪ معطل / مجهول'});
+  rows.push({color:'#f85149', label:'⚠️ يحتاج ضبط موقع'});
+
+  const equipRows = [
+    {icon:'🗼', label:'برج'}, {icon:'📡', label:'رابط P2P'},
+    {icon:'📻', label:'جهاز راديو'}, {icon:'💾', label:'NVR'}
+  ];
+
+  const boxW = 175;
+  const rowH = 16;
+  const headerH = 22;
+  const sectionGap = 18;
+  const boxH = headerH + (rows.length*rowH) + sectionGap + (equipRows.length*rowH) + 14;
+  const boxX = 10, boxY = H - boxH - 50; // فوق شريط العنوان السفلي بقليل
+
+  // خلفية الصندوق
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.strokeStyle = '#d0d7de';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 8); else ctx.rect(boxX, boxY, boxW, boxH);
+  ctx.fill(); ctx.stroke();
+
+  ctx.textAlign = 'right';
+  let cy = boxY + 16;
+
+  // العنوان
+  ctx.fillStyle = '#1f2328';
+  ctx.font = 'bold 12px Arial';
+  ctx.fillText('🗝️ مفتاح الخريطة', boxX+boxW-10, cy);
+  cy += headerH-4;
+
+  // صفوف الكاميرات
+  ctx.font = '10px Arial';
+  rows.forEach(function(r){
+    ctx.fillStyle = r.color;
+    ctx.beginPath();
+    ctx.arc(boxX+boxW-12, cy-4, 5, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#333';
+    ctx.fillText(r.label, boxX+boxW-24, cy);
+    cy += rowH;
+  });
+
+  cy += 4;
+  ctx.font = 'bold 9px Arial';
+  ctx.fillStyle = '#666';
+  ctx.fillText('🗼 معدات أخرى', boxX+boxW-10, cy);
+  cy += rowH;
+
+  ctx.font = '10px Arial';
+  equipRows.forEach(function(r){
+    ctx.fillStyle = '#333';
+    ctx.fillText(r.icon+' '+r.label, boxX+boxW-10, cy);
+    cy += rowH;
+  });
 }
 
 function finishExport(canvas){
