@@ -3752,6 +3752,10 @@ function pgFieldMap(){
         style="padding:6px 14px;border-radius:20px;border:2px solid #06b6d4;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         📻 راديو
       </button>
+      <button id="lyr-nvr" onclick="toggleMapLayer('nvr',this)"
+        style="padding:6px 14px;border-radius:20px;border:2px solid #6f42c1;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        💾 NVR
+      </button>
       <button id="lyr-faults" onclick="toggleMapLayer('faults',this);if(_activeLayers.faults)showFaultsOnMap();"
         style="padding:6px 14px;border-radius:20px;border:2px solid #d1242f;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         🔴 أعطال
@@ -3781,14 +3785,14 @@ function pgFieldMap(){
 }
 
 // ══ طبقات الخريطة ══
-var _activeLayers = {cameras:true, towers:false, p2p:false, radio:false, faults:false, boundaries:false, network:false};
+var _activeLayers = {cameras:true, towers:false, p2p:false, radio:false, nvr:false, faults:false, boundaries:false, network:false};
 
 function toggleMapLayer(layer, btn){
   _activeLayers[layer] = !_activeLayers[layer];
   var active = _activeLayers[layer];
   var colors = {
     cameras:'#0969da', towers:'#9a6700', p2p:'#8250df',
-    radio:'#06b6d4', faults:'#d1242f', boundaries:'#1a7f37', network:'#656d76'
+    radio:'#06b6d4', nvr:'#6f42c1', faults:'#d1242f', boundaries:'#1a7f37', network:'#656d76'
   };
   var col = colors[layer]||'var(--bl)';
   if(btn){
@@ -3800,7 +3804,7 @@ function toggleMapLayer(layer, btn){
 
 function clearAllMapLayers(){
   Object.keys(_activeLayers).forEach(function(k){ _activeLayers[k]=false; });
-  var btns=['cameras','towers','p2p','radio','faults','boundaries','network'];
+  var btns=['cameras','towers','p2p','radio','nvr','faults','boundaries','network'];
   btns.forEach(function(id){
     var b=document.getElementById('lyr-'+id);
     if(b){ b.style.background='var(--sf)'; b.style.color='var(--mt)'; }
@@ -4185,6 +4189,15 @@ function initFieldMap(){
       allCams.push({...c,_fsId:fs.id,_fsName:fs.name,_ci:ci});
   }));
 
+  // ── تجميع المعدات الأخرى (أبراج/P2P/راديو/NVR) من كل المواقع المرئية ──
+  let allEquip=[];
+  sites.forEach(fs=>{
+    Object.values(fs.equipment||{}).forEach(eq=>{
+      if(eq.lat&&eq.lng&&!isNaN(parseFloat(eq.lat)))
+        allEquip.push({...eq,_fsId:fs.id,_fsName:fs.name});
+    });
+  });
+
   const defLat=33.3152, defLng=44.3661;
   const cLat=allCams.length?allCams.reduce((s,c)=>s+parseFloat(c.lat),0)/allCams.length:defLat;
   const cLng=allCams.length?allCams.reduce((s,c)=>s+parseFloat(c.lng),0)/allCams.length:defLng;
@@ -4224,6 +4237,7 @@ function initFieldMap(){
     towers     : L.layerGroup(),
     p2p        : L.layerGroup(),
     radio      : L.layerGroup(),
+    nvr        : L.layerGroup(),
     faults     : L.layerGroup(),
     boundaries : L.layerGroup(),
     network    : L.layerGroup(),
@@ -4314,6 +4328,31 @@ function initFieldMap(){
     </div>`;
     marker.bindPopup(L.popup({maxWidth:300}).setContent(popup));
     _markers.push({id:mid,marker,cam:c,_layerType:'cameras'});
+  });
+
+  // ── رسم المعدات الأخرى (أبراج/P2P/راديو/NVR) على الخريطة ──
+  const EQUIP_ICONS = {tower:'🗼', p2p:'📡', radio:'📻', nvr:'💾'};
+  const EQUIP_LAYER_KEY = {tower:'towers', p2p:'p2p', radio:'radio', nvr:'nvr'};
+  const EQUIP_STATUS_COLOR = {active:'#3fb950', maintenance:'#d29922', down:'#8b949e'};
+  allEquip.forEach(eq=>{
+    const eLat=parseFloat(eq.lat), eLng=parseFloat(eq.lng);
+    const layerKey = EQUIP_LAYER_KEY[eq.equipType] || 'towers';
+    const targetGroup = window._layerGroups[layerKey];
+    if(!targetGroup) return;
+    const eColor = EQUIP_STATUS_COLOR[eq.status] || '#3fb950';
+    const eIcon = L.divIcon({
+      className:'', html:`<div style="background:${eColor};width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,.4);border:2px solid #fff">${EQUIP_ICONS[eq.equipType]||'📍'}</div>`,
+      iconSize:[30,30], iconAnchor:[15,15]
+    });
+    const eMarker = L.marker([eLat,eLng],{icon:eIcon}).addTo(targetGroup);
+    const statusLabel = {active:'✅ يعمل', maintenance:'🔧 صيانة', down:'❌ معطل'}[eq.status]||eq.status||'';
+    const eqPopup = `<div style="min-width:160px;text-align:right;direction:rtl">
+      <div style="font-weight:700;margin-bottom:4px">${EQUIP_ICONS[eq.equipType]||''} ${esc(eq.name||'')}</div>
+      ${eq.model?`<div style="font-size:12px;color:#555">${esc(eq.model)}</div>`:''}
+      ${eq.detail?`<div style="font-size:12px;color:#555">${esc(eq.detail)}</div>`:''}
+      <div style="font-size:12px;margin-top:4px">${statusLabel}</div>
+    </div>`;
+    eMarker.bindPopup(eqPopup);
   });
 
   if(allCams.length>1){
@@ -10563,11 +10602,16 @@ function buildMapLegendHTML(){
         <span style="width:12px;height:12px;border-radius:50%;background:#f85149;flex-shrink:0"></span>
         <span style="font-size:11px">⚠️ يحتاج ضبط موقع</span>
       </div>
-      <div style="font-size:10px;font-weight:700;color:var(--mt);margin:8px 0 3px">🗼 معدات أخرى</div>
+      <div style="font-size:10px;font-weight:700;color:var(--mt);margin:8px 0 3px">🗼 معدات أخرى (اللون = الحالة)</div>
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">🗼</span><span style="font-size:11px">برج</span></div>
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">📡</span><span style="font-size:11px">رابط P2P</span></div>
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">📻</span><span style="font-size:11px">جهاز راديو</span></div>
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">💾</span><span style="font-size:11px">NVR</span></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px;font-size:10px;color:var(--mt)">
+        <span><span style="color:#3fb950">●</span> يعمل</span>
+        <span><span style="color:#d29922">●</span> صيانة</span>
+        <span><span style="color:#8b949e">●</span> معطل</span>
+      </div>
     </div>
   </div>`;
 }
