@@ -4327,6 +4327,8 @@ function initFieldMap(){
   loadBoundaries();
   // ══ الضغط المطول لإضافة عنصر جديد بسرعة (كاميرا/برج/P2P/راديو/NVR) ══
   setupLongPressAddMenu(_map);
+  // ══ مفتاح الخريطة (Legend) ══
+  injectMapLegend();
   // ══ listener لرسم الحدود ══
   _map.on('click', e=>{
     if(!_drawingBoundary) return;
@@ -10525,6 +10527,67 @@ function quickAddAtLocation(type, lat, lng){
       if(lngEl) lngEl.value=lng;
     }, 100);
   }
+}
+
+
+// ══════════════════════════════════════════════════════
+//  🗝️ مفتاح الخريطة (Legend) — يشرح كل رموز/ألوان الخريطة
+// ══════════════════════════════════════════════════════
+let _legendOpen = true; // مفتوح افتراضياً أول مرة، يتذكر اختيار المستخدم بعدها
+
+function buildMapLegendHTML(){
+  const floorRows = FLOOR_TYPES.map(function(f){
+    return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0">'+
+      '<span style="width:12px;height:12px;border-radius:50%;background:'+f.color+';flex-shrink:0"></span>'+
+      '<span style="font-size:11px">'+f.label+'</span></div>';
+  }).join('');
+
+  return `
+  <div id="map-legend-box" style="position:absolute;bottom:10px;left:10px;z-index:900;background:var(--sf);border:1px solid var(--br);border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.25);max-width:180px;font-family:inherit">
+    <div onclick="toggleMapLegend()" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;cursor:pointer;border-bottom:${_legendOpen?'1px solid var(--br)':'none'}">
+      <span style="font-weight:700;font-size:12px">🗝️ مفتاح الخريطة</span>
+      <span id="legend-arrow" style="font-size:11px;color:var(--mt);transition:transform .2s;${_legendOpen?'':'transform:rotate(-90deg)'}">▼</span>
+    </div>
+    <div id="legend-body" style="padding:8px 10px;display:${_legendOpen?'block':'none'};max-height:280px;overflow-y:auto">
+      <div style="font-size:10px;font-weight:700;color:var(--mt);margin-bottom:3px">📷 الكاميرات — حسب الطابق</div>
+      ${floorRows}
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+        <span style="width:12px;height:12px;border-radius:50%;background:#d29922;flex-shrink:0"></span>
+        <span style="font-size:11px">🔧 صيانة</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+        <span style="width:12px;height:12px;border-radius:50%;background:#8b949e;flex-shrink:0"></span>
+        <span style="font-size:11px">⚪ معطل / مجهول</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+        <span style="width:12px;height:12px;border-radius:50%;background:#f85149;flex-shrink:0"></span>
+        <span style="font-size:11px">⚠️ يحتاج ضبط موقع</span>
+      </div>
+      <div style="font-size:10px;font-weight:700;color:var(--mt);margin:8px 0 3px">🗼 معدات أخرى</div>
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">🗼</span><span style="font-size:11px">برج</span></div>
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">📡</span><span style="font-size:11px">رابط P2P</span></div>
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">📻</span><span style="font-size:11px">جهاز راديو</span></div>
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">💾</span><span style="font-size:11px">NVR</span></div>
+    </div>
+  </div>`;
+}
+
+function toggleMapLegend(){
+  _legendOpen = !_legendOpen;
+  const box = document.getElementById('map-legend-box');
+  if(!box) return;
+  const body = document.getElementById('legend-body');
+  const arrow = document.getElementById('legend-arrow');
+  if(body) body.style.display = _legendOpen?'block':'none';
+  if(arrow) arrow.style.transform = _legendOpen?'':'rotate(-90deg)';
+}
+
+function injectMapLegend(){
+  const mapEl = document.getElementById('fld-map');
+  if(!mapEl) return;
+  const old = document.getElementById('map-legend-box');
+  if(old) old.remove();
+  mapEl.insertAdjacentHTML('beforeend', buildMapLegendHTML());
 }
 
 function pgRadio(){
