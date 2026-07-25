@@ -4925,35 +4925,137 @@ function doExportMap(type){
     return;
   }
   toast('📸 جار رسم الخريطة...','warn');
+  window._exportTileType = type;
 
-  // ⚠️ الحل الصحيح: نستخدم مكتبة leaflet-image (عبر doLeafletImageExport) بدل
-  // تحميل البلاطات يدوياً بـ <img>، لأن أي صورة cross-origin تُرسم مباشرة على
-  // canvas بدون CORS "تُلوّث" الـ canvas بالكامل وتمنع toDataURL نهائياً
-  // (خطأ: "Tainted canvases may not be exported"). مكتبة leaflet-image تتفادى
-  // هذا بتحميل الصور كـ Blob عبر طلب منفصل قبل الرسم.
-  const previousLayer = _mapLayer;
-  window._exportTileType = type; // تُستخدم لاحقاً بالعنوان النصي على الصورة فقط
+  const center  = _map.getCenter();
+  const zoom    = Math.min(_map.getZoom(), 18);
+  const size    = _map.getSize();
+  const W       = size.x, H = size.y;
+  const canvas  = document.createElement('canvas');
+  canvas.width  = W * 2;
+  canvas.height = H * 2;
+  const ctx     = canvas.getContext('2d');
+  ctx.scale(2, 2);
 
-  const targetLayer = type==='satellite' ? 'satellite' : (type==='hybrid' ? 'hybrid' : 'osm');
-  if(_mapLayer !== targetLayer){
-    // نبدّل طبقة الخريطة الفعلية مؤقتاً، وننتظر تحميلها قبل الالتقاط
-    switchMapLayer(targetLayer);
-    setTimeout(function(){
-      doLeafletImageExport();
-      // نعيد الطبقة الأصلية بعد الالتقاط حتى لا تتغيّر تجربة المستخدم بشكل دائم
-      setTimeout(function(){ if(_mapLayer!==previousLayer) switchMapLayer(previousLayer); }, 800);
-    }, 1200); // مهلة كافية لتحميل بلاطات الطبقة الجديدة قبل الالتقاط
-  } else {
-    doLeafletImageExport();
+  const bounds = _map.getBounds();
+  const nw = bounds.getNorthWest();
+  const se = bounds.getSouthEast();
+
+  const tileSize = 256;
+  const numTiles = Math.pow(2, zoom);
+  const toTile = (lat, lng) => {
+    const x = Math.floor((lng + 180) / 360 * numTiles);
+    const latR = lat * Math.PI / 180;
+    const y = Math.floor((1 - Math.log(Math.tan(latR) + 1/Math.cos(latR)) / Math.PI) / 2 * numTiles);
+    return {x, y};
+  };
+  const nwTile = toTile(nw.lat, nw.lng);
+  const seTile = toTile(se.lat, se.lng);
+  const nwExact = {
+    x: (nw.lng + 180) / 360 * numTiles,
+    y: (1 - Math.log(Math.tan(nw.lat*Math.PI/180) + 1/Math.cos(nw.lat*Math.PI/180))/Math.PI)/2 * numTiles
+  };
+  const tileOffsetX = (nwExact.x - nwTile.x) * tileSize;
+  const tileOffsetY = (nwExact.y - nwTile.y) * tileSize;
+  const scaleX = W / ((seTile.x - nwTile.x + 1) * tileSize);
+  const scaleY = H / ((seTile.y - nwTile.y + 1) * tileSize);
+
+  ctx.fillStyle = '#1a2332';
+  ctx.fillRect(0, 0, W, H);
+
+  const tilesArr = [];
+  for(let tx = nwTile.x; tx <= seTile.x + 1; tx++){
+    for(let ty = nwTile.y; ty <= seTile.y + 1; ty++){
+      const px = (tx - nwTile.x) * tileSize * scaleX - tileOffsetX * scaleX;
+      const py = (ty - nwTile.y) * tileSize * scaleY - tileOffsetY * scaleY;
+      tilesArr.push({tx, ty, px, py});
+    }
   }
+
+  const tileURL = (tx,ty) => {
+    const tileX = ((tx % numTiles) + numTiles) % numTiles;
+    if(type === 'osm') return 'https://tile.openstreetmap.org/'+zoom+'/'+tileX+'/'+ty+'.png';
+    if(type === 'hybrid') return 'https://mt1.google.com/vt/lyrs=y&x='+tileX+'&y='+ty+'&z='+zoom;
+    return 'https://mt1.google.com/vt/lyrs=s&x='+tileX+'&y='+ty+'&z='+zoom;
+  };
+
+  // ⚠️ الحل الصحيح: نجلب كل بلاطة عبر fetch()+blob ثم نحوّلها لـ Data URL محلي
+  // قبل رسمها. هذا يتفادى مشكلتين معاً:
+  //  1) الفشل الصامت لتحميل <img> مباشرة من مصدر cross-origin بدون CORS صريح
+  //  2) "Tainted canvas" الذي يمنع toDataURL نهائياً عند رسم صورة cross-origin
+  //     مباشرة — لأن الصورة بعد تحويلها لـ Data URL تصبح من نفس المصدر فعلياً
+  let doneCount = 0;
+  const totalCount = tilesArr.length;
+  let exportFinished = false;
+
+  function tileLoadDone(){
+    doneCount++;
+    if(doneCount >= totalCount && !exportFinished){
+      exportFinished = true;
+      finishExportFromRawCanvas(canvas);
+    }
+  }
+
+  tilesArr.forEach(t=>{
+    fetch(tileURL(t.tx, t.ty))
+      .then(function(res){
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        return res.blob();
+      })
+      .then(function(blob){
+        return new Promise(function(resolve, reject){
+          const reader = new FileReader();
+          reader.onload = function(){ resolve(reader.result); };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      })
+      .then(function(dataUrl){
+        const img = new Image();
+        img.onload = function(){
+          try{ ctx.drawImage(img, t.px, t.py, tileSize*scaleX, tileSize*scaleY); }catch(e){}
+          tileLoadDone();
+        };
+        img.onerror = tileLoadDone;
+        img.src = dataUrl;
+      })
+      .catch(function(){ tileLoadDone(); });
+  });
+
+  // مهلة أمان: لو تعثّر تحميل بعض البلاطات (شبكة بطيئة/معطوبة)، لا نعلّق للأبد
+  setTimeout(function(){
+    if(!exportFinished){
+      exportFinished = true;
+      finishExportFromRawCanvas(canvas);
+    }
+  }, 12000);
+}
+
+function finishExportFromRawCanvas(canvas){
+  // الكاميرات/المعدات/المفتاح تُرسم داخل finishExport بالاعتماد على _map.latLngToContainerPoint
+  // وهي دقيقة بغض النظر عن مصدر خلفية البلاطات (يدوي هنا بدل leaflet-image)
+  finishExport(canvas);
 }
 
 function doLeafletImageExport(){
+  // ⚠️ مُبقاة للتوافق فقط — لم تعد تُستخدم من doExportMap لعدم موثوقية
+  // مكتبة leaflet-image@0.4.0 القديمة (قد لا تستدعي الـ callback إطلاقاً
+  // مع إصدارات Leaflet الحديثة، ما يسبب تعليقاً صامتاً بلا أي رسالة خطأ)
   toast('📸 جار التقاط الخريطة...','warn');
-  leafletImage(_map, function(err, canvas){
-    if(err){ toast('❌ '+err,'err'); return; }
-    drawCamerasOnCanvas(canvas);
-  });
+  let done = false;
+  const safetyTimer = setTimeout(function(){
+    if(!done){ done = true; toast('❌ فشلت طريقة الالتقاط البديلة أيضاً — استخدم الزر الرئيسي','err'); }
+  }, 8000);
+  try{
+    leafletImage(_map, function(err, canvas){
+      if(done) return;
+      done = true; clearTimeout(safetyTimer);
+      if(err){ toast('❌ '+err,'err'); return; }
+      drawCamerasOnCanvas(canvas);
+    });
+  }catch(e){
+    if(!done){ done = true; clearTimeout(safetyTimer); toast('❌ '+e.message,'err'); }
+  }
 }
 
 function captureMapFallback(){ doLeafletImageExport(); }
