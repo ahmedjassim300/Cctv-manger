@@ -4985,6 +4985,10 @@ function doExportMap(type){
   let _drawAllCalled = false;
   const drawAll = () => {
     if(_drawAllCalled) return; _drawAllCalled = true;
+    // تنبيه واضح لو فشل تحميل أغلب البلاطات (بدل خلفية فارغة صامتة بلا تفسير)
+    if(tilesTotal > 0 && tilesFailed / tilesTotal > 0.5){
+      toast('⚠️ فشل تحميل خلفية الخريطة (مشكلة اتصال) — الصورة ستُصدَّر بدون خلفية','warn');
+    }
     // اجمع الكاميرات من _markers أو من DB مباشرة
     const cams = [];
     if(window._markers && _markers.length){
@@ -5138,15 +5142,19 @@ function doExportMap(type){
   };
 
   // تحميل الـ tiles
+  let tilesFailed = 0;
   tilesArr.forEach(({tx,ty,px,py})=>{
     const img = new Image();
-    img.crossOrigin='anonymous';
+    // ⚠️ لا نضع crossOrigin هنا: خوادم بلاطات OSM/Google لا ترسل هيدر CORS
+    // بشكل موثوق لكل الطلبات، وكانت crossOrigin='anonymous' تتسبب بفشل صامت
+    // للتحميل (img.onerror تُستدعى بهدوء) فتخرج الصورة بخلفية فارغة تماماً
+    // بدون أي تنبيه. التصدير هنا محلي فقط (تنزيل ملف)، فلا حاجة لـ CORS صريح.
     img.onload = ()=>{
       ctx.drawImage(img, px, py, tileSize*scaleX, tileSize*scaleY);
       tilesLoaded++;
       if(tilesLoaded >= tilesTotal) drawAll();
     };
-    img.onerror = ()=>{ tilesLoaded++; if(tilesLoaded>=tilesTotal) drawAll(); };
+    img.onerror = ()=>{ tilesLoaded++; tilesFailed++; if(tilesLoaded>=tilesTotal) drawAll(); };
     const tileX = ((tx % numTiles) + numTiles) % numTiles;
     // اختيار نوع الخريطة
     if(window._exportTileType === 'osm'){
@@ -5182,21 +5190,24 @@ function drawCamerasOnCanvas(canvas){
 function drawLegendOnCanvas(ctx, W, H){
   const rows = [];
   FLOOR_TYPES.forEach(function(f){ rows.push({color:f.color, label:f.label}); });
-  rows.push({color:'#d29922', label:'🔧 صيانة'});
-  rows.push({color:'#8b949e', label:'⚪ معطل / مجهول'});
-  rows.push({color:'#f85149', label:'⚠️ يحتاج ضبط موقع'});
+  rows.push({color:'#d29922', label:'صيانة'});
+  rows.push({color:'#8b949e', label:'معطل/مجهول'});
+  rows.push({color:'#f85149', label:'يحتاج ضبط'});
 
   const equipRows = [
-    {icon:'🗼', label:'برج'}, {icon:'📡', label:'رابط P2P'},
-    {icon:'📻', label:'جهاز راديو'}, {icon:'💾', label:'NVR'}
+    {icon:'🗼', label:'برج'}, {icon:'📡', label:'P2P'},
+    {icon:'📻', label:'راديو'}, {icon:'💾', label:'NVR'}
   ];
 
-  const boxW = 175;
-  const rowH = 16;
-  const headerH = 22;
-  const sectionGap = 18;
-  const boxH = headerH + (rows.length*rowH) + sectionGap + (equipRows.length*rowH) + 14;
-  const boxX = 10, boxY = H - boxH - 50; // فوق شريط العنوان السفلي بقليل
+  const boxW = 130;
+  const rowH = 13;
+  const headerH = 18;
+  const sectionGap = 10;
+  const boxH = headerH + (rows.length*rowH) + sectionGap + (equipRows.length*rowH) + 10;
+  // ⚠️ نضع الصندوق بأعلى-يسار الصورة (بدل الأسفل) لتفادي التصادم مع شريط
+  // العنوان/التاريخ المرسوم أسفل الصورة، ولتفادي تجاوز حدود منطقة الخريطة
+  // في حال كان ارتفاعها الفعلي صغيراً وقت التصدير
+  const boxX = 10, boxY = 10;
 
   // خلفية الصندوق
   ctx.fillStyle = 'rgba(255,255,255,0.95)';
