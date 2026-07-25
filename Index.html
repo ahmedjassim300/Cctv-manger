@@ -4918,6 +4918,12 @@ function exportMapImage(){
 }
 
 function doExportMap(type){
+  if(!_map){ toast('❌ الخريطة غير جاهزة بعد، أعد المحاولة','err'); return; }
+  const size0 = _map.getSize();
+  if(!size0 || size0.x<10 || size0.y<10){
+    toast('❌ الخريطة لم تُحمَّل بشكل كامل بعد، أعد المحاولة بعد ثانية','err');
+    return;
+  }
   toast('📸 جار رسم الخريطة...','warn');
   window._exportTileType = type;
 
@@ -4970,7 +4976,7 @@ function doExportMap(type){
   ctx.fillStyle = '#1a2332';
   ctx.fillRect(0, 0, W, H);
 
-  let tilesTotal = 0, tilesLoaded = 0;
+  let tilesTotal = 0, tilesLoaded = 0, tilesFailed = 0;
   const tilesArr = [];
 
   for(let tx = nwTile.x; tx <= seTile.x + 1; tx++){
@@ -4985,6 +4991,7 @@ function doExportMap(type){
   let _drawAllCalled = false;
   const drawAll = () => {
     if(_drawAllCalled) return; _drawAllCalled = true;
+    try{
     // تنبيه واضح لو فشل تحميل أغلب البلاطات (بدل خلفية فارغة صامتة بلا تفسير)
     if(tilesTotal > 0 && tilesFailed / tilesTotal > 0.5){
       toast('⚠️ فشل تحميل خلفية الخريطة (مشكلة اتصال) — الصورة ستُصدَّر بدون خلفية','warn');
@@ -5139,10 +5146,13 @@ function doExportMap(type){
     link.href = canvas.toDataURL('image/png',1.0);
     link.click();
     toast('✅ تم تصدير الخريطة');
+    }catch(err){
+      console.error('Map export drawAll error:', err);
+      toast('❌ فشل تصدير الخريطة: '+(err.message||'خطأ غير متوقع'),'err');
+    }
   };
 
   // تحميل الـ tiles
-  let tilesFailed = 0;
   tilesArr.forEach(({tx,ty,px,py})=>{
     const img = new Image();
     // ⚠️ لا نضع crossOrigin هنا: خوادم بلاطات OSM/Google لا ترسل هيدر CORS
