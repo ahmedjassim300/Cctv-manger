@@ -5079,6 +5079,41 @@ function doExportMap(type){
       });
     }
 
+    // ── رسم المعدات الأخرى (أبراج/P2P/راديو/NVR) — فقط الطبقات المفعّلة حالياً بالخريطة ──
+    const EQUIP_ICONS_EXP = {tower:'🗼', p2p:'📡', radio:'📻', nvr:'💾'};
+    const EQUIP_LAYER_KEY_EXP = {tower:'towers', p2p:'p2p', radio:'radio', nvr:'nvr'};
+    const EQUIP_STATUS_COLOR_EXP = {active:'#3fb950', maintenance:'#d29922', down:'#8b949e'};
+    let equipToExport = [];
+    if(DB.fieldSites){
+      DB.fieldSites.forEach(fs=>{
+        Object.values(fs.equipment||{}).forEach(eq=>{
+          const layerKey = EQUIP_LAYER_KEY_EXP[eq.equipType] || 'towers';
+          // نرسم فقط لو الطبقة مفعّلة حالياً بالخريطة الحية (نفس اختيار المستخدم بالأزرار)
+          if(!_activeLayers[layerKey]) return;
+          if(eq.lat&&eq.lng&&!isNaN(parseFloat(eq.lat))){
+            equipToExport.push(eq);
+          }
+        });
+      });
+    }
+    equipToExport.forEach(eq=>{
+      const [ex,ey] = latlngToXY(parseFloat(eq.lat), parseFloat(eq.lng));
+      const eColor = EQUIP_STATUS_COLOR_EXP[eq.status] || '#3fb950';
+      ctx.beginPath();
+      ctx.arc(ex, ey, 13, 0, Math.PI*2);
+      ctx.fillStyle = eColor;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.font = '14px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(EQUIP_ICONS_EXP[eq.equipType]||'📍', ex, ey);
+      ctx.textAlign = 'right'; // إعادة الضبط الافتراضي لبقية الرسومات
+      ctx.textBaseline = 'alphabetic';
+    });
+
     // overlay
     ctx.fillStyle='rgba(0,0,0,0.6)';
     ctx.fillRect(0,H-40,W,40);
