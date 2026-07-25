@@ -4925,260 +4925,27 @@ function doExportMap(type){
     return;
   }
   toast('📸 جار رسم الخريطة...','warn');
-  window._exportTileType = type;
 
-  const center  = _map.getCenter();
-  const zoom    = Math.min(_map.getZoom(), 18);
-  const size    = _map.getSize();
-  const W       = size.x, H = size.y;
-  const canvas  = document.createElement('canvas');
-  canvas.width  = W * 2;
-  canvas.height = H * 2;
-  const ctx     = canvas.getContext('2d');
-  ctx.scale(2, 2);
+  // ⚠️ الحل الصحيح: نستخدم مكتبة leaflet-image (عبر doLeafletImageExport) بدل
+  // تحميل البلاطات يدوياً بـ <img>، لأن أي صورة cross-origin تُرسم مباشرة على
+  // canvas بدون CORS "تُلوّث" الـ canvas بالكامل وتمنع toDataURL نهائياً
+  // (خطأ: "Tainted canvases may not be exported"). مكتبة leaflet-image تتفادى
+  // هذا بتحميل الصور كـ Blob عبر طلب منفصل قبل الرسم.
+  const previousLayer = _mapLayer;
+  window._exportTileType = type; // تُستخدم لاحقاً بالعنوان النصي على الصورة فقط
 
-  // حساب النطاق الجغرافي للخريطة
-  const bounds = _map.getBounds();
-  const nw = bounds.getNorthWest();
-  const se = bounds.getSouthEast();
-
-  // دالة تحويل إحداثيات جغرافية → pixel
-  const latlngToXY = (lat, lng) => {
-    const x = (lng - nw.lng) / (se.lng - nw.lng) * W;
-    const y = (nw.lat - lat) / (nw.lat - se.lat) * H;
-    return [x, y];
-  };
-
-  // تحميل tiles من OSM (مسموح للاستخدام)
-  const tileSize = 256;
-  const numTiles = Math.pow(2, zoom);
-  const toTile = (lat, lng) => {
-    const x = Math.floor((lng + 180) / 360 * numTiles);
-    const latR = lat * Math.PI / 180;
-    const y = Math.floor((1 - Math.log(Math.tan(latR) + 1/Math.cos(latR)) / Math.PI) / 2 * numTiles);
-    return {x, y};
-  };
-
-  const nwTile = toTile(nw.lat, nw.lng);
-  const seTile = toTile(se.lat, se.lng);
-
-  // حساب offset للـ tile الأول
-  const nwExact = {
-    x: (nw.lng + 180) / 360 * numTiles,
-    y: (1 - Math.log(Math.tan(nw.lat*Math.PI/180) + 1/Math.cos(nw.lat*Math.PI/180))/Math.PI)/2 * numTiles
-  };
-  const tileOffsetX = (nwExact.x - nwTile.x) * tileSize;
-  const tileOffsetY = (nwExact.y - nwTile.y) * tileSize;
-  const scaleX = W / ((seTile.x - nwTile.x + 1) * tileSize);
-  const scaleY = H / ((seTile.y - nwTile.y + 1) * tileSize);
-
-  // خلفية
-  ctx.fillStyle = '#1a2332';
-  ctx.fillRect(0, 0, W, H);
-
-  let tilesTotal = 0, tilesLoaded = 0, tilesFailed = 0;
-  const tilesArr = [];
-
-  for(let tx = nwTile.x; tx <= seTile.x + 1; tx++){
-    for(let ty = nwTile.y; ty <= seTile.y + 1; ty++){
-      tilesTotal++;
-      const px = (tx - nwTile.x) * tileSize * scaleX - tileOffsetX * scaleX;
-      const py = (ty - nwTile.y) * tileSize * scaleY - tileOffsetY * scaleY;
-      tilesArr.push({tx, ty, px, py});
-    }
+  const targetLayer = type==='satellite' ? 'satellite' : (type==='hybrid' ? 'hybrid' : 'osm');
+  if(_mapLayer !== targetLayer){
+    // نبدّل طبقة الخريطة الفعلية مؤقتاً، وننتظر تحميلها قبل الالتقاط
+    switchMapLayer(targetLayer);
+    setTimeout(function(){
+      doLeafletImageExport();
+      // نعيد الطبقة الأصلية بعد الالتقاط حتى لا تتغيّر تجربة المستخدم بشكل دائم
+      setTimeout(function(){ if(_mapLayer!==previousLayer) switchMapLayer(previousLayer); }, 800);
+    }, 1200); // مهلة كافية لتحميل بلاطات الطبقة الجديدة قبل الالتقاط
+  } else {
+    doLeafletImageExport();
   }
-
-  let _drawAllCalled = false;
-  const drawAll = () => {
-    if(_drawAllCalled) return; _drawAllCalled = true;
-    try{
-    // تنبيه واضح لو فشل تحميل أغلب البلاطات (بدل خلفية فارغة صامتة بلا تفسير)
-    if(tilesTotal > 0 && tilesFailed / tilesTotal > 0.5){
-      toast('⚠️ فشل تحميل خلفية الخريطة (مشكلة اتصال) — الصورة ستُصدَّر بدون خلفية','warn');
-    }
-    // اجمع الكاميرات من _markers أو من DB مباشرة
-    const cams = [];
-    if(window._markers && _markers.length){
-      _markers.forEach(m=>{ if(m.cam && m.marker) cams.push({cam:m.cam, ll:m.marker.getLatLng()}); });
-    }
-    // إذا فارغ — اجمع من DB
-    if(!cams.length && DB.fieldSites){
-      DB.fieldSites.forEach(fs=>{
-        (fs.cameras||[]).forEach(c=>{
-          if(c.lat&&c.lng&&!isNaN(parseFloat(c.lat))){
-            cams.push({cam:c, ll:{lat:parseFloat(c.lat),lng:parseFloat(c.lng)}});
-          }
-        });
-      });
-    }
-
-    // ارسم الشعاع لكل كاميرا
-    cams.forEach(({cam:c, ll})=>{
-        const [cx,cy] = latlngToXY(ll.lat, ll.lng);
-        const stColor = getCamDisplayColor(c);
-        const angle   = parseFloat(c.beamAngle)||70;
-        const rot     = parseFloat(c.beamRot)||0;
-        const viewDist= parseFloat(c.viewDist)||50;
-
-        // حساب طول الشعاع بالـ pixels
-        const mPerLat = 111320;
-        const mPerLng = 111320 * Math.cos(ll.lat * Math.PI/180);
-        const [ex,ey] = latlngToXY(ll.lat + viewDist/mPerLat, ll.lng);
-        const beamPx  = Math.abs(ey - cy);
-
-        if(angle >= 358){
-          ctx.beginPath();
-          ctx.arc(cx, cy, beamPx, 0, Math.PI*2);
-          ctx.fillStyle = stColor+'25';
-          ctx.strokeStyle = stColor+'90';
-          ctx.lineWidth = 1.5;
-          ctx.fill(); ctx.stroke();
-        } else {
-          const halfRad = (angle/2) * Math.PI/180;
-          const rotRad  = (rot - 90) * Math.PI/180;
-          const steps   = 20;
-          ctx.beginPath();
-          ctx.moveTo(cx, cy);
-          for(let i=0; i<=steps; i++){
-            const theta = rotRad - halfRad + (i/steps)*2*halfRad;
-            ctx.lineTo(cx + beamPx*Math.cos(theta), cy + beamPx*Math.sin(theta));
-          }
-          ctx.closePath();
-          ctx.fillStyle = stColor+'25';
-          ctx.strokeStyle = stColor+'90';
-          ctx.lineWidth = 1.5;
-          ctx.fill(); ctx.stroke();
-        }
-
-        // أيقونة الكاميرا
-        ctx.fillStyle = stColor;
-        ctx.beginPath();
-        ctx.roundRect ? ctx.roundRect(cx-8,cy-5,16,10,3) : ctx.rect(cx-8,cy-5,16,10);
-        ctx.fill();
-        ctx.fillStyle='#ffffff60';
-        ctx.beginPath(); ctx.arc(cx-1,cy,3,0,Math.PI*2); ctx.fill();
-
-        // اسم
-        const name = c.name||c.serial||'';
-        if(name){
-          ctx.font = 'bold 10px Arial';
-          ctx.fillStyle = '#fff';
-          ctx.textAlign = 'center';
-          ctx.shadowColor='#000'; ctx.shadowBlur=3;
-          ctx.fillText(name, cx, cy+16);
-          ctx.shadowBlur=0;
-        }
-    });
-
-    // ارسم الحدود المحفوظة
-    if(window._boundaryLayers){
-      window._boundaryLayers.forEach(poly=>{
-        if(!poly.getLatLngs) return;
-        const latlngs = poly.getLatLngs()[0];
-        if(!latlngs||!latlngs.length) return;
-        const color = poly.options.color||'#f85149';
-        ctx.beginPath();
-        latlngs.forEach((ll,i)=>{
-          const [x,y] = latlngToXY(ll.lat, ll.lng);
-          i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-        });
-        ctx.closePath();
-        ctx.fillStyle = color+'20';
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.fill(); ctx.stroke();
-      });
-    }
-
-    // ── رسم المعدات الأخرى (أبراج/P2P/راديو/NVR) — فقط الطبقات المفعّلة حالياً بالخريطة ──
-    const EQUIP_ICONS_EXP = {tower:'🗼', p2p:'📡', radio:'📻', nvr:'💾'};
-    const EQUIP_LAYER_KEY_EXP = {tower:'towers', p2p:'p2p', radio:'radio', nvr:'nvr'};
-    const EQUIP_STATUS_COLOR_EXP = {active:'#3fb950', maintenance:'#d29922', down:'#8b949e'};
-    let equipToExport = [];
-    if(DB.fieldSites){
-      DB.fieldSites.forEach(fs=>{
-        Object.values(fs.equipment||{}).forEach(eq=>{
-          const layerKey = EQUIP_LAYER_KEY_EXP[eq.equipType] || 'towers';
-          // نرسم فقط لو الطبقة مفعّلة حالياً بالخريطة الحية (نفس اختيار المستخدم بالأزرار)
-          if(!_activeLayers[layerKey]) return;
-          if(eq.lat&&eq.lng&&!isNaN(parseFloat(eq.lat))){
-            equipToExport.push(eq);
-          }
-        });
-      });
-    }
-    equipToExport.forEach(eq=>{
-      const [ex,ey] = latlngToXY(parseFloat(eq.lat), parseFloat(eq.lng));
-      const eColor = EQUIP_STATUS_COLOR_EXP[eq.status] || '#3fb950';
-      ctx.beginPath();
-      ctx.arc(ex, ey, 13, 0, Math.PI*2);
-      ctx.fillStyle = eColor;
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.font = '14px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(EQUIP_ICONS_EXP[eq.equipType]||'📍', ex, ey);
-      ctx.textAlign = 'right'; // إعادة الضبط الافتراضي لبقية الرسومات
-      ctx.textBaseline = 'alphabetic';
-    });
-
-    // overlay
-    ctx.fillStyle='rgba(0,0,0,0.6)';
-    ctx.fillRect(0,H-40,W,40);
-    ctx.fillStyle='#fff';
-    ctx.font='bold 13px Arial';
-    ctx.textAlign='right';
-    const site = typeof _FSITE!=='undefined'&&_FSITE?(DB.fieldSites.find(s=>s.id===_FSITE)?.name||''):'';
-    ctx.fillText('CCTV Manager'+(site?' — '+site:''), W-10, H-22);
-    ctx.font='11px Arial'; ctx.fillStyle='#aaa';
-    ctx.fillText(fmtDateTime(new Date().toISOString()), W-10, H-8);
-
-    // ── رسم مفتاح الخريطة (Legend) على الصورة المصدَّرة ──
-    drawLegendOnCanvas(ctx, W, H);
-
-    // تصدير
-    ctx.setTransform(1,0,0,1,0,0);
-    const link = document.createElement('a');
-    link.download = 'خريطة_'+(site||'CCTV')+'_'+Date.now()+'.png';
-    link.href = canvas.toDataURL('image/png',1.0);
-    link.click();
-    toast('✅ تم تصدير الخريطة');
-    }catch(err){
-      console.error('Map export drawAll error:', err);
-      toast('❌ فشل تصدير الخريطة: '+(err.message||'خطأ غير متوقع'),'err');
-    }
-  };
-
-  // تحميل الـ tiles
-  tilesArr.forEach(({tx,ty,px,py})=>{
-    const img = new Image();
-    // ⚠️ لا نضع crossOrigin هنا: خوادم بلاطات OSM/Google لا ترسل هيدر CORS
-    // بشكل موثوق لكل الطلبات، وكانت crossOrigin='anonymous' تتسبب بفشل صامت
-    // للتحميل (img.onerror تُستدعى بهدوء) فتخرج الصورة بخلفية فارغة تماماً
-    // بدون أي تنبيه. التصدير هنا محلي فقط (تنزيل ملف)، فلا حاجة لـ CORS صريح.
-    img.onload = ()=>{
-      ctx.drawImage(img, px, py, tileSize*scaleX, tileSize*scaleY);
-      tilesLoaded++;
-      if(tilesLoaded >= tilesTotal) drawAll();
-    };
-    img.onerror = ()=>{ tilesLoaded++; tilesFailed++; if(tilesLoaded>=tilesTotal) drawAll(); };
-    const tileX = ((tx % numTiles) + numTiles) % numTiles;
-    // اختيار نوع الخريطة
-    if(window._exportTileType === 'osm'){
-      img.src = 'https://tile.openstreetmap.org/'+zoom+'/'+tileX+'/'+ty+'.png';
-    } else if(window._exportTileType === 'hybrid'){
-      img.src = 'https://mt1.google.com/vt/lyrs=y&x='+tileX+'&y='+ty+'&z='+zoom;
-    } else {
-      // satellite — Google
-      img.src = 'https://mt1.google.com/vt/lyrs=s&x='+tileX+'&y='+ty+'&z='+zoom;
-    }
-  });
-
-  // timeout احتياطي
-  setTimeout(()=>{ if(tilesLoaded<tilesTotal){ tilesLoaded=tilesTotal; drawAll(); } }, 5000);
 }
 
 function doLeafletImageExport(){
@@ -5352,6 +5119,43 @@ function finishExport(canvas){
     });
   }
 
+  // ── رسم المعدات الأخرى (أبراج/P2P/راديو/NVR) — فقط الطبقات المفعّلة حالياً بالخريطة ──
+  const EQUIP_ICONS_EXP = {tower:'🗼', p2p:'📡', radio:'📻', nvr:'💾'};
+  const EQUIP_LAYER_KEY_EXP = {tower:'towers', p2p:'p2p', radio:'radio', nvr:'nvr'};
+  const EQUIP_STATUS_COLOR_EXP = {active:'#3fb950', maintenance:'#d29922', down:'#8b949e'};
+  let equipToExport = [];
+  if(DB.fieldSites){
+    DB.fieldSites.forEach(fs=>{
+      Object.values(fs.equipment||{}).forEach(eq=>{
+        const layerKey = EQUIP_LAYER_KEY_EXP[eq.equipType] || 'towers';
+        if(!_activeLayers[layerKey]) return;
+        if(eq.lat&&eq.lng&&!isNaN(parseFloat(eq.lat))){
+          equipToExport.push(eq);
+        }
+      });
+    });
+  }
+  equipToExport.forEach(eq=>{
+    const pt = _map.latLngToContainerPoint([parseFloat(eq.lat), parseFloat(eq.lng)]);
+    const ex = pt.x * scaleX, ey = pt.y * scaleY;
+    const eColor = EQUIP_STATUS_COLOR_EXP[eq.status] || '#3fb950';
+    const er = 13 * scaleX;
+    ctx.beginPath();
+    ctx.arc(ex, ey, er, 0, Math.PI*2);
+    ctx.fillStyle = eColor;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.font = `${Math.round(14*scaleX)}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#000';
+    ctx.fillText(EQUIP_ICONS_EXP[eq.equipType]||'📍', ex, ey);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+  });
+
   // overlay معلومات في الأسفل
   const site = typeof _FSITE !== 'undefined' && _FSITE
     ? (DB.fieldSites.find(s=>s.id===_FSITE)?.name||'')
@@ -5365,6 +5169,9 @@ function finishExport(canvas){
   ctx.font = `${Math.round(13*scaleX)}px Arial`;
   ctx.fillStyle = '#aaaaaa';
   ctx.fillText(fmtDateTime(new Date().toISOString()), canvas.width-16, canvas.height-10);
+
+  // رسم مفتاح الخريطة (Legend) على الصورة المصدَّرة
+  drawLegendOnCanvas(ctx, canvas.width, canvas.height);
 
   const link = document.createElement('a');
   link.download = 'خريطة_' + (site||'CCTV') + '_' + Date.now() + '.png';
