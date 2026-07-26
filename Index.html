@@ -4927,6 +4927,27 @@ function doExportMap(type){
   toast('📸 جار رسم الخريطة...','warn');
   window._exportTileType = type;
 
+  // ⚠️ نُجمِّد الخريطة (نمنع التفاعل) طوال مدة التصدير — على الهاتف تحديداً
+  // تحميل البلاطات أبطأ بكثير (شبكة/معالجة)، وأي تحريك أو تكبير عرضي
+  // باللمس أثناء الانتظار يغيّر bounds/center/zoom، فتُرسم البلاطات بموقع
+  // مختلف عن موقع الكاميرات المحسوب لاحقاً بـ finishExport — وهذا يفسر
+  // بالضبط "فرق بالموقع" الذي يظهر أكثر على الهاتف
+  _map.dragging.disable();
+  _map.touchZoom.disable();
+  _map.doubleClickZoom.disable();
+  _map.scrollWheelZoom.disable();
+  if(_map.tap) _map.tap.disable();
+  const reEnableMapInteraction = function(){
+    _map.dragging.enable();
+    _map.touchZoom.enable();
+    _map.doubleClickZoom.enable();
+    _map.scrollWheelZoom.enable();
+    if(_map.tap) _map.tap.enable();
+  };
+  // أمان: نعيد تفعيل التفاعل حتى لو تعثّر التصدير لأي سبب غير متوقع
+  window._reEnableMapAfterExport = reEnableMapInteraction;
+  setTimeout(function(){ if(window._reEnableMapAfterExport){ window._reEnableMapAfterExport(); window._reEnableMapAfterExport=null; } }, 20000);
+
   const center  = _map.getCenter();
   const zoom    = Math.min(_map.getZoom(), 18);
   const size    = _map.getSize();
@@ -5280,6 +5301,7 @@ function finishExport(canvas){
   link.href = canvas.toDataURL('image/png', 1.0);
   link.click();
   toast('✅ تم تصدير الخريطة مع الكاميرات');
+  if(window._reEnableMapAfterExport){ window._reEnableMapAfterExport(); window._reEnableMapAfterExport=null; }
 }
 
 // ── تحميل الحدود عند فتح الخريطة ──
