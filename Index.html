@@ -5159,14 +5159,29 @@ function finishExport(canvas){
   const scaleX = canvas.width  / mapRect.width;
   const scaleY = canvas.height / mapRect.height;
 
+  // ⚠️ نبني قائمة الكاميرات دائماً من DB.fieldSites (مصدر البيانات الحقيقي
+  // والدائم) بدل الاعتماد على window._markers فقط — لأن _markers مصفوفة
+  // عالمية هشة تُبنى فقط أثناء initFieldMap() وقد تكون فارغة أو قديمة
+  // وقت التصدير (مثلاً بعد تغيّر حجم الشاشة أو تحديث جزئي للصفحة)، وهذا
+  // كان يسبب تصدير خلفية الخريطة بنجاح لكن بدون أي كاميرات مرسومة عليها
+  const camsToExport = [];
+  const visibleSites = getVisibleFieldSites();
+  const sitesForExport = _FSITE ? visibleSites.filter(fs=>fs.id===_FSITE) : visibleSites;
+  sitesForExport.forEach(fs=>{
+    (fs.cameras||[]).forEach(c=>{
+      if(c.lat && c.lng && !isNaN(parseFloat(c.lat))){
+        camsToExport.push(c);
+      }
+    });
+  });
+
   // ارسم الكاميرات يدوياً على الـ canvas
-  if(window._markers && _markers.length){
-    _markers.forEach(m=>{
-      const latlng = m.marker.getLatLng();
+  if(camsToExport.length){
+    camsToExport.forEach(c=>{
+      const latlng = L.latLng(parseFloat(c.lat), parseFloat(c.lng));
       const pt = _map.latLngToContainerPoint(latlng);
       const x = pt.x * scaleX;
       const y = pt.y * scaleY;
-      const c = m.cam;
       const stColor = getCamDisplayColor(c);
       const angle   = parseFloat(c.beamAngle)||70;
       const rot     = parseFloat(c.beamRot)||0;
