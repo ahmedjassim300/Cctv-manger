@@ -4964,20 +4964,18 @@ function doExportMap(type){
 
   const tileSize = 256;
   const numTiles = Math.pow(2, zoom);
-  const toTile = (lat, lng) => {
-    const x = Math.floor((lng + 180) / 360 * numTiles);
-    const latR = lat * Math.PI / 180;
-    const y = Math.floor((1 - Math.log(Math.tan(latR) + 1/Math.cos(latR)) / Math.PI) / 2 * numTiles);
-    return {x, y};
-  };
-  const nwTile = toTile(nw.lat, nw.lng);
-  const seTile = toTile(se.lat, se.lng);
-  const nwExact = {
-    x: (nw.lng + 180) / 360 * numTiles,
-    y: (1 - Math.log(Math.tan(nw.lat*Math.PI/180) + 1/Math.cos(nw.lat*Math.PI/180))/Math.PI)/2 * numTiles
-  };
-  const tileOffsetX = (nwExact.x - nwTile.x) * tileSize;
-  const tileOffsetY = (nwExact.y - nwTile.y) * tileSize;
+  // ⚠️ الحل الدقيق: نستخدم _map.project() (دالة Leaflet الداخلية نفسها
+  // المستخدمة أيضاً بـ latLngToContainerPoint لرسم الكاميرات لاحقاً) بدل
+  // معادلات رياضية يدوية منفصلة. الحساب اليدوي السابق كان يستخدم Math.floor()
+  // بعدة مواضع متتالية، وأي فرق تقريب بسيط يتراكم كإزاحة ثابتة واضحة بين
+  // خلفية البلاطات (محسوبة يدوياً) ومواقع الكاميرات (محسوبة عبر Leaflet) —
+  // استخدام نفس دالة الإسقاط لكليهما يضمن التطابق الكامل بدقة البكسل.
+  const nwPoint = _map.project(nw, zoom);
+  const sePoint = _map.project(se, zoom);
+  const nwTile = {x: Math.floor(nwPoint.x / tileSize), y: Math.floor(nwPoint.y / tileSize)};
+  const seTile = {x: Math.floor(sePoint.x / tileSize), y: Math.floor(sePoint.y / tileSize)};
+  const tileOffsetX = nwPoint.x - nwTile.x * tileSize;
+  const tileOffsetY = nwPoint.y - nwTile.y * tileSize;
   const scaleX = W / ((seTile.x - nwTile.x + 1) * tileSize);
   const scaleY = H / ((seTile.y - nwTile.y + 1) * tileSize);
 
