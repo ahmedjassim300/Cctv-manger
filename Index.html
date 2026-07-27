@@ -4949,7 +4949,14 @@ function doExportMap(type){
   setTimeout(function(){ if(window._reEnableMapAfterExport){ window._reEnableMapAfterExport(); window._reEnableMapAfterExport=null; } }, 20000);
 
   const center  = _map.getCenter();
-  const zoom    = Math.min(_map.getZoom(), 18);
+  // ⚠️ نحدّ الزوم بحد أقصى آمن (بلاطات OSM/Google عادة غير متوفرة بزوم أعلى)،
+  // لكن يجب أن نطبّق نفس الحد فعلياً على _map نفسها قبل أي حساب — لأن
+  // finishExport ترسم الكاميرات لاحقاً بزوم الخريطة الحقيقي الحي، وأي فرق
+  // بين "الزوم المستخدم بحساب البلاطات هنا" و"زوم الخريطة الفعلي وقت الرسم"
+  // يكسر التطابق تماماً بين الخلفية والمحتوى
+  const MAX_EXPORT_ZOOM = 20;
+  if(_map.getZoom() > MAX_EXPORT_ZOOM){ _map.setZoom(MAX_EXPORT_ZOOM); }
+  const zoom    = _map.getZoom();
   const size    = _map.getSize();
   const W       = size.x, H = size.y;
   const canvas  = document.createElement('canvas');
@@ -4974,10 +4981,20 @@ function doExportMap(type){
   const sePoint = _map.project(se, zoom);
   const nwTile = {x: Math.floor(nwPoint.x / tileSize), y: Math.floor(nwPoint.y / tileSize)};
   const seTile = {x: Math.floor(sePoint.x / tileSize), y: Math.floor(sePoint.y / tileSize)};
+
+  // ⚠️ الحل الرياضي الصحيح: لا نحسب scaleX/scaleY من "عدد البلاطات × 256"
+  // مقارنة بـ W — لأن عدد البلاطات (مقرَّب لأعداد صحيحة) يمثل مساحة أكبر
+  // دائماً من عرض الشاشة الفعلي W (لأن nw/se تقع عادة بمنتصف بلاطة، وليس
+  // بحافتها بالضبط). القسمة على هذا الفرق كانت تُنتج scaleX أصغر بكثير من
+  // القيمة الصحيحة، فتُرسم البلاطات "مصغّرة" ومزحوفة في ركن واحد من الصورة.
+  // الحل: نرسم كل بلاطة بحجمها الحقيقي 256×256 (مضروبة فقط بمعامل الدقة W/mapRect
+  // العام لكامل الصورة)، بإزاحة تساوي الفرق بين موقعها بالإسقاط وموقع بداية
+  // النافذة المرئية فعلياً (nwPoint) — بدون أي "شد" أو تكبير إضافي وهمي.
+  const outputScale = W / (size.x); // معامل الدقة العام فقط (canvas أكبر من DOM بمقدار ثابت، هنا =1 لأن W=size.x أصلاً، لكن يبقى صريحاً لأي تغيير مستقبلي)
+  const scaleX = outputScale;
+  const scaleY = outputScale;
   const tileOffsetX = nwPoint.x - nwTile.x * tileSize;
   const tileOffsetY = nwPoint.y - nwTile.y * tileSize;
-  const scaleX = W / ((seTile.x - nwTile.x + 1) * tileSize);
-  const scaleY = H / ((seTile.y - nwTile.y + 1) * tileSize);
 
   ctx.fillStyle = '#1a2332';
   ctx.fillRect(0, 0, W, H);
