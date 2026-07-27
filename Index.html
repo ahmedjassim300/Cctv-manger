@@ -3658,7 +3658,7 @@ function pgFieldMap(){
       </div>
     </div>
     ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
-    ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportMapImage()">📸 تصدير صورة</button>`:''}
+    ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportMapImage()">📍 تصدير KML</button>`:''}
     ${CU.role==='manager'&&window._FSITE?`<button class="btn btn-gy" onclick="exportFieldSiteExcel(window._FSITE)">⬇️ Excel الموقع</button>`:''}
   </div>
 
@@ -4908,94 +4908,110 @@ function importKML(input){
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
   if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
-  if(!_map){ toast('افتح الخريطة أولاً','err'); return; }
-  openModal(mhd('📸 تصدير الخريطة')
-    +'<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">'
-    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;satellite&quot;)">🛰️ صورة جوية Google Satellite</button>'
-    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;hybrid&quot;)">🌍 هايبرد Google + أسماء</button>'
-    +'<button class="btn" style="padding:14px;background:#1a2332;border:1px solid var(--br);border-radius:12px;color:var(--tx);font-family:inherit;font-size:16px;text-align:right" onclick="closeModal();doExportMap(&quot;osm&quot;)">🗺️ خريطة عادية (OpenStreetMap)</button>'
+  if(!_FSITE){ toast('افتح موقعاً ميدانياً أولاً','err'); return; }
+  openModal(mhd('📍 تصدير KML')
+    +'<div style="font-size:13px;color:var(--mt);margin-bottom:14px">يُصدَّر الموقع الحالي بصيغة KML — يفتح مباشرة بتطبيقات Google Earth، Google Maps، وأي برنامج خرائط يدعم KML</div>'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px;background:var(--bg);border-radius:8px">'
+    +'<input type="checkbox" id="kml-include-equip" style="width:18px;height:18px;accent-color:var(--bl)">'
+    +'<label for="kml-include-equip" style="cursor:pointer;font-size:14px">إضافة الأبراج/P2P/الراديو/NVR إلى نفس الملف</label>'
     +'</div>'
-    +'<div style="font-size:12px;color:var(--mt)">سيتم رسم الكاميرات والشعاع والحدود على الصورة</div>');
+    +mft('📥 تصدير KML','doExportKML()'));
 }
 
-function doExportMap(type){
-  if(!_map){ toast('❌ الخريطة غير جاهزة بعد، أعد المحاولة','err'); return; }
-  const size0 = _map.getSize();
-  if(!size0 || size0.x<10 || size0.y<10){
-    toast('❌ الخريطة لم تُحمَّل بشكل كامل بعد، أعد المحاولة بعد ثانية','err');
+function doExportKML(){
+  const includeEquip = document.getElementById('kml-include-equip')?.checked;
+  const fs = DB.fieldSites.find(function(s){return s.id===_FSITE;});
+  if(!fs){ toast('الموقع غير موجود','err'); return; }
+
+  const cams = (fs.cameras||[]).filter(function(c){return c.lat && c.lng && !isNaN(parseFloat(c.lat));});
+  const equip = includeEquip ? Object.values(fs.equipment||{}).filter(function(eq){return eq.lat && eq.lng && !isNaN(parseFloat(eq.lat));}) : [];
+
+  if(!cams.length && !equip.length){
+    toast('لا توجد عناصر بإحداثيات صالحة للتصدير','warn');
     return;
   }
-  if(typeof html2canvas === 'undefined'){
-    toast('❌ مكتبة التصوير لم تُحمَّل — تحقق من الاتصال بالإنترنت وأعد المحاولة','err');
-    return;
-  }
-  toast('📸 جار التقاط الخريطة...','warn');
-  window._exportTileType = type;
 
-  // ⚠️ الحل النهائي: نستخدم html2canvas لتصوير حاوية الخريطة كما تظهر
-  // فعلياً على الشاشة بالضبط — بدون أي حساب إحداثيات أو بلاطات يدوية.
-  // هذا يلتقط كل ما هو مرسوم فعلياً بواسطة Leaflet (البلاطات، الكاميرات،
-  // الأشعة، مفتاح الخريطة) بدقة الشاشة الحقيقية 1:1، فلا يمكن أن يظهر
-  // أي فرق موقع أو تقطيع أو فراغ — لأنها ببساطة "تصوير" لما تراه العين.
-  const previousLayer = _mapLayer;
-  const targetLayer = type==='satellite' ? 'satellite' : (type==='hybrid' ? 'hybrid' : 'osm');
-  const needsLayerChange = (_mapLayer !== targetLayer);
+  const kmlIconStyle = function(id, color){
+    return '<Style id="'+id+'"><IconStyle><color>'+color+'</color><scale>1.1</scale>'
+      +'<Icon><href>http://maps.google.com/mapfiles/kml/shapes/camera.png</href></Icon></IconStyle></Style>';
+  };
+  // ألوان KML بصيغة aabbggrr (عكس ترتيب HTML hex، مع شفافية كاملة ff)
+  const floorKmlColors = {ground:'ff50b93f', upper:'ff2299d2', roof:'ffff5f58', floor3:'ffe55789', floor4:'ff007bff'};
 
-  function captureNow(){
-    const mapEl = document.getElementById('fld-map');
-    if(!mapEl){ toast('❌ عنصر الخريطة غير موجود','err'); return; }
+  let styles = '';
+  let placemarks = '';
 
-    html2canvas(mapEl, {
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      scale: 2, // دقة أعلى للطباعة/العرض
-      backgroundColor: '#1a2332'
-    }).then(function(canvas){
-      addFooterAndDownload(canvas);
-      if(needsLayerChange && previousLayer){
-        setTimeout(function(){ switchMapLayer(previousLayer); }, 300);
-      }
-    }).catch(function(err){
-      toast('❌ فشل التقاط الخريطة: '+(err.message||'خطأ غير متوقع'),'err');
-      if(needsLayerChange && previousLayer){ switchMapLayer(previousLayer); }
-    });
-  }
+  cams.forEach(function(c, i){
+    const styleId = 'camStyle'+i;
+    const color = floorKmlColors[c.floor] || 'ff50b93f';
+    styles += kmlIconStyle(styleId, color);
+    const desc = [
+      c.serial?'السيريال: '+c.serial:'',
+      c.model?'الموديل: '+c.model:'',
+      c.mfr?'الشركة: '+c.mfr:'',
+      c.dir?'الاتجاه: '+c.dir+'°':'',
+      c.installDesc?'الوصف: '+c.installDesc:'',
+      c.floor?'الطابق: '+floorLabel(c.floor):'',
+      c.status?'الحالة: '+c.status:''
+    ].filter(Boolean).join('&#10;');
+    placemarks += '<Placemark>'
+      +'<name>'+escapeXml(c.name||c.serial||'كاميرا')+'</name>'
+      +(desc?'<description>'+escapeXml(desc)+'</description>':'')
+      +'<styleUrl>#'+styleId+'</styleUrl>'
+      +'<Point><coordinates>'+parseFloat(c.lng)+','+parseFloat(c.lat)+',0</coordinates></Point>'
+      +'</Placemark>\n';
+  });
 
-  if(needsLayerChange){
-    // ننتظر تحميل بلاطات الطبقة الجديدة فعلياً قبل الالتقاط
-    switchMapLayer(targetLayer);
-    setTimeout(captureNow, 1500);
-  } else {
-    captureNow();
-  }
+  const equipColors = {tower:'ff0000ff', p2p:'ffdf5782', radio:'ffd4a806', nvr:'ffc1576f'};
+  const equipIcons = {tower:'http://maps.google.com/mapfiles/kml/shapes/electronics.png',
+    p2p:'http://maps.google.com/mapfiles/kml/shapes/antenna.png',
+    radio:'http://maps.google.com/mapfiles/kml/shapes/electronics.png',
+    nvr:'http://maps.google.com/mapfiles/kml/shapes/electronics.png'};
+  equip.forEach(function(eq, i){
+    const styleId = 'eqStyle'+i;
+    const color = equipColors[eq.equipType] || 'ffffffff';
+    styles += '<Style id="'+styleId+'"><IconStyle><color>'+color+'</color><scale>1.1</scale>'
+      +'<Icon><href>'+(equipIcons[eq.equipType]||equipIcons.tower)+'</href></Icon></IconStyle></Style>';
+    const desc = [
+      eq.model?'الموديل: '+eq.model:'',
+      eq.serial?'السيريال: '+eq.serial:'',
+      eq.detail?'تفاصيل: '+eq.detail:'',
+      eq.status?'الحالة: '+eq.status:'',
+      eq.notes?'ملاحظات: '+eq.notes:''
+    ].filter(Boolean).join('&#10;');
+    const typeLabel = {tower:'برج', p2p:'رابط P2P', radio:'جهاز راديو', nvr:'NVR'}[eq.equipType]||eq.equipType;
+    placemarks += '<Placemark>'
+      +'<name>'+escapeXml((typeLabel?typeLabel+' — ':'')+(eq.name||''))+'</name>'
+      +(desc?'<description>'+escapeXml(desc)+'</description>':'')
+      +'<styleUrl>#'+styleId+'</styleUrl>'
+      +'<Point><coordinates>'+parseFloat(eq.lng)+','+parseFloat(eq.lat)+',0</coordinates></Point>'
+      +'</Placemark>\n';
+  });
+
+  const kml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    +'<kml xmlns="http://www.opengis.net/kml/2.2">\n'
+    +'<Document>\n'
+    +'<name>'+escapeXml(fs.name||'موقع ميداني')+'</name>\n'
+    +styles
+    +placemarks
+    +'</Document>\n</kml>';
+
+  const blob = new Blob([kml], {type:'application/vnd.google-earth.kml+xml'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (fs.name||'موقع').replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+fmtDate(new Date().toISOString())+'.kml';
+  a.click();
+  URL.revokeObjectURL(url);
+  logAct('تصدير KML', fs.name+' — '+cams.length+' كاميرا'+(equip.length?(' + '+equip.length+' معدة'):''));
+  closeModal();
+  toast('✅ تم تصدير '+cams.length+' كاميرا'+(equip.length?(' و'+equip.length+' معدة'):''));
 }
 
-function addFooterAndDownload(sourceCanvas){
-  // نضيف شريط العنوان/التاريخ أسفل الصورة الملتقطة، ثم ننزّلها
-  const canvas = document.createElement('canvas');
-  const footerH = 50;
-  canvas.width = sourceCanvas.width;
-  canvas.height = sourceCanvas.height + footerH;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(sourceCanvas, 0, 0);
-
-  ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.fillRect(0, sourceCanvas.height, canvas.width, footerH);
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 20px Arial';
-  ctx.textAlign = 'right';
-  const site = (typeof _FSITE!=='undefined' && _FSITE) ? (DB.fieldSites.find(s=>s.id===_FSITE)?.name||'') : '';
-  ctx.fillText('CCTV Manager'+(site?' — '+site:''), canvas.width-20, sourceCanvas.height+28);
-  ctx.font = '15px Arial';
-  ctx.fillStyle = '#aaa';
-  ctx.fillText(fmtDateTime(new Date().toISOString()), canvas.width-20, sourceCanvas.height+45);
-
-  const link = document.createElement('a');
-  link.download = 'خريطة_'+(site||'CCTV')+'_'+Date.now()+'.png';
-  link.href = canvas.toDataURL('image/png', 1.0);
-  link.click();
-  toast('✅ تم تصدير الخريطة');
+function escapeXml(str){
+  return String(str||'').replace(/[<>&'"]/g, function(c){
+    return {'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c];
+  });
 }
 
 function finishExportFromRawCanvas(canvas){
