@@ -4955,19 +4955,28 @@ function doExportMap(type){
   // بين "الزوم المستخدم بحساب البلاطات هنا" و"زوم الخريطة الفعلي وقت الرسم"
   // يكسر التطابق تماماً بين الخلفية والمحتوى
   const MAX_EXPORT_ZOOM = 20;
-  if(_map.getZoom() > MAX_EXPORT_ZOOM){ _map.setZoom(MAX_EXPORT_ZOOM); }
-  const zoom    = _map.getZoom();
-  const size    = _map.getSize();
-  const W       = size.x, H = size.y;
-  const canvas  = document.createElement('canvas');
-  canvas.width  = W * 2;
-  canvas.height = H * 2;
-  const ctx     = canvas.getContext('2d');
-  ctx.scale(2, 2);
+  const needsZoomChange = _map.getZoom() > MAX_EXPORT_ZOOM;
 
-  const bounds = _map.getBounds();
-  const nw = bounds.getNorthWest();
-  const se = bounds.getSouthEast();
+  // ⚠️ الحل: _map.setZoom() غير متزامن داخلياً بـ Leaflet — تغيير الحالة
+  // (bounds/center) لا يكتمل فوراً بنفس اللحظة، بل بعد أن تُطلق الخريطة
+  // حدث 'moveend'. قراءة bounds مباشرة بعد استدعاء setZoom (كما كان بالكود
+  // السابق) كانت تُنتج حدوداً من حالة انتقالية غير مستقرة، فتتولد قائمة
+  // بلاطات ناقصة أو بحدود خاطئة — وهذا يفسر المناطق الفارغة بالصورة.
+  // الحل: ننتظر فعلياً حدث moveend قبل أي حساب لاحق، بدل الافتراض أن
+  // setZoom اكتملت بمجرد استدعائها.
+  function proceedWithMapExport(){
+    const zoom    = _map.getZoom();
+    const size    = _map.getSize();
+    const W       = size.x, H = size.y;
+    const canvas  = document.createElement('canvas');
+    canvas.width  = W * 2;
+    canvas.height = H * 2;
+    const ctx     = canvas.getContext('2d');
+    ctx.scale(2, 2);
+
+    const bounds = _map.getBounds();
+    const nw = bounds.getNorthWest();
+    const se = bounds.getSouthEast();
 
   const tileSize = 256;
   const numTiles = Math.pow(2, zoom);
@@ -5058,13 +5067,23 @@ function doExportMap(type){
       .catch(function(){ tileLoadDone(); });
   });
 
-  // مهلة أمان: لو تعثّر تحميل بعض البلاطات (شبكة بطيئة/معطوبة)، لا نعلّق للأبد
-  setTimeout(function(){
-    if(!exportFinished){
-      exportFinished = true;
-      finishExportFromRawCanvas(canvas);
-    }
-  }, 12000);
+    // مهلة أمان: لو تعثّر تحميل بعض البلاطات (شبكة بطيئة/معطوبة)، لا نعلّق للأبد
+    setTimeout(function(){
+      if(!exportFinished){
+        exportFinished = true;
+        finishExportFromRawCanvas(canvas);
+      }
+    }, 12000);
+  } // نهاية proceedWithMapExport
+
+  if(needsZoomChange){
+    // ننتظر اكتمال moveend فعلياً بعد تغيير الزوم، بدل الافتراض أن
+    // setZoom اكتملت فوراً بنفس اللحظة
+    _map.once('moveend', function(){ proceedWithMapExport(); });
+    _map.setZoom(MAX_EXPORT_ZOOM);
+  } else {
+    proceedWithMapExport();
+  }
 }
 
 function finishExportFromRawCanvas(canvas){
