@@ -2002,7 +2002,7 @@ function openMoveItem(i,site){
     <input id="mv-receiver" placeholder="اسم الشخص المستلم للمادة..."></div>
   <div class="field"><label>المسلّم</label>
     <input id="mv-sender" value="${CU.name}" readonly style="opacity:.7"></div>`:''}
-  <div class="field"><label>ملاحظات</label><textarea id="mnt" placeholder="سبب الصرف أو الإعادة..."></textarea></div>
+  <div class="field"><label>${isOut?'الغاية من الصرف':'ملاحظات'}</label><textarea id="mnt" placeholder="${isOut?'تنصيب كاميرا جديدة، صيانة، استبدال...':'سبب الإعادة...'}"></textarea></div>
   ${mft(isOut?'🔼 تأكيد':'🔽 تأكيد',`confirmMove(${i},'${s}',${isOut})`,isOut?'btn-rd':'btn-gn')}`);
 }
 
@@ -2196,7 +2196,8 @@ function confirmMove(i,src,isOut){
     }
 
     pushN('🔼 صرف — منصوب في موقع ميداني — '+(item.name||item.serial)+' → 📍 '+fsName);
-    closeModal(); toast('✅ تم الصرف لموقع '+fsName);
+    toast('✅ تم الصرف لموقع '+fsName);
+    showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:parseInt(item.qty)||1, from:src, to:fsName, point:installPoint, receiver, sender, notes, date:ts()});
     return;
   }
 
@@ -2226,7 +2227,12 @@ function confirmMove(i,src,isOut){
   }
   const statusLabel = {deployed:'منصوب',consumed:'مصروف',warehouse:'في المخزن',returned:'راجع'}[newStatus]||newStatus;
   pushN((isOut?'🔼 صرف':'🔽 إيداع')+' — '+statusLabel+' — '+(item.name||item.serial)+(isPartial?' (كمية: '+movedQty+')':'')+' → '+dest);
-  closeModal(); toast(isOut?'✅ تم الصرف':'✅ تم الإيداع');
+  if(isOut){
+    toast('✅ تم الصرف');
+    showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:movedQty, from:src, to:dest, point:installPoint, receiver, sender, notes, date:ts()});
+  } else {
+    closeModal(); toast('✅ تم الإيداع');
+  }
 }
 
 function openTransferItem(i,site){
@@ -2526,9 +2532,9 @@ function pgMoves(){
     ${(filterFrom||filterTo)?`<button class="btn btn-gy" onclick="window._movesFilterFrom='';window._movesFilterTo='';pgMoves()">✖ مسح الفلترة</button>`:''}
   </div>
   <div class="tw"><table>
-    <thead><tr><th>العنصر</th><th>الكمية</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th></tr></thead>
+    <thead><tr><th>العنصر</th><th>الكمية</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th><th></th></tr></thead>
     <tbody>
-      ${list.length===0?`<tr class="erow"><td colspan="9">لا حركات مسجلة</td></tr>`:
+      ${list.length===0?`<tr class="erow"><td colspan="10">لا حركات مسجلة</td></tr>`:
         [...list].reverse().map(m=>`<tr>
           <td class="tm">${esc(m.name)}</td>
           <td style="text-align:center;font-weight:700">${parseInt(m.qty)||1}</td>
@@ -2540,6 +2546,7 @@ function pgMoves(){
           <td style="color:var(--mt);font-weight:${m.receiver?'700':'400'}">${esc(m.receiver||'—')}</td>
           <td style="color:var(--mt);font-size:12px">${esc(m.notes||'—')}</td>
           <td style="color:var(--mt);font-size:12px;white-space:nowrap">${esc(m.date)}</td>
+          <td>${(m.dir==='out'&&m.id)?`<button class="btn btn-sm btn-gy" title="طباعة سند التسليم" onclick="printIssueReceiptById('${m.id}')">🖨️</button>`:''}</td>
         </tr>`).join('')}
     </tbody>
   </table></div>`;
@@ -2592,6 +2599,58 @@ function printMovesReport(){
   </table>
   </body></html>`);
   win.document.close();
+}
+
+// ── سند صرف/تسليم قابل للطباعة لعملية صرف واحدة ──
+function printIssueReceiptById(moveId){
+  const m = DB.moves.find(x=>x.id===moveId);
+  if(!m){ toast('تعذّر إيجاد الحركة','err'); return; }
+  printIssueReceipt(m);
+}
+function printIssueReceipt(data){
+  const now = fmtDateTime(new Date().toISOString());
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+  <title>سند صرف / تسليم</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:30px;color:#111;direction:rtl}
+    h2{text-align:center;margin-bottom:2px}
+    .sub{text-align:center;color:#666;margin-bottom:24px;font-size:12px}
+    table{width:100%;border-collapse:collapse;margin-bottom:30px}
+    td{border:1px solid #ccc;padding:10px;font-size:14px}
+    td.lbl{background:#f3f4f6;font-weight:700;width:160px}
+    .sign{display:flex;justify-content:space-between;margin-top:70px}
+    .sign div{width:44%;text-align:center;border-top:1px solid #333;padding-top:6px;font-size:13px}
+    @media print{button{display:none}}
+  </style></head><body>
+  <h2>📤 سند صرف / تسليم مواد</h2>
+  <div class="sub">CCTV Manager — تاريخ الطباعة: ${now}</div>
+  <button onclick="window.print()" style="margin-bottom:20px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة</button>
+  <table>
+    <tr><td class="lbl">المادة</td><td>${esc(data.name||'—')}</td></tr>
+    <tr><td class="lbl">الكمية</td><td>${parseInt(data.qty)||1}</td></tr>
+    <tr><td class="lbl">من (المصدر)</td><td>${esc(data.from||'—')}</td></tr>
+    <tr><td class="lbl">إلى (الوجهة)</td><td>${esc(data.to||'—')}</td></tr>
+    ${data.point?`<tr><td class="lbl">مكان التنصيب / الاستخدام</td><td>${esc(data.point)}</td></tr>`:''}
+    <tr><td class="lbl">الغاية / السبب</td><td>${esc(data.notes||'—')}</td></tr>
+    <tr><td class="lbl">اسم المستلم</td><td>${esc(data.receiver||'—')}</td></tr>
+    <tr><td class="lbl">اسم المُسلِّم</td><td>${esc(data.sender||'—')}</td></tr>
+    <tr><td class="lbl">التاريخ</td><td>${esc(data.date||now)}</td></tr>
+  </table>
+  <div class="sign"><div>توقيع المُسلِّم</div><div>توقيع المستلم</div></div>
+  </body></html>`);
+  win.document.close();
+}
+// ── نافذة نجاح بعد الصرف مباشرة، تعرض خيار طباعة سند التسليم فوراً ──
+function showIssueSuccess(receiptData){
+  window._lastReceipt = receiptData;
+  openModal(`<div style="text-align:center;padding:6px 0 14px">
+    <div style="font-size:44px;margin-bottom:8px">✅</div>
+    <div style="font-weight:700;font-size:16px;margin-bottom:4px">تم الصرف بنجاح</div>
+    <div style="color:var(--mt);font-size:13px">${esc(receiptData.name)} ← ${esc(receiptData.to)}</div>
+  </div>
+  <button class="btn" style="width:100%;background:#1d4ed8;color:#fff;margin-bottom:8px" onclick="printIssueReceipt(window._lastReceipt)">🖨️ طباعة سند التسليم</button>
+  <button class="btn btn-gy" style="width:100%" onclick="closeModal()">إغلاق</button>`);
 }
 
 // ============================================
