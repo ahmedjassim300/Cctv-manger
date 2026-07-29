@@ -3288,6 +3288,8 @@ function pgInvoices(){
         ${inv.items?`<div style="font-size:17px;color:var(--mt);margin-top:3px;white-space:pre-line">📦 ${esc(inv.items)}</div>`:''}
         ${inv.notes?`<div style="font-size:12px;color:var(--mt)">📝 ${esc(inv.notes)}</div>`:''}
         <div style="font-size:11px;color:#555;margin-top:8px">أُضيف: ${esc(inv.addedAt)}</div>
+        <button class="btn btn-sm ${(inv.photos&&inv.photos.length)?'btn-pu':'btn-gy'}" style="margin-top:8px" onclick="openInvoicePhotos('${inv.id}')">
+          📸 ${(inv.photos&&inv.photos.length)?'صور الفاتورة ('+inv.photos.length+')':'إضافة صورة'}</button>
       </div>
       <div style="text-align:center;flex-shrink:0">
         ${inv.amount?`<div style="font-size:26px;font-weight:800;color:var(--bl)">${parseFloat(inv.amount).toLocaleString()}</div>
@@ -3298,6 +3300,7 @@ function pgInvoices(){
 }
 
 function openAddInv(){
+  window._addinvPhotos=[];
   openModal(`${mhd('إضافة فاتورة يدوية')}
   <div class="fg">
     <div class="field"><label>المورد *</label><input id="ivsup"></div>
@@ -3308,19 +3311,23 @@ function openAddInv(){
     <div class="s2 field"><label>المبلغ (ريال)</label><input type="number" id="ivamt" placeholder="0.00"></div>
     <div class="s2 field"><label>الأصناف</label><textarea id="ivitm" placeholder="قائمة الأصناف والكميات..."></textarea></div>
     <div class="s2 field"><label>ملاحظات</label><input id="ivnts"></div>
+    ${invPhotoPickerHTML('addinv')}
   </div>
   ${mft('💾 حفظ','saveInv()')}`);
 }
 function saveInv(){
   const sup=val('ivsup'),num=val('ivnum');
   if(!sup||!num){ toast('المورد والرقم مطلوبان','err'); return; }
+  const photos=(window._addinvPhotos||[]).map(url=>({url,by:CU.name,time:ts()}));
   fbPush('invoices',{supplier:sup,num,site:val('ivste'),date:val('ivdat'),
-    amount:val('ivamt'),items:val('ivitm'),notes:val('ivnts'),addedAt:ts(),imported:false});
+    amount:val('ivamt'),items:val('ivitm'),notes:val('ivnts'),addedAt:ts(),imported:false,photos});
+  window._addinvPhotos=[];
   closeModal(); toast('تم إضافة الفاتورة');
 }
 
 function openImportInv(){
   window._impData=null;
+  window._impinvPhotos=[];
   openModal(`${mhd('📥 استيراد فاتورة')}
   <div style="font-size:17px;color:var(--mt);margin-bottom:14px">
     يمكنك رفع ملف <b style="color:var(--tx)">JSON</b> أو <b style="color:var(--tx)">CSV</b> أو إدخال البيانات يدوياً.
@@ -3340,6 +3347,7 @@ function openImportInv(){
     <div class="s2 field"><label>الأصناف (كل صنف في سطر)</label>
       <textarea id="imitm" placeholder="10 كاميرا Hikvision 4MP&#10;2 NVR 16 قناة&#10;..."></textarea></div>
     <div class="s2 field"><label>ملاحظات</label><input id="imnts" placeholder="اختياري"></div>
+    ${invPhotoPickerHTML('impinv')}
   </div>
   <div id="impprev" style="display:none;background:var(--bg);border-radius:8px;padding:12px;margin-top:10px;font-size:12px"></div>
   ${mft('📥 استيراد وحفظ','confirmImport()','btn-pu')}`);
@@ -3389,8 +3397,9 @@ function handleImpFile(input){
 
 function confirmImport(){
   const all=window._impData;
+  const photos=(window._impinvPhotos||[]).map(url=>({url,by:CU.name,time:ts()}));
   if(all&&all.length>0){
-    all.forEach(f=>{
+    all.forEach((f,idx)=>{
       fbPush('invoices',{
         supplier:f.supplier||f.مورد||val('imsup')||'—',
         num:f.invoiceNo||f.num||f.رقم||val('imnum')||gid(),
@@ -3398,7 +3407,9 @@ function confirmImport(){
         amount:f.amount||f.مبلغ||val('imamt'),
         items:f.items||f.أصناف||val('imitm'),
         notes:f.notes||f.ملاحظات||val('imnts'),
-        site:'',addedAt:ts(),imported:true});
+        site:'',addedAt:ts(),imported:true,
+        photos: idx===0?photos:[] // الصورة المرفقة تخص المستند المستورد نفسه، تُربط بأول سجل فقط تفادياً للتكرار
+      });
     });
     toast('✅ تم استيراد '+all.length+' فاتورة');
   } else {
@@ -3406,11 +3417,95 @@ function confirmImport(){
     if(!sup&&!num){ toast('أدخل بيانات الفاتورة','err'); return; }
     fbPush('invoices',{supplier:sup||'—',num:num||gid(),
       date:val('imdat'),amount:val('imamt'),items:val('imitm'),notes:val('imnts'),
-      site:'',addedAt:ts(),imported:true});
+      site:'',addedAt:ts(),imported:true,photos});
     toast('✅ تم استيراد الفاتورة');
   }
   window._impData=null;
+  window._impinvPhotos=null;
   closeModal(); pgInvoices();
+}
+
+// ── التقاط/رفع صور مسودة (قبل حفظ الفاتورة) — تُستخدم بنموذجَي الإضافة والاستيراد ──
+function invPhotoPickerHTML(prefix){
+  return `<div class="s2 field"><label>📸 صورة الفاتورة (اختياري — يدعم أكثر من صورة)</label>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button type="button" class="btn btn-gy" style="flex:1" onclick="document.getElementById('${prefix}-cam').click()">📷 التقاط صورة</button>
+      <button type="button" class="btn btn-gy" style="flex:1" onclick="document.getElementById('${prefix}-gal').click()">🖼️ من المعرض</button>
+    </div>
+    <input id="${prefix}-cam" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleInvPhotoInput('${prefix}',this)">
+    <input id="${prefix}-gal" type="file" accept="image/*" style="display:none" onchange="handleInvPhotoInput('${prefix}',this)">
+    <div id="${prefix}-thumbs" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>`;
+}
+function handleInvPhotoInput(prefix, input){
+  const file = input.files[0];
+  if(!file) return;
+  toast('⏳ جارٍ معالجة الصورة...');
+  compressImageFile(file, 1280, 0.72).then(function(dataUrl){
+    const key = '_'+prefix+'Photos';
+    window[key] = window[key] || [];
+    window[key].push(dataUrl);
+    renderInvPhotoThumbs(prefix);
+    input.value='';
+  }).catch(function(){ toast('تعذّرت معالجة الصورة، جرّب صورة أخرى','err'); });
+}
+function renderInvPhotoThumbs(prefix){
+  const key='_'+prefix+'Photos';
+  const arr = window[key]||[];
+  const wrap = document.getElementById(prefix+'-thumbs');
+  if(!wrap) return;
+  wrap.innerHTML = arr.map(function(url,i){
+    return '<div style="position:relative">'+
+      '<img src="'+url+'" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--br)" onclick="viewPhoto(this.src)">'+
+      '<button onclick="removeInvPhotoDraft(\''+prefix+'\','+i+')" style="position:absolute;top:2px;right:2px;background:#f8514999;border:none;border-radius:50%;width:18px;height:18px;color:#fff;cursor:pointer;font-size:10px">✕</button>'+
+      '</div>';
+  }).join('');
+}
+function removeInvPhotoDraft(prefix, idx){
+  const key='_'+prefix+'Photos';
+  window[key] = (window[key]||[]).filter(function(_,i){return i!==idx;});
+  renderInvPhotoThumbs(prefix);
+}
+
+// ── عرض/إدارة صور فاتورة محفوظة مسبقاً ──
+function openInvoicePhotos(invId){
+  const inv = DB.invoices.find(x=>x.id===invId);
+  if(!inv) return;
+  const photos = inv.photos||[];
+  openModal(`${mhd('📸 صور الفاتورة: '+esc(inv.num))}
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;max-height:250px;overflow-y:auto">
+    ${photos.map((ph,i)=>`
+    <div style="position:relative">
+      <img src="${ph.url}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--br)" onclick="viewPhoto(this.src)">
+      ${p('invoices')?`<button onclick="delInvoicePhoto('${invId}',${i})" style="position:absolute;top:2px;right:2px;background:#f8514999;border:none;border-radius:50%;width:20px;height:20px;color:#fff;cursor:pointer;font-size:11px">✕</button>`:''}
+    </div>`).join('')}
+    ${!photos.length?'<div style="color:var(--mt);padding:20px;text-align:center;width:100%">لا صور بعد</div>':''}
+  </div>
+  ${p('invoices')?`
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <button class="btn btn-gy" style="flex:1" onclick="document.getElementById('invph-cam').click()">📷 التقاط صورة</button>
+    <button class="btn btn-gy" style="flex:1" onclick="document.getElementById('invph-gal').click()">🖼️ من المعرض</button>
+  </div>
+  <input id="invph-cam" type="file" accept="image/*" capture="environment" style="display:none" onchange="uploadInvoicePhoto('${invId}',this)">
+  <input id="invph-gal" type="file" accept="image/*" style="display:none" onchange="uploadInvoicePhoto('${invId}',this)">
+  `:''}
+  <div class="mft" style="margin-top:12px"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
+}
+function uploadInvoicePhoto(invId, input){
+  const file = input.files[0];
+  if(!file) return;
+  toast('⏳ جارٍ رفع الصورة...');
+  compressImageFile(file, 1280, 0.72).then(function(dataUrl){
+    const inv = DB.invoices.find(x=>x.id===invId);
+    const photos = [...(inv?.photos||[]), {url:dataUrl, by:CU.name, time:ts()}];
+    fbUpdate('invoices/'+invId, {photos});
+    logAct('رفع صورة فاتورة', inv?.num||invId);
+    toast('✅ تم رفع الصورة');
+    setTimeout(function(){openInvoicePhotos(invId);}, 300);
+  }).catch(function(){ toast('تعذّر رفع الصورة','err'); });
+}
+function delInvoicePhoto(invId, idx){
+  confirmDel('حذف هذه الصورة نهائياً؟', `(()=>{const inv=DB.invoices.find(x=>x.id==='${invId}');const photos=(inv?.photos||[]).filter((_,i)=>i!==${idx});fbUpdate('invoices/${invId}',{photos});closeModal();toast('تم الحذف','err');setTimeout(()=>openInvoicePhotos('${invId}'),300)})()`);
 }
 
 // ============================================
@@ -6477,6 +6572,35 @@ function showItemQR(item){
     site: item.currentSite||''
   });
   showQR(data, item.name);
+}
+
+// ═══════════════════════════════════════════════════════
+//  🗜️ ضغط/تصغير الصور قبل الرفع (base64) — يمنع الصور
+//  الضخمة من كاميرا الجوال (عدة ميجابايت) من إثقال القاعدة
+// ═══════════════════════════════════════════════════════
+function compressImageFile(file, maxDim, quality){
+  maxDim = maxDim||1280; quality = quality||0.72;
+  return new Promise(function(resolve, reject){
+    const reader = new FileReader();
+    reader.onload = function(e){
+      const img = new Image();
+      img.onload = function(){
+        let w = img.width, h = img.height;
+        if(w>maxDim || h>maxDim){
+          if(w>h){ h = Math.round(h*maxDim/w); w = maxDim; }
+          else { w = Math.round(w*maxDim/h); h = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // ═══════════════════════════════════════════════════════
