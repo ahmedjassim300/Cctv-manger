@@ -4157,6 +4157,7 @@ function renderFieldSiteDetail(fs){
                 <span style="font-size:11px;color:${hasGPS?'var(--gn)':'var(--rd)'}">${hasGPS?'📍 GPS':'❌ بدون GPS'}</span>
                 ${CU.role==='manager'||p('addItem')?`<div style="display:flex;gap:4px" onclick="event.stopPropagation()">
                   <button class="btn btn-sm btn-gy" style="padding:5px 8px;font-size:13px" onclick="openEditFieldCam('${fs.id}',${ci})">✏️</button>
+                  ${CU.role==='manager'?`<button class="btn btn-sm" style="padding:5px 8px;font-size:13px;background:#f8514922;color:var(--rd);border:1px solid #f8514944" title="إرجاع للمخزن" onclick="returnFieldCamToWarehouse('${fs.id}',${ci})">↩️</button>`:''}
                   ${CU.role==='manager'?`<button class="btn btn-sm btn-rd" style="padding:5px 8px;font-size:13px" onclick="delFieldCam('${fs.id}',${ci})">🗑</button>`:''}
                 </div>`:''}
               </div>
@@ -5569,6 +5570,61 @@ function delFieldCam(fsId,ci){
   closeModal();
   setTimeout(initFieldMap, 300);
 }
+
+// ── إرجاع كاميرا ميدانية للمخزن ──
+function returnFieldCamToWarehouse(fsId, ci){
+  if(CU.role!=='manager'){toast('العملية للمدير فقط','err');return;}
+  const fs=DB.fieldSites.find(x=>x.id===fsId);
+  const cam = fs&&fs.cameras[ci];
+  if(!fs||!cam) return;
+  const warehouse = fs.warehouse||'';
+  if(!warehouse){toast('لا يوجد مستودع مرتبط بهذا الموقع — اربطه أولاً من إعدادات الموقع','err');return;}
+  window._retCamPending = {fsId, ci, warehouse};
+  openModal('<div class="mhd">↩️ إرجاع كاميرا للمخزن</div>'+
+    '<div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px">'+
+    '<div style="font-weight:700">📷 '+esc(cam.name||cam.serial||'كاميرا')+'</div>'+
+    '<div style="font-size:12px;color:var(--mt);margin-top:4px">من: <b>'+esc(fs.name)+'</b> — سيُضاف إلى مستودع: <b>'+esc(warehouse)+'</b></div></div>'+
+    '<div class="field"><label>سبب الإرجاع</label>'+
+    '<select id="retcam-reason">'+
+    '<option value="عطل">🔧 عطل / يحتاج صيانة</option>'+
+    '<option value="تلف">💥 تلف</option>'+
+    '<option value="استبدال">🔄 استبدال بجهاز آخر</option>'+
+    '<option value="انتهاء مهمة">✅ انتهاء مهمة</option>'+
+    '<option value="أخرى">📝 أخرى</option>'+
+    '</select></div>'+
+    '<div class="field"><label>ملاحظات</label>'+
+    '<textarea id="retcam-notes" placeholder="تفاصيل إضافية..."></textarea></div>'+
+    '<button class="btn btn-rd" onclick="confirmReturnCamToWarehouse()">↩️ تأكيد الإرجاع</button>');
+}
+function confirmReturnCamToWarehouse(){
+  const p = window._retCamPending;
+  if(!p){ closeModal(); return; }
+  const {fsId, ci, warehouse} = p;
+  const fs=DB.fieldSites.find(x=>x.id===fsId);
+  const cam = fs&&fs.cameras[ci];
+  if(!fs||!cam){ closeModal(); return; }
+  const reason = val('retcam-reason')||'';
+  const notes = val('retcam-notes')||'';
+  const newId='ret_'+Date.now()+'_'+Math.random().toString(36).slice(2,5);
+  fbSet('inv/'+fbKey(warehouse)+'/'+newId, {
+    id:newId, name:cam.name||'', type:'camera', serial:cam.serial||'',
+    model:cam.model||'', mfr:cam.mfr||'', qty:1,
+    status:'returned', notes:(notes?notes+' — ':'')+reason,
+    addedBy:CU.name, addedAt:ts(), returnedFrom:fs.name, returnedAt:ts(), _ts:Date.now()
+  });
+  fbPush('moves',{
+    name:'↩️ 📷 '+(cam.name||cam.serial||''), qty:1, dir:'in', from:fs.name, to:warehouse,
+    by:CU.name, date:ts(), notes:reason+(notes?' — '+notes:''), status:'returned', returnReason:reason, _ts:Date.now()
+  });
+  fs.cameras.splice(ci,1);
+  const camsObj={}; fs.cameras.forEach((c,i)=>{camsObj[i]=c;});
+  FBDB.ref('cctv/fieldSites/'+fsId+'/cameras').set(fs.cameras.length ? camsObj : null);
+  pushFieldN('↩️ إرجاع كاميرا للمخزن: '+(cam.name||cam.serial||'')+' من '+fs.name+' → '+warehouse, fsId);
+  window._retCamPending = null;
+  closeModal(); toast('✅ تم إرجاع الكاميرا لمستودع '+warehouse);
+  setTimeout(initFieldMap, 300);
+}
+
 function getDirArrow(dir){
   const DIR_MAP = {'↖ شمال غرب':'↖','⬆ شمال':'⬆','↗ شمال شرق':'↗','⬅ غرب':'⬅','⊙ عام':'⊙','➡ شرق':'➡','↙ جنوب غرب':'↙','⬇ جنوب':'⬇','↘ جنوب شرق':'↘'};
   return DIR_MAP[dir]||'⊙';
@@ -8167,6 +8223,7 @@ function renderSiteItem(item, siteId, ptId, canEdit){
     <!-- أزرار -->
     ${canEdit?`<div style="display:flex;gap:4px;flex-shrink:0">
       <button class="btn btn-sm btn-pu" onclick="openTransferSiteItem('${siteId}','${ptId}','${item.id}')" title="نقل لموقع/نقطة أخرى">🔁</button>
+      ${CU.role==='manager'?`<button class="btn btn-sm" style="background:#f8514922;color:var(--rd);border:1px solid #f8514944" title="إرجاع للمخزن" onclick="returnSiteItemToWarehouse('${siteId}','','${ptId}','${item.id}','${esc(item.name||'')}')">↩️</button>`:''}
       <button class="btn btn-sm btn-gy" onclick="openEditSiteItem('${siteId}','${ptId}','${item.id}')">✏️</button>
       <button class="btn btn-sm btn-rd" onclick="delSiteItem('${siteId}','${ptId}','${item.id}')">🗑️</button>
     </div>`:''}
