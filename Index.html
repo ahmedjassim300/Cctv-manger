@@ -2148,20 +2148,29 @@ function confirmMove(i,src,isOut){
     // ── 🔗 الربط العكسي: تسجيل المادة فعلياً بالموقع الميداني ──
     // بدون هذا، المادة "تختفي" من المخزن دون أن تظهر بأي مكان بالموقع الميداني
     if(item.type==='camera'){
-      // كاميرا → تُضاف مباشرة لقائمة كاميرات الموقع (بانتظار إحداثيات دقيقة من الفني لاحقاً)
+      // كاميرا (قد تكون بكمية أكثر من 1 لو صُرفت كسطر واحد) → تُضاف نسخة مستقلة
+      // لكل وحدة بقائمة كاميرات الموقع (بانتظار إحداثيات دقيقة من الفني لاحقاً)،
+      // بدل إنشاء علامة واحدة فقط بغض النظر عن الكمية
       const fs = DB.fieldSites.find(function(x){return x.id===fsId;});
       if(fs){
-        const camId = gid();
+        const camQty = parseInt(item.qty)||1;
         const centerLat = fs.cameras&&fs.cameras.length ? fs.cameras[0].lat : (fs.lat||'');
         const centerLng = fs.cameras&&fs.cameras.length ? fs.cameras[0].lng : (fs.lng||'');
-        fbSet('fieldSites/'+fsId+'/cameras/'+camId, {
-          id:camId, name:item.name||item.serial||'كاميرا جديدة', serial:item.serial||'',
-          model:item.model||'', mfr:item.mfr||'',
-          installDesc:installPoint||'', status:'active',
-          lat: centerLat, lng: centerLng, // إحداثيات مبدئية تقريبية — الفني يعدّلها لاحقاً من الخريطة
-          addedBy:CU.name, addedAt:ts(), _ts:Date.now(),
-          fromWarehouse: true // علامة تدل أنها أُضيفت تلقائياً من الصرف، ولم تُضبط إحداثياتها الدقيقة بعد
-        });
+        const camsUpdate = {};
+        for(let k=1;k<=camQty;k++){
+          const camId = gid();
+          camsUpdate[camId] = {
+            id:camId,
+            name:(item.name||item.serial||'كاميرا جديدة')+(camQty>1?' #'+k:''),
+            serial: camQty>1 ? (item.serial?item.serial+'-'+k:'') : (item.serial||''),
+            model:item.model||'', mfr:item.mfr||'',
+            installDesc:installPoint||'', status:'active',
+            lat: centerLat, lng: centerLng, // إحداثيات مبدئية تقريبية — الفني يعدّلها لاحقاً من الخريطة
+            addedBy:CU.name, addedAt:ts(), _ts:Date.now(),
+            fromWarehouse: true // علامة تدل أنها أُضيفت تلقائياً من الصرف، ولم تُضبط إحداثياتها الدقيقة بعد
+          };
+        }
+        fbUpdate('fieldSites/'+fsId+'/cameras', camsUpdate);
       }
     } else {
       // أي معدة أخرى → تُسجَّل بجرد الموجودات الثابتة للموقع، بنقطة "من المخزن"
@@ -8088,10 +8097,102 @@ function renderSiteItem(item, siteId, ptId, canEdit){
     </div>
     <!-- أزرار -->
     ${canEdit?`<div style="display:flex;gap:4px;flex-shrink:0">
+      <button class="btn btn-sm btn-pu" onclick="openTransferSiteItem('${siteId}','${ptId}','${item.id}')" title="نقل لموقع/نقطة أخرى">🔁</button>
       <button class="btn btn-sm btn-gy" onclick="openEditSiteItem('${siteId}','${ptId}','${item.id}')">✏️</button>
       <button class="btn btn-sm btn-rd" onclick="delSiteItem('${siteId}','${ptId}','${item.id}')">🗑️</button>
     </div>`:''}
   </div>`;
+}
+
+// ── مناقلة عنصر جرد ثابت بين النقاط/المواقع الميدانية ──
+function openTransferSiteItem(siteId, ptId, itemId){
+  const item = DB.siteInventory?.[siteId]?.[ptId]?.items?.[itemId];
+  if(!item){ toast('تعذّر إيجاد العنصر','err'); return; }
+  const curSite = getVisibleFieldSites().find(s=>s.id===siteId);
+  const curPt = DB.siteInventory[siteId][ptId];
+  const allSites = getVisibleFieldSites();
+  window._siTrPending = {siteId, ptId, itemId};
+  openModal(`${mhd('🔁 نقل عنصر لموقع/نقطة أخرى')}
+  <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px">
+    <div style="font-weight:700">${AT_ICON(item.itemType)} ${esc(item.name||'—')}</div>
+    <div style="font-size:12px;color:var(--mt);margin-top:3px">من: <b>${esc(curSite?curSite.name:siteId)}</b> — 📌 ${esc(curPt?curPt.name:ptId)}</div>
+  </div>
+  ${(parseInt(item.qty)||1)>1?`<div class="field"><label>الكمية المنقولة <span style="color:var(--rd)">*</span></label>
+    <input id="sitr-qty" type="number" min="1" max="${item.qty}" value="${item.qty}">
+    <div style="font-size:11px;color:var(--mt);margin-top:4px">الكمية الكلية بهذه النقطة: <b>${item.qty}</b> — أدخل عدداً أقل لنقل جزء فقط</div>
+  </div>`:''}
+  <div class="field"><label>الموقع الميداني الوجهة</label>
+    <select id="sitr-site" onchange="refreshSiTrPoints()">
+      ${allSites.map(s=>`<option value="${s.id}" ${s.id===siteId?'selected':''}>📍 ${esc(s.name)}</option>`).join('')}
+    </select>
+  </div>
+  <div class="field"><label>النقطة الوجهة</label>
+    <select id="sitr-point"></select>
+  </div>
+  <div class="field" id="sitr-newpt-wrap" style="display:none"><label>اسم النقطة الجديدة *</label><input id="sitr-newpt" placeholder="مثال: غرفة السيرفر..."></div>
+  <div class="field"><label>سبب النقل</label><textarea id="sitr-note" placeholder="إعادة توزيع، طلب من الفني..."></textarea></div>
+  ${mft('🔁 تأكيد النقل','confirmTransferSiteItem()')}`);
+  refreshSiTrPoints();
+}
+function AT_ICON(t){ return t && allT()[t] ? allT()[t].icon : '📦'; }
+function refreshSiTrPoints(){
+  const destSiteId = val('sitr-site');
+  const pts = DB.siteInventory?.[destSiteId] ? Object.values(DB.siteInventory[destSiteId]).sort((a,b)=>(a.order||0)-(b.order||0)) : [];
+  const sel = document.getElementById('sitr-point');
+  if(!sel) return;
+  sel.innerHTML = pts.map(p=>`<option value="${p.id}">📌 ${esc(p.name)}</option>`).join('') + `<option value="__new__">➕ نقطة جديدة...</option>`;
+  sel.onchange = function(){
+    document.getElementById('sitr-newpt-wrap').style.display = sel.value==='__new__' ? 'block' : 'none';
+  };
+  sel.onchange();
+}
+function confirmTransferSiteItem(){
+  const p = window._siTrPending;
+  if(!p){ closeModal(); return; }
+  const {siteId, ptId, itemId} = p;
+  const originalItem = DB.siteInventory?.[siteId]?.[ptId]?.items?.[itemId];
+  if(!originalItem){ closeModal(); toast('العنصر لم يعد موجوداً','err'); return; }
+  const destSiteId = val('sitr-site');
+  let destPtId = val('sitr-point');
+  const note = val('sitr-note')||'';
+  const destSites = getVisibleFieldSites();
+  const destSiteObj = destSites.find(s=>s.id===destSiteId);
+  const srcSiteObj = destSites.find(s=>s.id===siteId);
+
+  if(destPtId==='__new__'){
+    const newName = val('sitr-newpt');
+    if(!newName){ toast('اكتب اسم النقطة الجديدة','err'); return; }
+    destPtId = gid();
+    fbSet('siteInventory/'+destSiteId+'/'+destPtId, {id:destPtId, name:newName, desc:'', order:Date.now(), _ts:Date.now()});
+  }
+  if(destSiteId===siteId && destPtId===ptId){ toast('اختر موقعاً أو نقطة مختلفة عن الحالية','err'); return; }
+
+  const totalQty = parseInt(originalItem.qty)||1;
+  const qtyInput = document.getElementById('sitr-qty');
+  const movedQty = qtyInput ? Math.min(Math.max(1, parseInt(qtyInput.value)||1), totalQty) : totalQty;
+  const isPartial = movedQty < totalQty;
+
+  let movedItem = originalItem;
+  if(isPartial){
+    fbSet('siteInventory/'+siteId+'/'+ptId+'/items/'+itemId, {...originalItem, qty: totalQty-movedQty});
+    movedItem = {...originalItem, id: gid(), qty: movedQty};
+  } else {
+    fbDel('siteInventory/'+siteId+'/'+ptId+'/items/'+itemId);
+  }
+  fbSet('siteInventory/'+destSiteId+'/'+destPtId+'/items/'+movedItem.id, {
+    ...movedItem, notes:(note?note+' — ':'')+'منقول من '+(srcSiteObj?srcSiteObj.name:siteId), by:CU.name, date:ts(), _ts:Date.now()
+  });
+  fbPush('moves',{
+    name:'🔁 '+AT_ICON(originalItem.itemType)+' '+(originalItem.name||'')+(isPartial?' (كمية: '+movedQty+')':''),
+    dir:'site-transfer',
+    from:(srcSiteObj?srcSiteObj.name:siteId), to:(destSiteObj?destSiteObj.name:destSiteId),
+    by:CU.name, date:ts(), notes:note||'مناقلة موجودات ثابتة', _ts:Date.now()
+  });
+  logAct('نقل موجود ثابت', (originalItem.name||'')+' → '+(destSiteObj?destSiteObj.name:destSiteId));
+  window._siTrPending = null;
+  window._invSite = siteId;
+  closeModal(); toast('✅ تم النقل');
+  pgSiteInventory();
 }
 
 // ── إضافة نقطة جرد ──
