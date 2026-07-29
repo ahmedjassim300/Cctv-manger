@@ -2504,13 +2504,27 @@ function delType(k){
 //  MOVEMENTS
 // ============================================
 function pgMoves(){
+  const filterFrom = window._movesFilterFrom || '';
+  const filterTo = window._movesFilterTo || '';
+  let list = [...DB.moves];
+  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(m=>new Date(m._ts||0)>=df); }
+  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(m=>new Date(m._ts||0)<=dt); }
+
   $('page').innerHTML=`
-  <div class="ph"><div class="pt">🔄 سجل حركة المواد (${DB.moves.length})</div></div>
+  <div class="ph">
+    <div class="pt">🔄 سجل حركة المواد (${list.length}${list.length!==DB.moves.length?' من '+DB.moves.length:''})</div>
+    ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printMovesReport()">🖨️ طباعة / PDF</button>`:''}
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <input type="date" id="moves-filter-from" value="${filterFrom}" placeholder="من" onchange="window._movesFilterFrom=this.value;pgMoves()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+    <input type="date" id="moves-filter-to" value="${filterTo}" placeholder="إلى" onchange="window._movesFilterTo=this.value;pgMoves()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+    ${(filterFrom||filterTo)?`<button class="btn btn-gy" onclick="window._movesFilterFrom='';window._movesFilterTo='';pgMoves()">✖ مسح الفلترة</button>`:''}
+  </div>
   <div class="tw"><table>
     <thead><tr><th>العنصر</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th></tr></thead>
     <tbody>
-      ${DB.moves.length===0?`<tr class="erow"><td colspan="8">لا حركات مسجلة</td></tr>`:
-        [...DB.moves].reverse().map(m=>`<tr>
+      ${list.length===0?`<tr class="erow"><td colspan="8">لا حركات مسجلة</td></tr>`:
+        [...list].reverse().map(m=>`<tr>
           <td class="tm">${esc(m.name)}</td>
           <td><span class="badge" style="background:${m.dir==='out'?'#f8514922':'#3fb95022'};color:${m.dir==='out'?'var(--rd)':'var(--gn)'}">
             ${m.dir==='out'?'↑ صرف':'↓ إيداع'}</span></td>
@@ -2523,6 +2537,54 @@ function pgMoves(){
         </tr>`).join('')}
     </tbody>
   </table></div>`;
+}
+
+function printMovesReport(){
+  if(CU.role!=='manager'){toast('الطباعة للمدير فقط','err');return;}
+  const filterFrom = window._movesFilterFrom || '';
+  const filterTo = window._movesFilterTo || '';
+  let list = [...DB.moves];
+  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(m=>new Date(m._ts||0)>=df); }
+  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(m=>new Date(m._ts||0)<=dt); }
+  list = [...list].reverse();
+  const now = fmtDateTime(new Date().toISOString());
+  const periodLabel = (filterFrom||filterTo) ? ((filterFrom||'…')+' → '+(filterTo||'…')) : 'كل الفترة';
+  const rows = list.map(m=>`
+    <tr>
+      <td>${esc(m.name)}</td>
+      <td>${m.dir==='out'?'↑ صرف':(m.dir==='transfer'?'🔁 ترحيل':(m.dir==='site-transfer'?'🔁 نقل ميداني':'↓ إيداع'))}</td>
+      <td>${esc(m.from||'—')}</td>
+      <td>${esc(m.to||'—')}</td>
+      <td>${esc(m.sender||m.by||'—')}</td>
+      <td>${esc(m.receiver||'—')}</td>
+      <td>${esc(m.notes||'—')}</td>
+      <td>${esc(m.date)}</td>
+    </tr>`).join('');
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+  <title>سجل حركة المواد</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;color:#111;direction:rtl}
+    h2{text-align:center;margin-bottom:4px}
+    .sub{text-align:center;color:#666;margin-bottom:20px;font-size:13px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th{background:#1f2937;color:#fff;padding:8px;text-align:right}
+    td{border:1px solid #ddd;padding:7px}
+    tr:nth-child(even){background:#f9f9f9}
+    @media print{button{display:none}}
+  </style></head><body>
+  <h2>🔄 تقرير حركة المواد — CCTV Manager</h2>
+  <div class="sub">الفترة: ${esc(periodLabel)} — تاريخ الطباعة: ${now} — إجمالي الحركات: ${list.length}</div>
+  <button onclick="window.print()" style="margin-bottom:16px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
+  <table>
+    <thead><tr>
+      <th>العنصر</th><th>الحركة</th><th>من</th><th>إلى</th>
+      <th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  </body></html>`);
+  win.document.close();
 }
 
 // ============================================
