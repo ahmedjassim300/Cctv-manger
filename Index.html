@@ -2076,6 +2076,7 @@ function doReturn(siteId,warehouse,ptId,itemId,it,reason,notes,fbPath){
   // 3. تسجيل في حركات المواد
   fbPush('moves',{
     name: '↩️ '+(it.name||itemId),
+    qty: parseInt(it.qty)||1,
     dir: 'in',
     from: (site.name||siteId),
     to: warehouse,
@@ -2132,6 +2133,7 @@ function confirmMove(i,src,isOut){
     const fsName = parts.slice(2).join(':'); // احتياطاً لو الاسم نفسه فيه ':'
     fbPush('moves',{
       name:icon+' '+(item.name||item.serial||''),
+      qty: parseInt(item.qty)||1,
       dir:'out', from:src, to:fsName,
       by:CU.name, date:ts(), notes,
       status:newStatus, point:installPoint,
@@ -2201,7 +2203,8 @@ function confirmMove(i,src,isOut){
   // ── النقل بين مستودعات (يدعم الآن الكمية الجزئية أيضاً) ──
   const dest = destRaw;
   fbPush('moves',{
-    name:icon+' '+(item.name||item.serial||'')+(isPartial?' (كمية: '+movedQty+')':''),
+    name:icon+' '+(item.name||item.serial||''),
+    qty: movedQty,
     dir:isOut?'out':'in', from:src, to:dest,
     by:CU.name, date:ts(), notes,
     status:newStatus, point:installPoint,
@@ -2262,7 +2265,8 @@ function confirmTransfer(i,src){
     fbDel('inv/'+fbKey(src)+'/'+item.id);
   }
   fbSet('inv/'+fbKey(dest)+'/'+item.id,{...item,currentSite:dest});
-  fbPush('moves',{name:'🔁 '+(allT()[item.type]?.icon||'')+' '+(item.name||item.serial||'')+(isPartial?' (كمية: '+movedQty+')':''),
+  fbPush('moves',{name:'🔁 '+(allT()[item.type]?.icon||'')+' '+(item.name||item.serial||''),
+    qty: movedQty,
     dir:'transfer',from:src,to:dest,by:CU.name,date:ts(),notes:note||'ترحيل بين مستودعات',_ts:Date.now()});
   pushN('🔁 ترحيل: '+(item.name||item.serial||'—')+(isPartial?' (كمية: '+movedQty+')':'')+' من '+src+' إلى '+dest);
   closeModal(); toast('تم الترحيل');
@@ -2304,6 +2308,7 @@ function confirmBulkTransfer(src){
       fbDel('inv/'+fbKey(src)+'/'+it.id);
       fbSet('inv/'+fbKey(dest)+'/'+it.id,{...it,currentSite:dest});
       fbPush('moves',{name:'🔁 '+(allT()[it.type]?.icon||'')+' '+(it.name||it.serial||''),
+        qty: parseInt(it.qty)||1,
         dir:'transfer',from:src,to:dest,by:CU.name,date:ts(),notes:note,_ts:Date.now()});
       count++;
     }
@@ -2521,13 +2526,14 @@ function pgMoves(){
     ${(filterFrom||filterTo)?`<button class="btn btn-gy" onclick="window._movesFilterFrom='';window._movesFilterTo='';pgMoves()">✖ مسح الفلترة</button>`:''}
   </div>
   <div class="tw"><table>
-    <thead><tr><th>العنصر</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th></tr></thead>
+    <thead><tr><th>العنصر</th><th>الكمية</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th></tr></thead>
     <tbody>
-      ${list.length===0?`<tr class="erow"><td colspan="8">لا حركات مسجلة</td></tr>`:
+      ${list.length===0?`<tr class="erow"><td colspan="9">لا حركات مسجلة</td></tr>`:
         [...list].reverse().map(m=>`<tr>
           <td class="tm">${esc(m.name)}</td>
-          <td><span class="badge" style="background:${m.dir==='out'?'#f8514922':'#3fb95022'};color:${m.dir==='out'?'var(--rd)':'var(--gn)'}">
-            ${m.dir==='out'?'↑ صرف':'↓ إيداع'}</span></td>
+          <td style="text-align:center;font-weight:700">${parseInt(m.qty)||1}</td>
+          <td><span class="badge" style="background:${m.dir==='out'?'#f8514922':(m.dir==='transfer'||m.dir==='site-transfer'?'#bc8cff22':'#3fb95022')};color:${m.dir==='out'?'var(--rd)':(m.dir==='transfer'||m.dir==='site-transfer'?'var(--pu)':'var(--gn)')}">
+            ${m.dir==='out'?'↑ صرف':(m.dir==='transfer'?'🔁 ترحيل':(m.dir==='site-transfer'?'🔁 نقل ميداني':'↓ إيداع'))}</span></td>
           <td style="color:var(--mt)">${esc(m.from||'—')}</td>
           <td style="color:var(--mt)">${esc(m.to||'—')}</td>
           <td style="color:var(--mt)">${esc(m.sender||m.by||'—')}</td>
@@ -2552,6 +2558,7 @@ function printMovesReport(){
   const rows = list.map(m=>`
     <tr>
       <td>${esc(m.name)}</td>
+      <td style="text-align:center;font-weight:700">${parseInt(m.qty)||1}</td>
       <td>${m.dir==='out'?'↑ صرف':(m.dir==='transfer'?'🔁 ترحيل':(m.dir==='site-transfer'?'🔁 نقل ميداني':'↓ إيداع'))}</td>
       <td>${esc(m.from||'—')}</td>
       <td>${esc(m.to||'—')}</td>
@@ -2578,7 +2585,7 @@ function printMovesReport(){
   <button onclick="window.print()" style="margin-bottom:16px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
   <table>
     <thead><tr>
-      <th>العنصر</th><th>الحركة</th><th>من</th><th>إلى</th>
+      <th>العنصر</th><th>الكمية</th><th>الحركة</th><th>من</th><th>إلى</th>
       <th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th>
     </tr></thead>
     <tbody>${rows}</tbody>
@@ -8245,7 +8252,8 @@ function confirmTransferSiteItem(){
     ...movedItem, notes:(note?note+' — ':'')+'منقول من '+(srcSiteObj?srcSiteObj.name:siteId), by:CU.name, date:ts(), _ts:Date.now()
   });
   fbPush('moves',{
-    name:'🔁 '+AT_ICON(originalItem.itemType)+' '+(originalItem.name||'')+(isPartial?' (كمية: '+movedQty+')':''),
+    name:'🔁 '+AT_ICON(originalItem.itemType)+' '+(originalItem.name||''),
+    qty: movedQty,
     dir:'site-transfer',
     from:(srcSiteObj?srcSiteObj.name:siteId), to:(destSiteObj?destSiteObj.name:destSiteId),
     by:CU.name, date:ts(), notes:note||'مناقلة موجودات ثابتة', _ts:Date.now()
