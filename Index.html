@@ -649,13 +649,13 @@ const PERM_DEF = {
 };
 
 const DEF_PERMS = {
-  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1,maintain:1,reports:1,siteinv:1,camDrag:1},
-  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0},
-  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
-  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
-  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
-  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:1,siteinv:1,camDrag:0},
-  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:0,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0},
+  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1,maintain:1,reports:1,siteinv:1,camDrag:1,exportPrint:1},
+  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0,exportPrint:0},
+  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0,exportPrint:0},
+  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0,exportPrint:0},
+  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0,exportPrint:0},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:1,siteinv:1,camDrag:0,exportPrint:0},
+  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:0,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0,exportPrint:0},
 };
 
 const FAULT_ST = [
@@ -732,6 +732,10 @@ function p(k){
   // الإداري وباقي الأدوار — يعتمدون على الصلاحيات المحددة من المدير
   const perms = CU.perms || DEF_PERMS[CU.role] || {};
   return !!perms[k];
+}
+// صلاحية مخصصة: الطباعة وتصدير الملفات (Excel/PDF/KML/صور) — يمنحها المدير لأي مستخدم
+function canExport(){
+  return !!CU && (CU.role==='manager' || p('exportPrint'));
 }
 
 // دالة للتحقق مما إذا كان المستخدم الحالي مسموح له برؤية موقع معين
@@ -1689,7 +1693,7 @@ function pgInv(){
         <button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
         <button class="btn" style="background:#d1242f22;color:var(--rd);border:1px solid #d1242f44" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
       `:''}
-      ${CU.role==='manager'?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📷 الكاميرات المنصوبة</button><button class="btn btn-gy" onclick="exportFixedAssetsFromInv()">🏛️ الموجودات الثابتة</button><button class="btn btn-pu" onclick="openBulkExcelImport(&quot;warehouse&quot;)">📥 استيراد جماعي</button>':''}
+      ${canExport()?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📷 الكاميرات المنصوبة</button><button class="btn btn-gy" onclick="exportFixedAssetsFromInv()">🏛️ الموجودات الثابتة</button>':''}${CU.role==='manager'?'<button class="btn btn-pu" onclick="openBulkExcelImport(&quot;warehouse&quot;)">📥 استيراد جماعي</button>':''}
     </div>
     </div>
   </div>
@@ -2541,7 +2545,7 @@ function pgMoves(){
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">🔄 سجل حركة المواد (${list.length}${list.length!==DB.moves.length?' من '+DB.moves.length:''})</div>
-    ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printMovesReport()">🖨️ طباعة / PDF</button>`:''}
+    ${canExport()?`<button class="btn" style="background:#238636;color:#fff" onclick="printMovesReport()">🖨️ طباعة / PDF</button>`:''}
   </div>
   <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     <input type="date" id="moves-filter-from" value="${filterFrom}" placeholder="من" onchange="window._movesFilterFrom=this.value;pgMoves()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
@@ -2570,7 +2574,7 @@ function pgMoves(){
 }
 
 function printMovesReport(){
-  if(CU.role!=='manager'){toast('الطباعة للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const filterFrom = window._movesFilterFrom || '';
   const filterTo = window._movesFilterTo || '';
   let list = [...DB.moves];
@@ -2680,7 +2684,7 @@ function pgFaults(){
   let html=`<div class="ph">
     <div><div class="pt">⚠️ الأعطال</div><div class="ps">${active} نشط — ${visibleFaults.filter(f=>f.status==='resolved').length} محلول</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>`:''}
+      ${canExport()?`<button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>`:''}
       ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openManageFaultTemplates()">📋 القوالب</button>`:''}
       <button class="btn btn-rd" onclick="openAddFault()">🚨 إبلاغ عن عطل</button>
     </div>
@@ -2875,7 +2879,7 @@ function saveFault(){
 }
 
 function printFaultsReport(){
-  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const visibleFaults = getVisibleFaults();
   const now = fmtDateTime(new Date().toISOString());
   const rows = visibleFaults.map(f=>`
@@ -3223,7 +3227,7 @@ function openPerms(i){
   const isViewer=u.role==='viewer';
   const isTechOrField = u.role!=='manager'&&u.role!=='viewer';
   const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','radio','uav','maintain','reports','docs','downloadDocs','siteinv'];
-  const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit','camDrag'];
+  const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit','camDrag','exportPrint'];
   const PERM_LABELS ={
     inv:'عرض المخزن', faults:'عرض الأعطال', notifs:'الإشعارات',
     invoices:'عرض الفواتير', moves:'عرض حركة المواد', sites:'عرض المواقع والمخازن',
@@ -3234,7 +3238,8 @@ function openPerms(i){
     radio:'عرض أجهزة المناداة', radioEdit:'تعديل أجهزة المناداة',
     uav:'عرض الطائرات المسيرة', uavEdit:'تعديل الطائرات المسيرة',
     maintain:'عرض جدول الصيانة', reports:'عرض التقارير', siteinv:'جرد الموجودات الثابتة',
-    camDrag:'تحريك الكاميرا بالسحب على الخريطة'
+    camDrag:'تحريك الكاميرا بالسحب على الخريطة',
+    exportPrint:'🖨️ الطباعة وتصدير الملفات (Excel, PDF, KML, صور)'
   };
   function permRow(k){
     const locked=k==='notifs';
@@ -3297,7 +3302,7 @@ function syncUserFieldSitePerms(userIdx, siteId, allow){
 }
 
 function savePerms(i){
-  var ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'];
+  var ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag','exportPrint'];
   var perms={};
   ALL_KEYS.forEach(function(k){
     var el=document.getElementById('pm_'+k);
@@ -3327,12 +3332,12 @@ function savePerms(i){
 function resetPerms(i){ const u=DB.users[i]; if(u) fbUpdate('users/'+(u.uid||u.id),{perms:null}); closeModal(); toast('تم إعادة الصلاحيات للافتراضي'); }
 
 function revokeAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag','exportPrint'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=false;
   });
 }
 function grantAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag','exportPrint'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=true;
   });
 }
@@ -3907,8 +3912,8 @@ function pgFieldMap(){
       </div>
     </div>
     ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
-    ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportMapImage()">📍 تصدير KML</button>`:''}
-    ${CU.role==='manager'&&window._FSITE?`<button class="btn btn-gy" onclick="exportFieldSiteExcel(window._FSITE)">⬇️ Excel الموقع</button>`:''}
+    ${canExport()?`<button class="btn btn-gy" onclick="exportMapImage()">📍 تصدير KML</button>`:''}
+    ${canExport()&&window._FSITE?`<button class="btn btn-gy" onclick="exportFieldSiteExcel(window._FSITE)">⬇️ Excel الموقع</button>`:''}
   </div>
 
   ${visibleSites.length===0
@@ -5157,7 +5162,7 @@ function importKML(input){
 
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
-  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   if(!_FSITE){ toast('افتح موقعاً ميدانياً أولاً','err'); return; }
   openModal(mhd('📍 تصدير KML')
     +'<div style="font-size:13px;color:var(--mt);margin-bottom:14px">يُصدَّر الموقع الحالي بصيغة KML — يفتح مباشرة بتطبيقات Google Earth، Google Maps، وأي برنامج خرائط يدعم KML</div>'
@@ -6076,7 +6081,7 @@ function pgReports(){
   <div class="ph">
     <div class="pt">📊 التقارير والإحصائيات</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printFullReport(${totalFaults},${openF},${resolvedF},${highF},${avgSLA},${totalItems},${deployedItems},${totalCams})">🖨️ طباعة / PDF</button>
+      ${canExport()?`<button class="btn" style="background:#238636;color:#fff" onclick="printFullReport(${totalFaults},${openF},${resolvedF},${highF},${avgSLA},${totalItems},${deployedItems},${totalCams})">🖨️ طباعة / PDF</button>
       <button class="btn btn-bl" onclick="exportReportCSV()">⬇️ تصدير CSV</button>`:''}
     </div>
   </div>
@@ -6170,7 +6175,7 @@ function fmtDateTime(val){
 }
 
 function exportFixedAssetsFromInv(){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   // نستخدم الموقع الميداني المحدد حالياً، أو نصدّر كل المواقع
   var today=fmtDate(new Date().toISOString());
   var sites=DB.fieldSites||[];
@@ -6236,7 +6241,7 @@ function exportFixedAssetsFromInv(){
 }
 
 function exportWarehouseOnly(){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var isMain=isMainSite(ISITE);
   var exportSites=isMain?DB.sites:[ISITE];
   var allItems=[];
@@ -6293,7 +6298,7 @@ function toDMSFull(deg, isLat){
 }
 
 function exportDeployedOnly(){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var isMain=isMainSite(ISITE);
   // المواقع الميدانية المرتبطة بالمستودع الحالي (أو كل المواقع إن كان المستودع المركزي)
   var targetSites=isMain?(DB.fieldSites||[]):(DB.fieldSites||[]).filter(function(s){return s.warehouse===ISITE;});
@@ -6341,7 +6346,7 @@ function exportDeployedOnly(){
 }
 
 function exportFilteredInv(){
-  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const AT=allT();
   // جلب المواد الصحيحة — تجاهل عناصر ___init
   let sItems;
@@ -6445,7 +6450,7 @@ function filterInvTable(){
 }
 
 function exportReportCSV(){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const rows=[['الموقع','النقطة','السبب','الأولوية','الحالة','المبلغ','التاريخ','تاريخ الحل']];
   DB.faults.forEach(f=>rows.push([f.location,f.pointId,f.reason,f.priority==='high'?'عاجل':'عادي',f.status,f.by,f.date,f.resolvedAt||'']));
   const csv=rows.map(r=>r.map(v=>'"'+(v||'').split('"').join('""')+'"').join(',')).join('\n');
@@ -6608,11 +6613,11 @@ function showQR(data, title, barcodeValue){
   <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:10px">
     <div id="qr-box" style="background:#fff;padding:16px;border-radius:12px"></div>
     <div style="font-size:12px;color:var(--mt);text-align:center;max-width:220px;word-break:break-all">${esc(data)}</div>
-    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل QR</button>`:''}
+    ${canExport()?`<button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل QR</button>`:''}
     ${barcodeValue?`<div style="width:100%;border-top:1px solid var(--br);margin-top:6px;padding-top:16px;text-align:center">
       <div style="font-size:12px;color:var(--mt);margin-bottom:8px">🏷️ باركود خطي (Code128) — للمسح بأجهزة القراءة اليدوية</div>
       <div style="background:#fff;padding:10px;border-radius:8px;display:inline-block"><svg id="bc-box"></svg></div>
-      ${CU.role==='manager'?`<div><button class="btn btn-bl" style="margin-top:10px" onclick="downloadBarcode('${esc(title)}')">⬇️ تحميل الباركود</button></div>`:''}
+      ${canExport()?`<div><button class="btn btn-bl" style="margin-top:10px" onclick="downloadBarcode('${esc(title)}')">⬇️ تحميل الباركود</button></div>`:''}
     </div>`:''}
   </div>`);
   setTimeout(()=>{
@@ -6637,7 +6642,7 @@ function showQR(data, title, barcodeValue){
 }
 
 function downloadQR(title){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const canvas = document.querySelector('#qr-box canvas');
   if(!canvas){ toast('QR غير جاهز','err'); return; }
   const a = document.createElement('a');
@@ -6647,7 +6652,7 @@ function downloadQR(title){
   toast('تم تحميل QR Code');
 }
 function downloadBarcode(title){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const svg = document.getElementById('bc-box');
   if(!svg){ toast('الباركود غير جاهز','err'); return; }
   const svgData = new XMLSerializer().serializeToString(svg);
@@ -6795,7 +6800,7 @@ function pgBarcode(){
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📦 باركود المخزن</div>
-    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="printAllBarcodes()">🖨️ طباعة الكل</button>`:''}
+    ${canExport()?`<button class="btn btn-bl" onclick="printAllBarcodes()">🖨️ طباعة الكل</button>`:''}
   </div>
   <div style="padding:0 16px">
     <input style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:16px"
@@ -6829,7 +6834,7 @@ function filterBarcodes(q){
 }
 
 function printAllBarcodes(){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const allItems = [];
   DB.sites.forEach(s=>{ (DB.inv[s]||[]).forEach(it=>allItems.push(it)); });
   if(!allItems.length){ toast('المخزن فارغ','err'); return; }
@@ -6874,7 +6879,7 @@ function printAllBarcodes(){
 //  🗺️ تصدير خريطة الكاميرات PDF (نص)
 // ═══════════════════════════════════════════════════════
 function exportMapReport(){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const lines = [];
   lines.push('تقرير المواقع الميدانية والكاميرات');
   lines.push('تاريخ التقرير: '+fmtDate(new Date().toISOString()));
@@ -7369,7 +7374,7 @@ function pgTechMap(){
   <div class="ph"><div class="pt">🗺️ مواقع الفنيين — مباشر</div>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:12px;color:var(--gn);margin-top:2px">🟢 يتحدث تلقائياً</span>
-      ${CU.role==='manager'?'<button class="btn btn-gy btn-sm" onclick="exportTechMapExcel()">⬇️ Excel</button>':''}
+      ${canExport()?'<button class="btn btn-gy btn-sm" onclick="exportTechMapExcel()">⬇️ Excel</button>':''}
     </div>
   </div>
   <div id="tech-locations" style="padding:0 16px">
@@ -7604,7 +7609,7 @@ function saveHandover(type){
 }
 
 function printHandover(h){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const isDelivery = h.type==='delivery';
   const win = window.open('','_blank','width=600,height=700');
   win.document.write(`
@@ -7664,7 +7669,7 @@ function pgHandovers(){
           <div style="font-size:12px;color:var(--mt)">${esc(h.person)} — ${esc(h.site)}</div>
           <div style="font-size:11px;color:var(--mt)">${esc(h.by)} | ${esc(h.date)}</div>
         </div>
-        ${CU.role==='manager'?`<button class="btn btn-sm btn-bl" onclick="printHandover(${JSON.stringify(h).split('"').join('&quot;')})">🖨️</button>`:''}
+        ${canExport()?`<button class="btn btn-sm btn-bl" onclick="printHandover(${JSON.stringify(h).split('"').join('&quot;')})">🖨️</button>`:''}
       </div>`).join('')
       :'<div style="text-align:center;padding:40px;color:var(--mt)">لا نماذج بعد</div>'}
     </div>`;
@@ -8373,7 +8378,7 @@ function pgSiteInventory(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openEditFieldSite('${site.id}')">⚙️ ربط مستودع</button>`:''}
         ${CU.role==='manager'||p('addItem')?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
-        ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>`:''}
+        ${canExport()?`<button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>`:''}
         ${CU.role==='manager'?`<button class="btn btn-pu" onclick="openBulkExcelImport('siteinv')">📥 استيراد جماعي</button>`:''}
       </div>
     </div>
@@ -8758,7 +8763,7 @@ function delSiteItem(siteId, ptId, itemId){
 
 // ── تصدير الجرد ──
 function exportSiteInventory(siteId, siteName){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   FBDB.ref('cctv/siteInventory/'+siteId).once('value').then(snap=>{
     const points = snap.val() ? Object.values(snap.val()) : [];
 
@@ -9775,7 +9780,7 @@ function quickSearch(q){
 //  🖨️ طباعة التقرير الكامل PDF
 // ============================================
 function printFullReport(totalFaults,openF,resolvedF,highF,avgSLA,totalItems,deployedItems,totalCams){
-  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const now = new Date().toLocaleString('ar-IQ');
   const topFaults = [...(DB.faults||[])].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)).slice(0,20);
   const rows = topFaults.map(f=>`
@@ -10688,7 +10693,7 @@ function buildMonthlyReportHTML(monthLabel, periodFrom, periodTo){
 }
 
 function printMonthlyReportNow(){
-  if(CU.role!=='manager'){ toast('التقرير الشهري للمدير فقط','err'); return; }
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   const now = new Date();
   const periodFrom = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const periodTo = Date.now();
@@ -11191,7 +11196,7 @@ function pgRadio(){
   html+='</div></div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
   if(canEdit) html+='<button class="btn btn-bl" onclick="openAddRadio()">+ إضافة</button>';
-  if(CU.role==='manager') html+='<button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ Excel</button>';
+  if(canExport()) html+='<button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ Excel</button>';
   html+='</div></div><div style="padding:0 16px">';
   if(!devs.length){
     html+='<div class="panel" style="text-align:center;padding:40px;color:var(--mt)"><div style="font-size:40px">📻</div><div style="margin-top:10px">لا أجهزة مناداة بعد</div></div>';
@@ -11349,7 +11354,7 @@ function pgUAV(){
   html+='</div></div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
   if(canEdit) html+='<button class="btn btn-bl" onclick="openAddUAV()">+ إضافة طائرة</button>';
-  html+=(CU.role==='manager')?'<button class="btn btn-gy" onclick="exportUAVExcel()">⬇️ Excel</button>':'';
+  html+=(canExport())?'<button class="btn btn-gy" onclick="exportUAVExcel()">⬇️ Excel</button>':'';
   html+='</div></div>';
 
   // فلاتر
@@ -11526,7 +11531,7 @@ function delUAV(id){
 
 
 function exportFieldSiteExcel(siteId){
-  if(CU.role!=='manager'){toast('تصدير الميدانية للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var site=DB.fieldSites.find(function(s){return s.id===siteId;});
   if(!site){toast('الموقع غير موجود','err');return;}
   var AT=allT();
@@ -11594,7 +11599,7 @@ function exportFieldSiteExcel(siteId){
 
 
 function exportTechPerformance(){
-  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var filterUser=window._actFilterUser||'';
   var filterFrom=window._actFilterFrom||'';
   var filterTo=window._actFilterTo||'';
@@ -11648,7 +11653,7 @@ function exportTechPerformance(){
 }
 
 function exportActLogExcel(){
-  if(CU.role!=='manager'){toast('تصدير السجل للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var userName=val('actlog-filter-user')||'';
   var dateFrom=val('actlog-filter-from')||'';
   var dateTo=val('actlog-filter-to')||'';
@@ -11674,7 +11679,7 @@ function exportActLogExcel(){
 }
 
 function exportTechMapExcel(){
-  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var locs=DB.techLocations||{};
   var users=DB.users||[];
   function toDMS(deg){
@@ -11710,7 +11715,7 @@ function exportTechMapExcel(){
 
 
 function exportRadioExcel(){
-  if(CU.role!=='manager'){toast('تصدير أجهزة المناداة للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var devs=DB.radioDevices||[];
   if(!devs.length){toast('لا أجهزة للتصدير','warn');return;}
   var h=['الاسم','الموديل','التردد','رقم ID الجهاز','الرقم التسلسلي','الحالة','بحوزة','الموقع','ملاحظات'];
@@ -11731,7 +11736,7 @@ function exportRadioExcel(){
 }
 
 function exportUAVExcel(){
-  if(CU.role!=='manager'){toast('تصدير الطائرات للمدير فقط','err');return;}
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
   var devs=DB.uavDevices||[];
   if(!devs.length){toast('لا طائرات للتصدير','warn');return;}
   var h=['الاسم','الشركة','الموديل','النوع','الكاميرا','السيريال','زمن الطيران','المدى','الحالة','الحالة التقنية','بحوزة','الموقع','الملحقات','ملاحظات','التاريخ'];
