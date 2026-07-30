@@ -1689,6 +1689,7 @@ function pgInv(){
       ${p('addItem')?`<button class="btn btn-bl" onclick="openAddItem()">+ إضافة عنصر</button>`:''}
       ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openAddWarehouse()">🏪+ مستودع جديد</button>`:''}
       ${p('moves')&&!isMain?`<button class="btn btn-gy" onclick="openTransfer()">🔁 ترحيل للرئيسي</button>`:''}
+      ${p('moves')?`<button class="btn" style="background:#1d4ed822;color:#1d4ed8;border:1px solid #1d4ed844" onclick="openScanToIssue()">📷 مسح للصرف</button>`:''}
       ${CU.role==='manager'&&linkedFieldSites.length?`
         <button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
         <button class="btn" style="background:#d1242f22;color:var(--rd);border:1px solid #d1242f44" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
@@ -10987,6 +10988,10 @@ function handleSerialScanResult(rawData){
     if(obj && (obj.serial || obj.sn)) serialValue = obj.serial || obj.sn;
   }catch(e){}
   const targetId = window._serialScanTarget;
+  if(targetId==='__ISSUE__'){
+    resolveScannedItemForIssue(rawData, serialValue.trim());
+    return;
+  }
   const inputEl = targetId ? document.getElementById(targetId) : null;
   if(inputEl){
     inputEl.value = serialValue.trim();
@@ -10994,6 +10999,50 @@ function handleSerialScanResult(rawData){
   } else {
     toast('تم المسح لكن الحقل غير متاح حالياً','warn');
   }
+}
+
+// ══════════════════════════════════════════════════════
+//  📷 ربط الماسح بعملية الصرف مباشرة — امسح الباركود/QR
+//  فيفتح نموذج صرف/إرجاع تلك المادة مباشرة بدون بحث يدوي
+// ══════════════════════════════════════════════════════
+function openScanToIssue(){
+  if(!p('moves')){ toast('لا صلاحية لديك لصرف المواد','err'); return; }
+  openSerialScanner('__ISSUE__');
+}
+function resolveScannedItemForIssue(rawData, serialValue){
+  // نحاول أولاً قراءة معرّف المادة (id) لو كان الممسوح كود QR ولّدناه نحن بالتطبيق (JSON فيه id/serial)
+  let scannedId = null;
+  try{
+    const obj = JSON.parse(rawData);
+    if(obj && obj.type && obj.type.indexOf('CCTV_')===0) scannedId = obj.id || null;
+  }catch(e){}
+
+  const matches = [];
+  DB.sites.forEach(site=>{
+    (DB.inv[site]||[]).forEach((it,idx)=>{
+      const idHit = scannedId && it.id===scannedId;
+      const serialHit = serialValue && it.serial && it.serial.trim().toLowerCase()===serialValue.toLowerCase();
+      if(idHit||serialHit) matches.push({site, idx, item:it});
+    });
+  });
+
+  if(matches.length===0){
+    toast('❌ لم يتم إيجاد مادة بهذا الباركود/الرمز بالمخزن','err');
+    return;
+  }
+  if(matches.length===1){
+    openMoveItem(matches[0].idx, matches[0].site);
+    return;
+  }
+  // أكثر من مطابقة (نادر — سيريال مكرر بمستودعات مختلفة): نعرض قائمة اختيار سريعة
+  openModal(`${mhd('📷 وُجد أكثر من مطابقة — اختر المادة')}
+  ${matches.map(m=>`<div class="panel" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer" onclick="closeModal();openMoveItem(${m.idx},'${esc(m.site)}')">
+    <div style="flex:1">
+      <div style="font-weight:700">${esc(m.item.name||'—')}</div>
+      <div style="font-size:12px;color:var(--mt)">${esc(m.item.serial||'')} — 📍 ${esc(m.site)}</div>
+    </div>
+    <div style="color:var(--bl)">◀</div>
+  </div>`).join('')}`);
 }
 
 function serialScanBtn(inputId){
