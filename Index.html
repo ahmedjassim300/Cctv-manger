@@ -2137,7 +2137,7 @@ function confirmMove(i,src,isOut){
     const parts = destRaw.split(':');
     const fsId = parts[1];
     const fsName = parts.slice(2).join(':'); // احتياطاً لو الاسم نفسه فيه ':'
-    fbPush('moves',{
+    const fieldMovePush = fbPush('moves',{
       name:icon+' '+(item.name||item.serial||''),
       qty: parseInt(item.qty)||1,
       dir:'out', from:src, to:fsName,
@@ -2203,13 +2203,15 @@ function confirmMove(i,src,isOut){
 
     pushN('🔼 صرف — منصوب في موقع ميداني — '+(item.name||item.serial)+' → 📍 '+fsName);
     toast('✅ تم الصرف لموقع '+fsName);
-    showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:parseInt(item.qty)||1, from:src, to:fsName, point:installPoint, receiver, sender, notes, date:ts()});
+    fieldMovePush.then(function(moveId){
+      showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:parseInt(item.qty)||1, from:src, to:fsName, point:installPoint, receiver, sender, notes, date:ts(), moveId});
+    });
     return;
   }
 
   // ── النقل بين مستودعات (يدعم الآن الكمية الجزئية أيضاً) ──
   const dest = destRaw;
-  fbPush('moves',{
+  const whMovePush = fbPush('moves',{
     name:icon+' '+(item.name||item.serial||''),
     qty: movedQty,
     dir:isOut?'out':'in', from:src, to:dest,
@@ -2235,7 +2237,9 @@ function confirmMove(i,src,isOut){
   pushN((isOut?'🔼 صرف':'🔽 إيداع')+' — '+statusLabel+' — '+(item.name||item.serial)+(isPartial?' (كمية: '+movedQty+')':'')+' → '+dest);
   if(isOut){
     toast('✅ تم الصرف');
-    showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:movedQty, from:src, to:dest, point:installPoint, receiver, sender, notes, date:ts()});
+    whMovePush.then(function(moveId){
+      showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:movedQty, from:src, to:dest, point:installPoint, receiver, sender, notes, date:ts(), moveId});
+    });
   } else {
     closeModal(); toast('✅ تم الإيداع');
   }
@@ -2568,7 +2572,7 @@ function pgMoves(){
           <td style="color:var(--mt);font-weight:${m.receiver?'700':'400'}">${esc(m.receiver||'—')}</td>
           <td style="color:var(--mt);font-size:12px">${esc(m.notes||'—')}</td>
           <td style="color:var(--mt);font-size:12px;white-space:nowrap">${esc(m.date)}</td>
-          <td>${(m.dir==='out'&&m.id)?`<button class="btn btn-sm btn-gy" title="طباعة سند التسليم" onclick="printIssueReceiptById('${m.id}')">🖨️</button>`:''}</td>
+          <td>${(m.dir==='out'&&m.id)?`<button class="btn btn-sm btn-gy" title="طباعة سند التسليم" onclick="printIssueReceiptById('${m.id}')">🖨️</button>${m.signature?`<span title="موقّع" style="margin-right:4px">✅</span>`:`<button class="btn btn-sm" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" title="توقيع المستلم" onclick="openSignaturePad('${m.id}','${esc(m.receiver||'المستلم')}')">✍️</button>`}`:''}</td>
         </tr>`).join('')}
     </tbody>
   </table></div>`;
@@ -2627,10 +2631,12 @@ function printMovesReport(){
 function printIssueReceiptById(moveId){
   const m = DB.moves.find(x=>x.id===moveId);
   if(!m){ toast('تعذّر إيجاد الحركة','err'); return; }
-  printIssueReceipt(m);
+  printIssueReceipt({...m, moveId:m.id});
 }
 function printIssueReceipt(data){
   const now = fmtDateTime(new Date().toISOString());
+  const mv = data.moveId ? DB.moves.find(x=>x.id===data.moveId) : null;
+  const sig = mv && mv.signature;
   const win = window.open('','_blank');
   win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
   <title>سند صرف / تسليم</title>
@@ -2641,8 +2647,10 @@ function printIssueReceipt(data){
     table{width:100%;border-collapse:collapse;margin-bottom:30px}
     td{border:1px solid #ccc;padding:10px;font-size:14px}
     td.lbl{background:#f3f4f6;font-weight:700;width:160px}
-    .sign{display:flex;justify-content:space-between;margin-top:70px}
-    .sign div{width:44%;text-align:center;border-top:1px solid #333;padding-top:6px;font-size:13px}
+    .sign{display:flex;justify-content:space-between;margin-top:50px;gap:20px}
+    .sigcol{width:44%;text-align:center}
+    .sigimg{height:60px;display:flex;align-items:flex-end;justify-content:center}
+    .sigline{border-top:1px solid #333;padding-top:6px;font-size:12px;margin-top:4px}
     @media print{button{display:none}}
   </style></head><body>
   <h2>📤 سند صرف / تسليم مواد</h2>
@@ -2659,7 +2667,11 @@ function printIssueReceipt(data){
     <tr><td class="lbl">اسم المُسلِّم</td><td>${esc(data.sender||'—')}</td></tr>
     <tr><td class="lbl">التاريخ</td><td>${esc(data.date||now)}</td></tr>
   </table>
-  <div class="sign"><div>توقيع المُسلِّم</div><div>توقيع المستلم</div></div>
+  <div class="sign">
+    <div class="sigcol"><div class="sigimg"></div><div class="sigline">توقيع المُسلِّم</div></div>
+    <div class="sigcol"><div class="sigimg">${sig?`<img src="${sig}" style="max-height:58px;max-width:100%">`:''}</div>
+      <div class="sigline">توقيع المستلم${(mv&&mv.signedAt)?' — وُقّع رقمياً بتاريخ '+esc(mv.signedAt):''}</div></div>
+  </div>
   </body></html>`);
   win.document.close();
 }
@@ -2671,8 +2683,84 @@ function showIssueSuccess(receiptData){
     <div style="font-weight:700;font-size:16px;margin-bottom:4px">تم الصرف بنجاح</div>
     <div style="color:var(--mt);font-size:13px">${esc(receiptData.name)} ← ${esc(receiptData.to)}</div>
   </div>
+  ${receiptData.moveId?`<button class="btn" style="width:100%;background:#8250df;color:#fff;margin-bottom:8px" onclick="openSignaturePad('${receiptData.moveId}','${esc(receiptData.receiver||'المستلم')}')">✍️ توقيع المستلم الآن</button>`:''}
   <button class="btn" style="width:100%;background:#1d4ed8;color:#fff;margin-bottom:8px" onclick="printIssueReceipt(window._lastReceipt)">🖨️ طباعة سند التسليم</button>
   <button class="btn btn-gy" style="width:100%" onclick="closeModal()">إغلاق</button>`);
+}
+
+// ══════════════════════════════════════════════════════
+//  ✍️ توقيع رقمي للمستلم على سند التسليم (لوحة رسم باللمس/الفأرة)
+// ══════════════════════════════════════════════════════
+let _sigDrawing = false;
+let _sigLastPt = null;
+function openSignaturePad(moveId, personLabel){
+  window._sigMoveId = moveId;
+  openModal(`${mhd('✍️ توقيع '+esc(personLabel||'المستلم'))}
+  <div style="font-size:12px;color:var(--mt);margin-bottom:10px;text-align:center">وقّع بإصبعك أو الفأرة داخل المربع أدناه</div>
+  <div style="background:#fff;border-radius:10px;border:2px dashed var(--br);overflow:hidden">
+    <canvas id="sig-pad" style="width:100%;height:160px;display:block;touch-action:none"></canvas>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-gy" style="flex:1" onclick="clearSignaturePad()">🗑️ مسح</button>
+    <button class="btn" style="flex:1;background:#1d4ed8;color:#fff" onclick="saveSignature()">💾 حفظ التوقيع</button>
+  </div>`);
+  setTimeout(initSignaturePad, 100);
+}
+function initSignaturePad(){
+  const canvas = document.getElementById('sig-pad');
+  if(!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  function getPos(e){
+    const r = canvas.getBoundingClientRect();
+    const cx = (e.touches?e.touches[0].clientX:e.clientX) - r.left;
+    const cy = (e.touches?e.touches[0].clientY:e.clientY) - r.top;
+    return {x:cx, y:cy};
+  }
+  function start(e){ e.preventDefault(); _sigDrawing=true; _sigLastPt = getPos(e); }
+  function move(e){
+    if(!_sigDrawing) return;
+    e.preventDefault();
+    const pt = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(_sigLastPt.x,_sigLastPt.y);
+    ctx.lineTo(pt.x,pt.y);
+    ctx.stroke();
+    _sigLastPt = pt;
+  }
+  function end(){ _sigDrawing=false; }
+
+  canvas.onmousedown=start; canvas.onmousemove=move; canvas.onmouseup=end; canvas.onmouseleave=end;
+  canvas.ontouchstart=start; canvas.ontouchmove=move; canvas.ontouchend=end;
+}
+function clearSignaturePad(){
+  const canvas = document.getElementById('sig-pad');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+function saveSignature(){
+  const canvas = document.getElementById('sig-pad');
+  const moveId = window._sigMoveId;
+  if(!canvas || !moveId){ closeModal(); return; }
+  const ctx = canvas.getContext('2d');
+  const px = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  let hasInk = false;
+  for(let i=0;i<px.length;i+=4){ if(px[i]<250||px[i+1]<250||px[i+2]<250){hasInk=true;break;} }
+  if(!hasInk){ toast('وقّع أولاً داخل المربع','err'); return; }
+
+  const dataUrl = canvas.toDataURL('image/png');
+  fbUpdate('moves/'+moveId, {signature:dataUrl, signedAt:ts(), signedBy:CU.name});
+  const mv = DB.moves.find(x=>x.id===moveId);
+  if(mv){ mv.signature=dataUrl; mv.signedAt=ts(); mv.signedBy=CU.name; }
+  logAct('توقيع سند تسليم', moveId);
+  toast('✅ تم حفظ التوقيع');
+  closeModal();
 }
 
 // ============================================
