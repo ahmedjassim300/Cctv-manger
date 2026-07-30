@@ -2489,7 +2489,8 @@ function pgTypes(){
   ${cust.length>0?`<div class="panel">
     <div class="ptitle">الأنواع المخصصة</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px">
-      ${cust.map(([k,v])=>`<span class="tch">${v.icon} ${v.label}
+      ${cust.map(([k,v])=>`<span class="tch">${v.icon} ${esc(v.label)}
+        <button onclick="openEditType('${k}')" style="background:none;border:none;color:var(--mt);cursor:pointer;font-size:14px;padding:0;margin-right:6px" title="تعديل">✏️</button>
         <button onclick="delType('${k}')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:18px;padding:0;margin-right:3px">×</button>
       </span>`).join('')}
     </div>
@@ -2507,6 +2508,21 @@ function saveType(){
   const key='ct_'+gid();
   fbSet('customTypes/'+key,{label:nm,icon:ic});
   closeModal(); toast('تم إضافة النوع');
+}
+function openEditType(k){
+  const t = DB.customTypes[k];
+  if(!t){ toast('تعذّر إيجاد النوع','err'); return; }
+  openModal(`${mhd('✏️ تعديل نوع المادة')}
+  <div class="field"><label>اسم النوع *</label><input id="tnm-e" value="${esc(t.label)}"></div>
+  <div class="field"><label>الأيقونة (emoji)</label><input id="tic-e" value="${esc(t.icon||'')}" style="font-size:20px;text-align:center" maxlength="2"></div>
+  ${mft('💾 حفظ التعديل',`saveEditType('${k}')`)}`);
+}
+function saveEditType(k){
+  const nm=val('tnm-e'),ic=val('tic-e')||'🔧';
+  if(!nm){ toast('أدخل اسم النوع','err'); return; }
+  fbSet('customTypes/'+k,{label:nm,icon:ic});
+  logAct('تعديل نوع مادة', nm);
+  closeModal(); toast('✅ تم حفظ التعديل');
 }
 function delType(k){
   confirmDel('حذف هذا النوع نهائياً؟', `fbDel('customTypes/${k}')`);
