@@ -533,6 +533,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <script src="https://unpkg.com/@zxing/library@latest"></script>
@@ -6576,20 +6577,45 @@ function delMaintain(id){
 
 
 // ═══════════════════════════════════════════════════════
-//  📱 QR Code للكاميرات والمخزن
+//  📱 QR Code + 🏷️ باركود خطي (Code128) للكاميرات والمخزن
 // ═══════════════════════════════════════════════════════
-function showQR(data, title){
+// ملاحظة مهمة: مكتبة qrcodejs القديمة المستخدمة هنا فيها خلل معروف —
+// لا تتعامل بشكل صحيح مع الأحرف العربية (UTF-8 متعدد البايتات)، فتُنتج
+// كود QR تالف أو فارغ لأي بيانات فيها نص عربي. الحل القياسي هو تحويل
+// النص لسلسلة "بايتات UTF-8" (كل بايت = حرف واحد) قبل تمريره للمكتبة.
+function qrSafeText(str){
+  try{ return unescape(encodeURIComponent(str)); }
+  catch(e){ return str; }
+}
+function showQR(data, title, barcodeValue){
   openModal(`${mhd('📱 QR Code — '+esc(title))}
   <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:10px">
     <div id="qr-box" style="background:#fff;padding:16px;border-radius:12px"></div>
     <div style="font-size:12px;color:var(--mt);text-align:center;max-width:220px;word-break:break-all">${esc(data)}</div>
-    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل</button>`:''}
+    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل QR</button>`:''}
+    ${barcodeValue?`<div style="width:100%;border-top:1px solid var(--br);margin-top:6px;padding-top:16px;text-align:center">
+      <div style="font-size:12px;color:var(--mt);margin-bottom:8px">🏷️ باركود خطي (Code128) — للمسح بأجهزة القراءة اليدوية</div>
+      <div style="background:#fff;padding:10px;border-radius:8px;display:inline-block"><svg id="bc-box"></svg></div>
+      ${CU.role==='manager'?`<div><button class="btn btn-bl" style="margin-top:10px" onclick="downloadBarcode('${esc(title)}')">⬇️ تحميل الباركود</button></div>`:''}
+    </div>`:''}
   </div>`);
   setTimeout(()=>{
     const box = document.getElementById('qr-box');
     if(box && typeof QRCode !== 'undefined'){
       box.innerHTML = '';
-      new QRCode(box, {text: data, width:200, height:200, colorDark:'#000', colorLight:'#fff'});
+      try{
+        new QRCode(box, {text: qrSafeText(data), width:200, height:200, colorDark:'#000', colorLight:'#fff'});
+      }catch(e){
+        box.innerHTML = '<div style="color:#c00;font-size:12px;padding:20px;max-width:180px">تعذّر توليد QR لهذه البيانات (طويلة جداً)</div>';
+      }
+    }
+    if(barcodeValue && typeof JsBarcode !== 'undefined'){
+      try{
+        JsBarcode('#bc-box', String(barcodeValue), {format:'CODE128', width:2, height:60, displayValue:true, font:'monospace', fontSize:14, margin:6});
+      }catch(e){
+        const bcBox=document.getElementById('bc-box');
+        if(bcBox) bcBox.outerHTML = '<div style="color:#c00;font-size:12px">تعذّر توليد الباركود لهذه القيمة</div>';
+      }
     }
   }, 100);
 }
@@ -6603,6 +6629,29 @@ function downloadQR(title){
   a.href = canvas.toDataURL();
   a.click();
   toast('تم تحميل QR Code');
+}
+function downloadBarcode(title){
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  const svg = document.getElementById('bc-box');
+  if(!svg){ toast('الباركود غير جاهز','err'); return; }
+  const svgData = new XMLSerializer().serializeToString(svg);
+  const canvas = document.createElement('canvas');
+  const img = new Image();
+  const svgBlob = new Blob([svgData], {type:'image/svg+xml;charset=utf-8'});
+  const url = URL.createObjectURL(svgBlob);
+  img.onload = function(){
+    canvas.width = img.width||300; canvas.height = img.height||120;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0);
+    URL.revokeObjectURL(url);
+    const a = document.createElement('a');
+    a.download = 'باركود_'+title+'.png';
+    a.href = canvas.toDataURL();
+    a.click();
+    toast('تم تحميل الباركود');
+  };
+  img.src = url;
 }
 
 function showCamQR(fsId, camId){
@@ -6618,7 +6667,7 @@ function showCamQR(fsId, camId){
     model: cam.model||'',
     ip: cam.ip||''
   });
-  showQR(data, cam.name);
+  showQR(data, cam.name, cam.serial||cam.id);
 }
 
 function showItemQR(item){
@@ -6630,7 +6679,7 @@ function showItemQR(item){
     type2: item.type||'',
     site: item.currentSite||''
   });
-  showQR(data, item.name);
+  showQR(data, item.name, item.serial||item.id);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -6765,9 +6814,44 @@ function filterBarcodes(q){
 
 function printAllBarcodes(){
   if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
-  toast('جار التجهيز للطباعة...','warn');
-  // فتح نافذة طباعة
-  setTimeout(()=>window.print(), 500);
+  const allItems = [];
+  DB.sites.forEach(s=>{ (DB.inv[s]||[]).forEach(it=>allItems.push(it)); });
+  if(!allItems.length){ toast('المخزن فارغ','err'); return; }
+  toast('جارٍ تجهيز ملصقات الباركود...','warn');
+  const labels = allItems.map(it=>{
+    const code = it.serial||it.id||''; // الباركود دائماً على السيريال/المعرّف (ASCII) وليس الاسم العربي، لأن رموز الباركود الخطي لا تدعم العربية أصلاً
+    return `<div class="label">
+      <div class="nm">${esc(it.name||'')}</div>
+      <div class="mt">${esc(it.currentSite||'')}</div>
+      ${code?`<svg class="bc" jsbarcode-value="${esc(String(code))}" jsbarcode-format="CODE128" jsbarcode-height="40" jsbarcode-fontsize="12" jsbarcode-margin="4"></svg>`:'<div class="mt">بدون سيريال — لا يمكن توليد باركود</div>'}
+    </div>`;
+  }).join('');
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+  <title>باركود المخزن — طباعة الكل</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script>
+  <style>
+    body{font-family:Arial,sans-serif;padding:20px;direction:rtl;color:#111}
+    h2{text-align:center;margin-bottom:4px}
+    .sub{text-align:center;color:#666;font-size:12px;margin-bottom:16px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:10px}
+    .label{border:1px solid #ccc;border-radius:8px;padding:10px;text-align:center;page-break-inside:avoid}
+    .nm{font-weight:700;font-size:13px;margin-bottom:2px;word-break:break-word}
+    .mt{font-size:11px;color:#666}
+    @media print{button{display:none}}
+  </style></head><body>
+  <h2>🏷️ باركود المخزن</h2>
+  <div class="sub">إجمالي المواد: ${allItems.length} — تاريخ الطباعة: ${fmtDateTime(new Date().toISOString())}</div>
+  <button onclick="window.print()" style="display:block;margin:0 auto 14px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
+  <div class="grid">${labels}</div>
+  <script>
+    window.onload = function(){
+      try{ JsBarcode('.bc').init(); }catch(e){ console.error('barcode init failed', e); }
+    };
+  <\/script>
+  </body></html>`);
+  win.document.close();
+  logAct('طباعة كل الباركودات', allItems.length+' مادة');
 }
 
 // ═══════════════════════════════════════════════════════
