@@ -564,13 +564,15 @@ const FBDB   = firebase.database();
 let FBMSG = null;
 
 // ══ تفعيل الوضع الأوفلاين — Firebase يخزن البيانات محلياً ويتزامن عند الاتصال ══
+// ══ مراقبة الاتصال الحقيقي بـFirebase (أدق من حدث online/offline بالمتصفح وحده،
+//    لأن الجهاز ممكن يكون "متصل بالنت" لكن Firebase نفسه محجوب/غير قابل للوصول) ══
 try {
   FBDB.ref('.info/connected').on('value', snap => {
     const online = snap.val() === true;
-    const dot = document.getElementById('conn-dot');
-    if(dot){
-      dot.style.background = online ? 'var(--gn)' : 'var(--rd)';
-      dot.title = online ? 'متصل' : 'غير متصل — بيانات محلية';
+    if(typeof _isOnline!=='undefined' && _isOnline!==online){
+      _isOnline = online;
+      if(typeof updateOnlineStatus==='function') updateOnlineStatus(online);
+      if(online && typeof syncOfflineQueue==='function') syncOfflineQueue();
     }
   });
 } catch(e) {}
@@ -596,11 +598,120 @@ function logAct(action, details){
   });
 }
 
-// ── كتابة / تحديث / حذف ──
-function fbSet(path, val){ return FBDB.ref('cctv/'+path).set(val); }
-function fbUpdate(path, obj){ return FBDB.ref('cctv/'+path).update(obj); }
-function fbPush(path, obj){ const id=gid(); return FBDB.ref('cctv/'+path+'/'+id).set({...obj,id}).then(()=>id); }
-function fbDel(path){ return FBDB.ref('cctv/'+path).remove(); }
+// ── كتابة / تحديث / حذف — تدعم وضع أوفلاين: لو الاتصال مقطوع، تُحفظ العملية بطابور
+// محلي (موجود أصلاً بالكود عبر queueOfflineOp) وتُطبَّق تلقائياً بمجرد عودة الاتصال،
+// بدل ما تُفقد أو تتعلق بالانتظار على اتصال غير موجود ──
+function fbSet(path, val){
+  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('set', path, val); return Promise.resolve(); }
+  return FBDB.ref('cctv/'+path).set(val);
+}
+function fbUpdate(path, obj){
+  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('update', path, obj); return Promise.resolve(); }
+  return FBDB.ref('cctv/'+path).update(obj);
+}
+function fbPush(path, obj){
+  const id=gid();
+  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('set', path+'/'+id, {...obj,id}); return Promise.resolve(id); }
+  return FBDB.ref('cctv/'+path+'/'+id).set({...obj,id}).then(()=>id);
+}
+function fbDel(path){
+  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('delete', path, null); return Promise.resolve(); }
+  return FBDB.ref('cctv/'+path).remove();
+}
+// ── حذف مع أرشفة: يحفظ نسخة من البيانات قبل حذفها فعلياً، بحيث يمكن استرجاعها لاحقاً ──
+// (الأرشفة تتطلب قراءة حيّة فلا تعمل أوفلاين — بهذي الحالة نكتفي بحذف مؤجَّل بالطابور بدون أرشفة)
+function archiveDel(path, reason){
+  if(typeof _isOnline!=='undefined' && !_isOnline){
+    queueOfflineOp('delete', path, null);
+    toast('📴 سيُحذف عند عودة الاتصال (بدون أرشفة لعدم توفر اتصال حي)','warn');
+    return Promise.resolve();
+  }
+  return FBDB.ref('cctv/'+path).once('value').then(function(snap){
+    const data = snap.val();
+    if(data!==null && data!==undefined){
+      const archId = gid();
+      FBDB.ref('cctv/archive/'+archId).set({
+        id: archId, path: path, data: data,
+        deletedBy: (typeof CU!=='undefined'&&CU)?CU.name:'—', deletedAt: ts(),
+        reason: reason||'', _ts: Date.now()
+      });
+    }
+    return FBDB.ref('cctv/'+path).remove();
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  🗄️ صفحة الأرشيف — عرض واسترجاع المحذوفات (مدير فقط)
+// ══════════════════════════════════════════════════════
+function archivePathLabel(path){
+  const seg = (path||'').split('/')[0];
+  const map = {
+    inv:'🏪 مادة مخزون', customTypes:'🗂️ نوع مادة', users:'👤 مستخدم', sites:'📍 موقع/مستودع',
+    fieldSites:'🗺️ موقع ميداني', boundaries:'⬛ حدود خريطة', maintain:'🗓️ مهمة صيانة',
+    docs:'📁 مستند', siteInventory:'📦 موجود ثابت', tasks:'✅ مهمة', network:'🔗 عنصر شبكة',
+    radioDevices:'📻 جهاز مناداة', uavDevices:'🛩️ طائرة مسيّرة'
+  };
+  return map[seg]||('📄 '+seg);
+}
+function archiveRecordName(data){
+  if(!data) return '—';
+  if(typeof data!=='object') return String(data);
+  return data.name||data.label||data.num||data.serial||data.title||data.model||'(بدون اسم)';
+}
+function pgArchive(){
+  if(CU.role!=='manager'){
+    $('page').innerHTML=`<div class="panel" style="text-align:center;padding:60px">
+      <div style="font-size:40px;margin-bottom:12px">⛔</div><div>هذه الصفحة للمدير فقط</div></div>`;
+    return;
+  }
+  const q = (window._archQ||'').toLowerCase();
+  const list = Object.values(DB.archive||{}).filter(a=>{
+    if(!q) return true;
+    return [archiveRecordName(a.data), a.reason, a.deletedBy, a.path].some(v=>v&&String(v).toLowerCase().includes(q));
+  }).sort((a,b)=>(b._ts||0)-(a._ts||0));
+
+  $('page').innerHTML=`
+  <div class="ph">
+    <div>
+      <div class="pt">🗄️ الأرشيف (${list.length})</div>
+      <div class="ps">كل المحذوفات محفوظة هنا ويمكن استرجاعها في أي وقت</div>
+    </div>
+  </div>
+  <input placeholder="🔍 بحث بالاسم أو السبب أو مين حذف..." value="${esc(window._archQ||'')}" oninput="window._archQ=this.value;pgArchive()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:14px">
+  ${list.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا محذوفات — الأرشيف فارغ</div>`:
+    list.map(a=>`
+    <div class="panel" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">
+      <div style="flex:1">
+        <div style="font-size:11px;color:var(--mt);margin-bottom:2px">${archivePathLabel(a.path)}</div>
+        <div style="font-weight:700">${esc(archiveRecordName(a.data))}</div>
+        ${a.reason?`<div style="font-size:12px;color:var(--mt);margin-top:2px">${esc(a.reason)}</div>`:''}
+        <div style="font-size:11px;color:#555;margin-top:6px">حذفه: ${esc(a.deletedBy||'—')} — ${esc(a.deletedAt||'')}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-sm" style="background:#3fb95022;color:var(--gn);border:1px solid #3fb95044" onclick="restoreArchived('${a.id}')" title="استرجاع">↩️</button>
+        <button class="btn btn-sm btn-rd" onclick="purgeArchived('${a.id}')" title="حذف نهائي من الأرشيف">🗑️</button>
+      </div>
+    </div>`).join('')}`;
+}
+function restoreArchived(archId){
+  const a = DB.archive[archId];
+  if(!a){ toast('السجل لم يعد موجوداً','err'); return; }
+  confirmDel('استرجاع "'+esc(archiveRecordName(a.data))+'" لمكانها الأصلي؟', `doRestoreArchived('${archId}')`);
+}
+function doRestoreArchived(archId){
+  const a = DB.archive[archId];
+  if(!a){ toast('السجل لم يعد موجوداً','err'); return; }
+  FBDB.ref('cctv/'+a.path).set(a.data);
+  FBDB.ref('cctv/archive/'+archId).remove();
+  logAct('استرجاع من الأرشيف', archiveRecordName(a.data));
+  toast('✅ تم الاسترجاع');
+  pgArchive();
+}
+function purgeArchived(archId){
+  confirmDel('حذف هذا السجل نهائياً من الأرشيف؟ لن يمكن استرجاعه بعدها إطلاقاً.',
+    `FBDB.ref('cctv/archive/${archId}').remove();toast('تم الحذف النهائي','err');pgArchive()`
+  );
+}
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.L=null;console.warn('Leaflet failed to load - map disabled')"></script>
@@ -696,6 +807,7 @@ let DB = {
   notifs:[],
   invoices:[],
   customTypes:{},
+  archive:{},
   fieldSites:[],   // [{id, name, desc, cameras:[], allowedUsers:[]}]
   actlog:[],        // سجل النشاط
   maintain:[],
@@ -1307,6 +1419,7 @@ function fbStartSync(){
     });
     DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
     DB.customTypes = data.customTypes || {};
+    DB.archive = data.archive || {};
     DB.fieldSites  = data.fieldSites
       ? Object.values(data.fieldSites).map(fs=>({...fs, cameras:fs.cameras?Object.values(fs.cameras):[]}))
       : [];
@@ -1432,6 +1545,7 @@ function buildNav(){
       {id:'maintain',  label:'جدول الصيانة',    icon:'🗓️', perm:'faults'},
       {id:'reports',   label:'التقارير',         icon:'📊', perm:'faults'},
       {id:'actlog',    label:'سجل النشاط',      icon:'📋', perm:'users'},
+      {id:'archive',   label:'الأرشيف',          icon:'🗄️', perm:'__manager_only__'},
     ]},
   ];
 
@@ -1471,7 +1585,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive()})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive})[page]?.();
   });
 }
 
@@ -1614,6 +1728,7 @@ function pgDash(){
         {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'siteinv'},
         {id:'pwvault', ic:'🔐', lb:'سجل كلمات المرور', perm:'__manager_only__'},
         {id:'monthlyreports', ic:'📅', lb:'التقارير الشهرية', perm:'__manager_only__'},
+        {id:'archive', ic:'🗄️', lb:'الأرشيف', perm:'__manager_only__'},
         {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:'radio'},
         {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
@@ -2335,7 +2450,7 @@ function confirmBulkTransfer(src){
 
 function setMaintAt(i,site){ const s=site||ISITE; const item=DB.inv[s][i]; if(!item)return; fbSet('inv/'+fbKey(s)+'/'+item.id+'/status','maintenance'); toast('إرسال للصيانة','warn'); }
 function setMaint(i){ setMaintAt(i,ISITE); }
-function delItemAt(i,site){ const s=site||ISITE; const item=DB.inv[s]?.[i]; if(!item)return; confirmDel('حذف المادة: '+item.name+'؟', `fbDel('inv/${fbKey(s)}/${item.id}');toast('تم الحذف','err')`); }
+function delItemAt(i,site){ const s=site||ISITE; const item=DB.inv[s]?.[i]; if(!item)return; confirmDel('حذف المادة: '+item.name+'؟', `archiveDel('inv/${fbKey(s)}/${item.id}');toast('تم الحذف','err')`); }
 function delItem(i){ delItemAt(i,ISITE); }
 
 function showItemForm(f){
@@ -2534,7 +2649,7 @@ function saveEditType(k){
   closeModal(); toast('✅ تم حفظ التعديل');
 }
 function delType(k){
-  confirmDel('حذف هذا النوع نهائياً؟', `fbDel('customTypes/${k}')`);
+  confirmDel('حذف هذا النوع نهائياً؟', `archiveDel('customTypes/${k}')`);
 }
 
 // ============================================
@@ -3216,7 +3331,7 @@ async function saveUser(idx){
 async function delUser(i){
   const u = DB.users[i];
   if(!u) return;
-  confirmDel('حذف المستخدم: '+u.name+'؟<br><small style="color:var(--rd)">هذا الإجراء لا يمكن التراجع عنه</small>', `(()=>{logAct('حذف مستخدم','${u.name} — ${u.email||''}');fbDel('users/${'${u.uid||u.id}'}');toast('تم حذف المستخدم')})()`);
+  confirmDel('حذف المستخدم: '+u.name+'؟', `(()=>{logAct('حذف مستخدم','${u.name} — ${u.email||''}');archiveDel('users/${'${u.uid||u.id}'}');toast('تم حذف المستخدم')})()`);
   // ملاحظة: Firebase Auth يحتاج Admin SDK للحذف الكامل
 }
 
@@ -3951,7 +4066,7 @@ function renameSite(i){
 }
 function delSite(i){
   const siteName = DB.sites[i];
-  confirmDel('حذف الموقع: '+siteName+' وجميع مخزونه؟', `(()=>{const siteKey=window._sitesKeys&&window._sitesKeys['${siteName}'];if(siteKey)fbDel('sites/'+siteKey);fbDel('inv/${fbKey(siteName||'')}');toast('تم حذف الموقع','err')})()`);
+  confirmDel('حذف الموقع: '+siteName+' وجميع مخزونه؟', `(()=>{const siteKey=window._sitesKeys&&window._sitesKeys['${siteName}'];if(siteKey)archiveDel('sites/'+siteKey);archiveDel('inv/${fbKey(siteName||'')}');toast('تم حذف الموقع','err')})()`);
 }
 
 // ============================================
@@ -4913,7 +5028,7 @@ function delFieldSite(fsId){
   const fs=DB.fieldSites.find(x=>x.id===fsId);
   if(!fs) return;
   const camCount = fs.cameras ? fs.cameras.length : 0;
-  confirmDel(`حذف موقع "${fs.name}" وجميع كاميراته (${camCount})؟`, `fbDel('fieldSites/${fsId}');if(window._FSITE==='${fsId}')window._FSITE='';toast('تم الحذف','err')`);
+  confirmDel(`حذف موقع "${fs.name}" وجميع كاميراته (${camCount})؟`, `archiveDel('fieldSites/${fsId}');if(window._FSITE==='${fsId}')window._FSITE='';toast('تم الحذف','err')`);
 }
 
 function openAddFieldCam(fsId){ showFieldCamForm(fsId,-1,null); }
@@ -5186,7 +5301,7 @@ function loadBoundaries(){
 }
 
 function deleteBoundary(id){
-  confirmDel('حذف هذه الحدود نهائياً؟', `fbDel('boundaries/${id}');loadBoundaries();toast('تم الحذف')`);
+  confirmDel('حذف هذه الحدود نهائياً؟', `archiveDel('boundaries/${id}');loadBoundaries();toast('تم الحذف')`);
 }
 
 // ── استيراد KML ──
@@ -5822,6 +5937,16 @@ function saveFieldCam(fsId,ci){
 function delFieldCam(fsId,ci){
   const fs=DB.fieldSites.find(x=>x.id===fsId);
   if(!fs||!confirm('حذف الكاميرا نهائياً؟')) return;
+  // أرشفة نسخة من بيانات الكاميرا قبل حذفها (تمكّن الاسترجاع لاحقاً من صفحة الأرشيف)
+  const removedCam = fs.cameras[ci];
+  if(removedCam){
+    const archId = gid();
+    FBDB.ref('cctv/archive/'+archId).set({
+      id: archId, path:'fieldSites/'+fsId+'/cameras', data: removedCam,
+      deletedBy: CU.name, deletedAt: ts(),
+      reason: 'كاميرا من موقع: '+fs.name, _ts: Date.now()
+    });
+  }
   // احذف من الـ array محلياً
   fs.cameras.splice(ci,1);
   // أعد حفظ الـ array كاملاً في Firebase
@@ -6682,7 +6807,7 @@ function doneMaintain(id){
 }
 
 function delMaintain(id){
-  confirmDel('حذف مهمة الصيانة نهائياً؟', `fbDel('maintain/${id}');toast('تم الحذف','err')`);
+  confirmDel('حذف مهمة الصيانة نهائياً؟', `archiveDel('maintain/${id}');toast('تم الحذف','err')`);
 }
 
 
@@ -8266,7 +8391,7 @@ function uploadDoc(){
 }
 
 function delDoc(id){
-  confirmDel('حذف المستند نهائياً؟', `fbDel('docs/${id}');toast('تم الحذف','err');pgDocs()`);
+  confirmDel('حذف المستند نهائياً؟', `archiveDel('docs/${id}');toast('تم الحذف','err');pgDocs()`);
 }
 
 
@@ -8741,7 +8866,7 @@ function openEditSitePoint(siteId, ptId){
 }
 
 function delSitePoint(siteId, ptId){
-  confirmDel('حذف النقطة وجميع عناصرها نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}');toast('تم الحذف');pgSiteInventory()`);
+  confirmDel('حذف النقطة وجميع عناصرها نهائياً؟', `archiveDel('siteInventory/${siteId}/${ptId}');toast('تم الحذف');pgSiteInventory()`);
 }
 
 // ── إضافة عنصر جرد ──
@@ -8847,7 +8972,7 @@ function openEditSiteItem(siteId, ptId, itemId){
 }
 
 function delSiteItem(siteId, ptId, itemId){
-  confirmDel('حذف هذا العنصر نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}/items/${itemId}');toast('تم الحذف');pgSiteInventory()`);
+  confirmDel('حذف هذا العنصر نهائياً؟', `archiveDel('siteInventory/${siteId}/${ptId}/items/${itemId}');toast('تم الحذف');pgSiteInventory()`);
 }
 
 // ── تصدير الجرد ──
@@ -9210,7 +9335,7 @@ function updTask(taskId, status){
 }
 
 function delTask(taskId){
-  confirmDel('حذف هذه المهمة نهائياً؟', `fbDel('tasks/${taskId}');setTimeout(pgTasks,300)`);
+  confirmDel('حذف هذه المهمة نهائياً؟', `archiveDel('tasks/${taskId}');setTimeout(pgTasks,300)`);
 }
 
 
@@ -9479,8 +9604,8 @@ function startNetDevicePlace(){
 }
 
 // ── حذف ──
-function delNetLink(id){ confirmDel('حذف هذا الرابط نهائياً؟', `fbDel('network/links/${id}');toast('تم الحذف');loadNetworkLayer()`); }
-function delNetDevice(id){ confirmDel('حذف هذا الجهاز نهائياً؟', `fbDel('network/devices/${id}');toast('تم الحذف');loadNetworkLayer()`); }
+function delNetLink(id){ confirmDel('حذف هذا الرابط نهائياً؟', `archiveDel('network/links/${id}');toast('تم الحذف');loadNetworkLayer()`); }
+function delNetDevice(id){ confirmDel('حذف هذا الجهاز نهائياً؟', `archiveDel('network/devices/${id}');toast('تم الحذف');loadNetworkLayer()`); }
 
 // ── تعديل رابط ──
 function editNetLink(id){
@@ -11425,7 +11550,7 @@ function delRadio(id){
   var d=null;
   var devs=DB.radioDevices||[];
   for(var i=0;i<devs.length;i++){if(devs[i].id===id){d=devs[i];break;}}
-  confirmDel('حذف: '+(d?d.name||d.serial:id)+'؟',"fbDel('radioDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgRadio,400)");
+  confirmDel('حذف: '+(d?d.name||d.serial:id)+'؟',"archiveDel('radioDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgRadio,400)");
 }
 
 
@@ -11663,7 +11788,7 @@ function delUAV(id){
   var d=null;
   var devs=DB.uavDevices||[];
   for(var i=0;i<devs.length;i++){if(devs[i].id===id){d=devs[i];break;}}
-  confirmDel('حذف الطائرة: '+(d?d.name||d.model:id)+'؟',"fbDel('uavDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgUAV,400)");
+  confirmDel('حذف الطائرة: '+(d?d.name||d.model:id)+'؟',"archiveDel('uavDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgUAV,400)");
 }
 
 
