@@ -597,6 +597,18 @@ function logAct(action, details){
     _ts: Date.now()
   });
 }
+// تسجيل دخول/خروج (سجل منفصل مخصص للتدقيق الأمني)
+function logLoginEvent(userObj, type){
+  if(!userObj) return;
+  FBDB.ref('cctv/loginLog').push({
+    uid: userObj.uid||userObj.id,
+    name: userObj.name,
+    role: userObj.role,
+    type, // 'login' أو 'logout'
+    time: ts(),
+    _ts: Date.now()
+  });
+}
 
 // ── كتابة / تحديث / حذف — تدعم وضع أوفلاين: لو الاتصال مقطوع، تُحفظ العملية بطابور
 // محلي (موجود أصلاً بالكود عبر queueOfflineOp) وتُطبَّق تلقائياً بمجرد عودة الاتصال،
@@ -712,6 +724,36 @@ function purgeArchived(archId){
     `FBDB.ref('cctv/archive/${archId}').remove();toast('تم الحذف النهائي','err');pgArchive()`
   );
 }
+
+// ══════════════════════════════════════════════════════
+//  🔐 سجل الدخول/الخروج (مدير فقط)
+// ══════════════════════════════════════════════════════
+function pgLoginLog(){
+  if(CU.role!=='manager'){
+    $('page').innerHTML=`<div class="panel" style="text-align:center;padding:60px">
+      <div style="font-size:40px;margin-bottom:12px">⛔</div><div>هذه الصفحة للمدير فقط</div></div>`;
+    return;
+  }
+  const q = (window._loginLogQ||'').toLowerCase();
+  const list = (DB.loginLog||[]).filter(l=> !q || (l.name||'').toLowerCase().includes(q));
+
+  $('page').innerHTML=`
+  <div class="ph"><div class="pt">🔐 سجل الدخول والخروج (${list.length})</div></div>
+  <input placeholder="🔍 بحث باسم المستخدم..." value="${esc(window._loginLogQ||'')}" oninput="window._loginLogQ=this.value;pgLoginLog()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:14px">
+  <div class="tw"><table>
+    <thead><tr><th>المستخدم</th><th>الدور</th><th>الحدث</th><th>الوقت</th></tr></thead>
+    <tbody>
+      ${list.length===0?`<tr class="erow"><td colspan="4">لا سجلات بعد</td></tr>`:
+        list.map(l=>`<tr>
+          <td class="tm">${esc(l.name||'—')}</td>
+          <td style="color:var(--mt)">${esc(ROLES[l.role]||l.role||'—')}</td>
+          <td><span class="badge" style="background:${l.type==='login'?'#3fb95022':'#f8514922'};color:${l.type==='login'?'var(--gn)':'var(--rd)'}">
+            ${l.type==='login'?'🔓 دخول':'🔒 خروج'}</span></td>
+          <td style="color:var(--mt);font-size:12px;white-space:nowrap">${esc(l.time)}</td>
+        </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.L=null;console.warn('Leaflet failed to load - map disabled')"></script>
@@ -808,6 +850,7 @@ let DB = {
   invoices:[],
   customTypes:{},
   archive:{},
+  loginLog:[],
   fieldSites:[],   // [{id, name, desc, cameras:[], allowedUsers:[]}]
   actlog:[],        // سجل النشاط
   maintain:[],
@@ -1058,6 +1101,7 @@ function doLogout(){
     try{ fbUpdate('techLocations/'+(CU.uid||CU.id),{online:false}); }catch(e){}
   }
   try{ FBDB.ref('cctv').off(); }catch(e){}
+  logLoginEvent(CU, 'logout');
   CU=null; PAGE='';
   FBAUTH.signOut().then(()=>{
     _isLoggingOut = false;
@@ -1244,6 +1288,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
       return;
     }
     CU={...userData, uid:fbUser.uid, email:fbUser.email};
+    logLoginEvent(CU, 'login');
     const splash=$('splash'); if(splash) splash.style.display='none';
     $('lload').style.display='none';
     $('lerr').style.display='none';
@@ -1449,7 +1494,7 @@ function fbStartSync(){
     }
 
     if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
-    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); monthlyReportAutoCheck(); cacheLocalDB(data); }catch(e){}
+    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); monthlyReportAutoCheck(); weeklyReportAutoCheck(); cacheLocalDB(data); }catch(e){}
 
     // إخفاء Splash فوراً عند أول تحميل للبيانات
     const splash=$('splash');
@@ -1510,6 +1555,13 @@ function fbStartSync(){
     DB.actlog = Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
     if(PAGE==='actlog') pgActLog();
   });
+
+  // ── Listener منفصل لسجل الدخول/الخروج — آخر 300 فقط من Firebase ──
+  FBDB.ref('cctv/loginLog').limitToLast(300).on('value', snap=>{
+    if(!snap.exists()) return;
+    DB.loginLog = Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(PAGE==='loginlog') pgLoginLog();
+  });
 }
 
 // ============================================
@@ -1545,6 +1597,7 @@ function buildNav(){
       {id:'maintain',  label:'جدول الصيانة',    icon:'🗓️', perm:'faults'},
       {id:'reports',   label:'التقارير',         icon:'📊', perm:'faults'},
       {id:'actlog',    label:'سجل النشاط',      icon:'📋', perm:'users'},
+      {id:'loginlog',  label:'سجل الدخول/الخروج', icon:'🔐', perm:'__manager_only__'},
       {id:'archive',   label:'الأرشيف',          icon:'🗄️', perm:'__manager_only__'},
     ]},
   ];
@@ -1585,7 +1638,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive,loginlog:pgLoginLog})[page]?.();
   });
 }
 
@@ -1729,6 +1782,7 @@ function pgDash(){
         {id:'pwvault', ic:'🔐', lb:'سجل كلمات المرور', perm:'__manager_only__'},
         {id:'monthlyreports', ic:'📅', lb:'التقارير الشهرية', perm:'__manager_only__'},
         {id:'archive', ic:'🗄️', lb:'الأرشيف', perm:'__manager_only__'},
+        {id:'loginlog', ic:'🔐', lb:'سجل الدخول/الخروج', perm:'__manager_only__'},
         {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:'radio'},
         {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
@@ -6291,6 +6345,49 @@ function pgReports(){
   // ── إحصائيات الكاميرات الميدانية — فقط المواقع المصرح بها ──
   const totalCams = getVisibleFieldSites().reduce((s,fs)=>s+fs.cameras.length,0);
 
+  // ── مقارنة شهرية: هذا الشهر مقابل الشهر الماضي (بناءً على حركة المواد والأعطال) ──
+  const _now = new Date();
+  const _mStart = new Date(_now.getFullYear(), _now.getMonth(), 1).getTime();
+  const _pmStart = new Date(_now.getFullYear(), _now.getMonth()-1, 1).getTime();
+  const _pmEnd = _mStart;
+  const visibleMoves = DB.moves||[];
+  const issuedThisM = visibleMoves.filter(m=>m.dir==='out' && (m._ts||0)>=_mStart);
+  const issuedLastM = visibleMoves.filter(m=>m.dir==='out' && (m._ts||0)>=_pmStart && (m._ts||0)<_pmEnd);
+  const qtySum = arr => arr.reduce((s,m)=>s+(parseInt(m.qty)||1),0);
+  const faultsThisM = visibleFaults.filter(f=>(f._ts||0)>=_mStart);
+  const faultsLastM = visibleFaults.filter(f=>(f._ts||0)>=_pmStart && (f._ts||0)<_pmEnd);
+  const resolvedThisM = faultsThisM.filter(f=>f.status==='resolved');
+  const resolvedLastM = faultsLastM.filter(f=>f.status==='resolved');
+  function pctChange(cur,prev){
+    if(prev===0) return cur===0?0:100;
+    return Math.round(((cur-prev)/prev)*100);
+  }
+  function trendHTML(label, cur, prev, goodWhenUp){
+    const pct = pctChange(cur,prev);
+    const up = cur>=prev;
+    const good = goodWhenUp ? up : !up;
+    const color = pct===0?'var(--mt)':(good?'var(--gn)':'var(--rd)');
+    const arrow = pct===0?'—':(up?'▲':'▼');
+    return `<div style="background:var(--sf);border-radius:10px;padding:14px;border:1px solid var(--br)">
+      <div style="font-size:12px;color:var(--mt);margin-bottom:6px">${label}</div>
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <div style="font-size:24px;font-weight:800">${cur}</div>
+        <div style="font-size:12px;color:var(--mt)">مقابل ${prev} بالشهر الماضي</div>
+      </div>
+      <div style="font-size:13px;color:${color};margin-top:4px;font-weight:700">${arrow} ${Math.abs(pct)}%</div>
+    </div>`;
+  }
+  const monthlyComparisonHTML = `
+  <div style="margin:0 16px 16px">
+    <div style="font-weight:700;margin-bottom:10px;color:var(--bl)">📆 مقارنة شهرية — ${_now.toLocaleDateString('ar-EG',{month:'long',year:'numeric'})} مقابل الشهر الماضي</div>
+    <div class="cg" style="grid-template-columns:repeat(2,1fr);gap:8px">
+      ${trendHTML('عمليات صرف', issuedThisM.length, issuedLastM.length, false)}
+      ${trendHTML('كمية المواد المصروفة', qtySum(issuedThisM), qtySum(issuedLastM), false)}
+      ${trendHTML('أعطال جديدة', faultsThisM.length, faultsLastM.length, false)}
+      ${trendHTML('أعطال محلولة', resolvedThisM.length, resolvedLastM.length, true)}
+    </div>
+  </div>`;
+
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📊 التقارير والإحصائيات</div>
@@ -6306,6 +6403,8 @@ function pgReports(){
     <div style="font-size:36px;font-weight:700;color:${avgSLA>24?'var(--rd)':avgSLA>8?'var(--yl)':'var(--gn)'}">${avgSLA} <span style="font-size:18px;color:var(--mt)">ساعة</span></div>
     <div style="font-size:12px;color:var(--mt);margin-top:4px">بناءً على ${resolvedWithTime.length} عطل محلول</div>
   </div>
+
+  ${monthlyComparisonHTML}
 
   <!-- إحصائيات الأعطال -->
   <div style="margin:0 16px 16px">
@@ -10922,18 +11021,88 @@ function printMonthlyReportNow(){
 // ── الجدولة التلقائية أول كل شهر (بنفس فلسفة النسخ الاحتياطي) ──
 function monthlyReportAutoCheck(){
   if(!CU || CU.role!=='manager') return;
-  setTimeout(function(){
-    try{
-      FBDB.ref('cctv/monthlyReports/_meta/lastGenerated').once('value').then(function(snap){
-        const last = snap.val();
-        const now = new Date();
-        const currentMonthKey = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
-        if(last !== currentMonthKey){
-          generateAutoMonthlyReport(currentMonthKey);
-        }
-      }).catch(function(err){ console.warn('Monthly report check failed:', err.message); });
-    }catch(e){ console.warn('Monthly report check exception:', e.message); }
-  }, 3000); // بعد النسخة الاحتياطية بثانية إضافية لتفادي التزاحم
+  FBDB.ref('cctv/reportSchedule/monthly').once('value').then(function(snap){
+    if(snap.val()===false) return; // المدير عطّل الجدولة الشهرية
+    setTimeout(function(){
+      try{
+        FBDB.ref('cctv/monthlyReports/_meta/lastGenerated').once('value').then(function(snap2){
+          const last = snap2.val();
+          const now = new Date();
+          const currentMonthKey = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+          if(last !== currentMonthKey){
+            generateAutoMonthlyReport(currentMonthKey);
+          }
+        }).catch(function(err){ console.warn('Monthly report check failed:', err.message); });
+      }catch(e){ console.warn('Monthly report check exception:', e.message); }
+    }, 3000);
+  });
+}
+
+// ── نفس فكرة الجدولة الشهرية، لكن أسبوعياً (رقم أسبوع ISO) ──
+function isoWeekKey(d){
+  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = dt.getUTCDay()||7;
+  dt.setUTCDate(dt.getUTCDate()+4-dayNum);
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(),0,1));
+  const weekNo = Math.ceil((((dt-yearStart)/86400000)+1)/7);
+  return dt.getUTCFullYear()+'-W'+String(weekNo).padStart(2,'0');
+}
+function weeklyReportAutoCheck(){
+  if(!CU || CU.role!=='manager') return;
+  FBDB.ref('cctv/reportSchedule/weekly').once('value').then(function(snap){
+    if(snap.val()!==true) return; // الجدولة الأسبوعية معطّلة افتراضياً — تحتاج تفعيل صريح من المدير
+    setTimeout(function(){
+      try{
+        FBDB.ref('cctv/weeklyReports/_meta/lastGenerated').once('value').then(function(snap2){
+          const last = snap2.val();
+          const now = new Date();
+          const currentWeekKey = isoWeekKey(now);
+          if(last !== currentWeekKey){
+            generateAutoWeeklyReport(currentWeekKey);
+          }
+        }).catch(function(err){ console.warn('Weekly report check failed:', err.message); });
+      }catch(e){ console.warn('Weekly report check exception:', e.message); }
+    }, 3500);
+  });
+}
+function generateAutoWeeklyReport(weekKey){
+  try{
+    const now = new Date();
+    // آخر 7 أيام كاملة
+    const periodTo = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const periodFrom = periodTo - 7*24*60*60*1000;
+    const weekLabel = 'الأسبوع '+weekKey+' ('+new Date(periodFrom).toLocaleDateString('en-GB')+' - '+new Date(periodTo).toLocaleDateString('en-GB')+')';
+    const htmlContent = buildMonthlyReportHTML(weekLabel, periodFrom, periodTo);
+    if(htmlContent.length > 8*1024*1024){
+      fbSet('weeklyReports/_meta/lastGenerated', weekKey).catch(function(){});
+      return;
+    }
+    fbSet('weeklyReports/'+weekKey, {generatedAt: ts(), weekLabel: weekLabel, html: htmlContent}).then(function(){
+      fbSet('weeklyReports/_meta/lastGenerated', weekKey);
+      logAct('تقرير أسبوعي تلقائي', weekLabel);
+    }).catch(function(err){ console.warn('Weekly report save failed:', err.message); });
+  }catch(e){ console.warn('Weekly report generation exception:', e.message); }
+}
+function listWeeklyReports(){
+  return FBDB.ref('cctv/weeklyReports').once('value').then(function(snap){
+    const data = snap.val()||{};
+    return Object.keys(data).filter(function(k){return k!=='_meta';})
+      .map(function(k){return {key:k, weekLabel:data[k].weekLabel, generatedAt:data[k].generatedAt};})
+      .sort(function(a,b){return b.key.localeCompare(a.key);});
+  });
+}
+function openWeeklyReport(weekKey){
+  FBDB.ref('cctv/weeklyReports/'+weekKey).once('value').then(function(snap){
+    const report = snap.val();
+    if(!report){ toast('التقرير غير موجود','err'); return; }
+    const win = window.open('','_blank');
+    win.document.write(report.html);
+    win.document.close();
+  });
+}
+function toggleReportSchedule(freq, checked){
+  fbSet('reportSchedule/'+freq, checked);
+  toast(checked?'✅ تم التفعيل':'تم الإيقاف');
 }
 
 function generateAutoMonthlyReport(monthKey){
@@ -10984,13 +11153,36 @@ function openMonthlyReport(monthKey){
 
 function openMonthlyReportsArchive(){
   if(CU.role!=='manager'){ toast('للمدير فقط','err'); return; }
-  openModal(`${mhd('📅 التقارير الشهرية')}
+  openModal(`${mhd('📅 التقارير الدورية')}
   <div style="display:flex;flex-direction:column;gap:10px">
     <button class="btn btn-bl btn-fw" onclick="printMonthlyReportNow();">🖨️ إنشاء تقرير الشهر الحالي الآن</button>
-    <div style="font-weight:700;margin-top:10px">🗓️ الأرشيف الشهري التلقائي</div>
+
+    <div style="background:var(--bg);border-radius:10px;padding:12px;margin-top:6px">
+      <div style="font-weight:700;margin-bottom:8px;font-size:13px">⚙️ جدولة تلقائية</div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+        <input type="checkbox" id="sched-monthly" checked onchange="toggleReportSchedule('monthly', this.checked)">
+        <span style="font-size:13px">تقرير شهري تلقائي (مفعّل افتراضياً)</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="sched-weekly" onchange="toggleReportSchedule('weekly', this.checked)">
+        <span style="font-size:13px">تقرير أسبوعي تلقائي</span>
+      </label>
+      <div style="font-size:11px;color:var(--mt);margin-top:8px">⚠️ يُنشأ التقرير فقط عند فتح المدير للتطبيق بعد بداية الفترة الجديدة — وليس بالضبط بلحظة انتهائها (يحتاج خادم مستقل للجدولة الدقيقة، اسأل المساعد إذا تحتاجه)</div>
+    </div>
+
+    <div style="font-weight:700;margin-top:6px">🗓️ الأرشيف الشهري</div>
     <div id="monthly-reports-list" style="font-size:13px;color:var(--mt)">⏳ جاري التحميل...</div>
+
+    <div style="font-weight:700;margin-top:6px">📆 الأرشيف الأسبوعي</div>
+    <div id="weekly-reports-list" style="font-size:13px;color:var(--mt)">⏳ جاري التحميل...</div>
   </div>
   <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
+
+  FBDB.ref('cctv/reportSchedule').once('value').then(function(snap){
+    const s = snap.val()||{};
+    const mEl = document.getElementById('sched-monthly'); if(mEl) mEl.checked = s.monthly!==false;
+    const wEl = document.getElementById('sched-weekly'); if(wEl) wEl.checked = s.weekly===true;
+  });
 
   listMonthlyReports().then(function(reports){
     const el = document.getElementById('monthly-reports-list');
@@ -11003,6 +11195,20 @@ function openMonthlyReportsArchive(){
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--br)">'+
         '<span>'+esc(r.monthLabel)+'</span>'+
         '<button class="btn btn-sm btn-bl" onclick="openMonthlyReport(\''+r.key+'\')">👁️ عرض</button></div>';
+    }).join('');
+  });
+
+  listWeeklyReports().then(function(reports){
+    const el = document.getElementById('weekly-reports-list');
+    if(!el) return;
+    if(!reports.length){
+      el.innerHTML = 'لا توجد تقارير أسبوعية بعد — فعّل الجدولة الأسبوعية أعلاه أولاً';
+      return;
+    }
+    el.innerHTML = reports.map(function(r){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--br)">'+
+        '<span>'+esc(r.weekLabel)+'</span>'+
+        '<button class="btn btn-sm btn-bl" onclick="openWeeklyReport(\''+r.key+'\')">👁️ عرض</button></div>';
     }).join('');
   });
 }
