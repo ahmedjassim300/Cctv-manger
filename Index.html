@@ -763,23 +763,35 @@ function pgLoginLog(){
 function pgAchievements(){
   const isManager = CU.role==='manager';
   const filterUser = window._achvUser||'';
+  const filterFrom = window._achvFrom||'';
+  const filterTo = window._achvTo||'';
   let list = (DB.achievements||[]);
   if(isManager){
     if(filterUser) list = list.filter(a=>a.uid===filterUser);
   } else {
     list = list.filter(a=>a.uid===(CU.uid||CU.id));
   }
+  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(a=>new Date(a._ts||0)>=df); }
+  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(a=>new Date(a._ts||0)<dt); }
   const userOptions = isManager ? [...new Map(DB.achievements.map(a=>[a.uid,a.name])).entries()] : [];
 
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📝 الإنجازات اليومية (${list.length})</div>
-    <button class="btn btn-bl" onclick="openAddAchievement()">➕ تسجيل إنجاز</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-bl" onclick="openAddAchievement()">➕ تسجيل إنجاز</button>
+      ${canExport()?`<button class="btn btn-gy" onclick="exportAchievements()">⬇️ تصدير</button>`:''}
+    </div>
   </div>
-  ${isManager && userOptions.length?`<select onchange="window._achvUser=this.value;pgAchievements()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:14px">
+  ${isManager && userOptions.length?`<select onchange="window._achvUser=this.value;pgAchievements()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:10px">
     <option value="">👥 كل الفنيين</option>
     ${userOptions.map(([uid,name])=>`<option value="${uid}" ${filterUser===uid?'selected':''}>${esc(name)}</option>`).join('')}
   </select>`:''}
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <input type="date" value="${filterFrom}" placeholder="من" onchange="window._achvFrom=this.value;pgAchievements()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+    <input type="date" value="${filterTo}" placeholder="إلى" onchange="window._achvTo=this.value;pgAchievements()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
+    ${(filterFrom||filterTo)?`<button class="btn btn-gy" onclick="window._achvFrom='';window._achvTo='';pgAchievements()">✖ مسح</button>`:''}
+  </div>
   ${list.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا إنجازات مسجّلة بعد</div>`:
     list.map(a=>`
     <div class="panel" style="margin-bottom:10px">
@@ -788,6 +800,9 @@ function pgAchievements(){
           ${isManager?`<div style="font-weight:700;font-size:13px;margin-bottom:2px">${esc(a.name||'—')} <span style="font-weight:400;color:var(--mt);font-size:11px">(${esc(ROLES[a.role]||a.role||'')})</span></div>`:''}
           <div style="white-space:pre-line;font-size:14px">${esc(a.text||'')}</div>
           ${a.linkLabel?`<div style="margin-top:6px"><span class="badge" style="background:#1d4ed822;color:#1d4ed8">${a.linkType==='fault'?'⚠️':a.linkType==='task'?'✅':'📍'} ${esc(a.linkLabel)}</span></div>`:''}
+          ${a.photos&&a.photos.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+            ${a.photos.map(ph=>`<img src="${ph.url}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;border:1px solid var(--br);cursor:pointer" onclick="viewPhoto(this.src)">`).join('')}
+          </div>`:''}
           <div style="font-size:11px;color:#555;margin-top:8px">${esc(a.date||'')}</div>
         </div>
         ${(a.uid===(CU.uid||CU.id) || isManager)?`<button class="btn btn-sm btn-rd" onclick="delAchievement('${a.id}')">🗑️</button>`:''}
@@ -797,6 +812,7 @@ function pgAchievements(){
 
 function openAddAchievement(){
   window._achvLinkType = '';
+  window._achvPhotos = [];
   openModal(`${mhd('📝 تسجيل إنجاز اليوم')}
   <div class="field"><label>شنو سوّيت اليوم؟ *</label>
     <textarea id="achv-text" placeholder="مثال: تركيب كاميرتين بموقع الميناء، صيانة NVR بالمستودع الرئيسي..." style="min-height:90px"></textarea></div>
@@ -812,6 +828,7 @@ function openAddAchievement(){
     <label id="achv-linkid-label">اختر</label>
     <select id="achv-linkid"></select>
   </div>
+  ${invPhotoPickerHTML('achv')}
   ${mft('💾 حفظ الإنجاز','saveAchievement()')}`);
 }
 function refreshAchvLinkOptions(){
@@ -842,17 +859,46 @@ function saveAchievement(){
   if(linkType==='fault'){ const f=(DB.faults||[]).find(x=>x.id===linkId); linkLabel = f?(f.reason||f.desc||f.location||''):''; }
   else if(linkType==='task'){ const t=(DB.tasks||[]).find(x=>x.id===linkId); linkLabel = t?(t.title||''):''; }
   else if(linkType==='site'){ const s=(DB.fieldSites||[]).find(x=>x.id===linkId); linkLabel = s?s.name:''; }
+  const photos = (window._achvPhotos||[]).map(url=>({url, by:CU.name, time:ts()}));
 
   fbPush('achievements', {
     uid: CU.uid||CU.id, name: CU.name, role: CU.role,
-    text, linkType: linkType||'', linkId: linkId||'', linkLabel,
+    text, linkType: linkType||'', linkId: linkId||'', linkLabel, photos,
     date: ts(), _ts: Date.now()
   });
+  window._achvPhotos = [];
   closeModal();
   toast('✅ تم تسجيل الإنجاز');
 }
 function delAchievement(id){
   confirmDel('حذف هذا الإنجاز نهائياً؟', `archiveDel('achievements/${id}');toast('تم الحذف','err')`);
+}
+function exportAchievements(){
+  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  const isManager = CU.role==='manager';
+  const filterUser = window._achvUser||'';
+  const filterFrom = window._achvFrom||'';
+  const filterTo = window._achvTo||'';
+  let list = (DB.achievements||[]);
+  if(isManager){ if(filterUser) list = list.filter(a=>a.uid===filterUser); }
+  else { list = list.filter(a=>a.uid===(CU.uid||CU.id)); }
+  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(a=>new Date(a._ts||0)>=df); }
+  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(a=>new Date(a._ts||0)<dt); }
+  if(!list.length){ toast('لا إنجازات للتصدير','warn'); return; }
+  const h=['الاسم','الدور','الإنجاز','مرتبط بـ','التاريخ'];
+  let xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#1a2332;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
+  xls+='<h2>📝 الإنجازات اليومية</h2><p style="color:#666">'+list.length+' إنجاز</p>';
+  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
+  list.forEach(function(a){
+    xls+='<tr><td>'+esc(a.name||'')+'</td><td>'+esc(ROLES[a.role]||a.role||'')+'</td><td>'+esc(a.text||'')+'</td><td>'+esc(a.linkLabel||'—')+'</td><td>'+esc(a.date||'')+'</td></tr>';
+  });
+  xls+='</tbody></table></body></html>';
+  const blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='الإنجازات_اليومية_'+new Date().toISOString().split('T')[0]+'.xls';
+  a.click();URL.revokeObjectURL(url);
+  toast('✅ تم تصدير '+list.length+' إنجاز');
 }
 </script>
 
@@ -2823,6 +2869,20 @@ function saveEditType(k){
   closeModal(); toast('✅ تم حفظ التعديل');
 }
 function delType(k){
+  // فحص الاستخدام قبل الحذف — نتفادى ترك مواد بنوع "يتيم" أيقونته تختفي
+  let usageCount = 0;
+  Object.values(DB.inv||{}).forEach(items=>{
+    (items||[]).forEach(item=>{ if(item.type===k) usageCount++; });
+  });
+  Object.values(DB.siteInventory||{}).forEach(pts=>{
+    Object.values(pts||{}).forEach(pt=>{
+      Object.values(pt.items||{}).forEach(item=>{ if(item.itemType===k) usageCount++; });
+    });
+  });
+  if(usageCount>0){
+    toast('⛔ لا يمكن الحذف — هذا النوع مستخدم بـ'+usageCount+' مادة حالياً. غيّر نوعها أولاً ثم احذف','err');
+    return;
+  }
   confirmDel('حذف هذا النوع نهائياً؟', `archiveDel('customTypes/${k}')`);
 }
 
@@ -3321,6 +3381,31 @@ function updFaultStatus(f, ri, status){
     }
   }
   toast('تم تحديث حالة العطل');
+  if(status==='resolved'){
+    setTimeout(function(){ suggestAchievementForFault(f); }, 600);
+  }
+}
+// اقتراح لطيف (مو إجباري) لتسجيل إنجاز فور إغلاق عطل — يقلل الاحتكاك بدل ما
+// يحتاج الفني يفتح نموذج الإنجاز من الصفر ويكتب من جديد
+function suggestAchievementForFault(f){
+  openModal(`<div style="text-align:center;padding:10px 0">
+    <div style="font-size:40px;margin-bottom:10px">🎉</div>
+    <div style="font-weight:700;margin-bottom:6px">تم حل العطل</div>
+    <div style="color:var(--mt);font-size:13px;margin-bottom:20px">تسجّله كإنجاز اليوم؟</div>
+  </div>
+  <button class="btn btn-bl btn-fw" style="margin-bottom:8px" onclick="quickLogFaultAchievement('${f.id}','${esc((f.reason||f.desc||f.location||'').replace(/'/g,"\\'"))}')">✅ نعم، سجّله</button>
+  <button class="btn btn-gy btn-fw" onclick="closeModal()">لا، تجاهل</button>`);
+}
+function quickLogFaultAchievement(faultId, faultLabel){
+  const f = (DB.faults||[]).find(x=>x.id===faultId);
+  fbPush('achievements', {
+    uid: CU.uid||CU.id, name: CU.name, role: CU.role,
+    text: 'حل عطل: '+faultLabel+(f&&f.location?' — '+f.location:''),
+    linkType: 'fault', linkId: faultId, linkLabel: faultLabel,
+    date: ts(), _ts: Date.now()
+  });
+  closeModal();
+  toast('✅ تم تسجيل الإنجاز');
 }
 
 function doUpdFault(ri, status){
@@ -7572,7 +7657,13 @@ function pgPerformance(){
   // حساب إحصائيات كل فني
   const stats = {};
   DB.users.filter(u=>u.role==='technician'||u.role==='engineer'||u.role==='field').forEach(u=>{
-    stats[u.name] = { name:u.name, role:u.role, resolved:0, inprog:0, comments:0, avgTime:0, times:[] };
+    stats[u.name] = { name:u.name, role:u.role, resolved:0, inprog:0, comments:0, avgTime:0, times:[], achvCount:0, uid:u.uid||u.id };
+  });
+
+  // عدد الإنجازات المسجّلة لكل فني (عرض فقط، بدون أي تقييم أو حكم)
+  (DB.achievements||[]).forEach(a=>{
+    const owner = Object.values(stats).find(s=>s.uid===a.uid);
+    if(owner) owner.achvCount++;
   });
 
   DB.faults.forEach(f=>{
@@ -7674,7 +7765,7 @@ function renderPerfCard(s, i, medals, showMonth){
         <div style="font-size:11px;color:var(--mt)">هذا الشهر</div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-bottom:${s.mFaults.length?'10':'0'}px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-bottom:${s.mFaults.length?'10':'0'}px">
       <div style="background:var(--bg);border-radius:8px;padding:8px">
         <div style="font-size:17px;font-weight:700;color:var(--gn)">${s.resolved}</div>
         <div style="font-size:10px;color:var(--mt)">إجمالي محلول</div>
@@ -7686,6 +7777,10 @@ function renderPerfCard(s, i, medals, showMonth){
       <div style="background:var(--bg);border-radius:8px;padding:8px">
         <div style="font-size:17px;font-weight:700;color:var(--pu)">${s.avgTime}h</div>
         <div style="font-size:10px;color:var(--mt)">متوسط الحل</div>
+      </div>
+      <div style="background:var(--bg);border-radius:8px;padding:8px">
+        <div style="font-size:17px;font-weight:700;color:#e3b341">${s.achvCount||0}</div>
+        <div style="font-size:10px;color:var(--mt)">📝 إنجاز مسجّل</div>
       </div>
     </div>
     ${s.mFaults.length?`
