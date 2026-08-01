@@ -875,7 +875,149 @@ function delAchievement(id){
 }
 
 // ══════════════════════════════════════════════════════
-//  🖨️ لوحة الطباعة — مركز موحّد لكل الملفات القابلة للطباعة/التصدير
+//  📋 معاينة/مسح ميداني — نموذج يعبّيه الفني قبل تركيب موقع جديد
+//  (تغطية، عدد كاميرات، كهرباء، إنترنت...) — يفيد بتجهيز عروض
+//  أسعار دقيقة للعملاء ولا يتطلب وجود موقع فعلي مسبقاً بالنظام.
+// ══════════════════════════════════════════════════════
+function pgSurveys(){
+  const list = (DB.surveys||[]).slice().sort((a,b)=>(b._ts||0)-(a._ts||0));
+  $('page').innerHTML=`
+  <div class="ph">
+    <div class="pt">📋 المعاينات الميدانية (${list.length})</div>
+    <button class="btn btn-bl" onclick="openAddSurvey()">➕ معاينة جديدة</button>
+  </div>
+  ${list.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا معاينات مسجّلة بعد</div>`:
+    list.map(s=>`
+    <div class="panel" style="margin-bottom:10px;cursor:pointer" onclick="openSurveyDetail('${s.id}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-weight:700">${esc(s.siteName||'—')}</div>
+          <div style="font-size:12px;color:var(--mt);margin-top:2px">📷 ${s.camerasNeeded||0} كاميرا — 🔌 ${esc(s.powerSource||'—')} — 🌐 ${esc(s.internetQuality||'—')}</div>
+        </div>
+        <span class="badge" style="background:${s.status==='converted'?'#3fb95022':s.status==='ready'?'#1d4ed822':'#8b949e22'};color:${s.status==='converted'?'var(--gn)':s.status==='ready'?'var(--bl)':'var(--mt)'}">
+          ${s.status==='converted'?'✅ تحوّل لموقع':s.status==='ready'?'📤 جاهزة للعرض':'📝 مسودة'}</span>
+      </div>
+      <div style="font-size:11px;color:#555;margin-top:8px">${esc(s.surveyedBy||'')} — ${esc(s.date||'')}</div>
+    </div>`).join('')}`;
+}
+function openAddSurvey(){
+  window._survPhotos = [];
+  openModal(`${mhd('📋 معاينة ميدانية جديدة')}
+  <div class="fg">
+    <div class="s2 field"><label>اسم/عنوان الموقع المُعايَن *</label><input id="sv-name" placeholder="مثال: محطة وقود الحارثة..."></div>
+    <div class="field"><label>الإحداثيات</label><input id="sv-coords" placeholder="lat, lng" readonly></div>
+    <div class="field" style="align-self:flex-end"><button type="button" class="btn btn-gy" style="width:100%" onclick="useSurveyLocation()">📍 موقعي الحالي</button></div>
+    <div class="field"><label>نوع التغطية</label>
+      <select id="sv-coverage"><option>داخلي</option><option>خارجي</option><option>محيطي</option><option>مختلط</option></select></div>
+    <div class="field"><label>عدد الكاميرات المطلوبة *</label><input type="number" id="sv-camcount" min="0" placeholder="0"></div>
+    <div class="s2 field"><label>أنواع الكاميرات المقترحة</label><input id="sv-camtypes" placeholder="مثال: 4 ثابتة + 2 PTZ خارجية 4MP"></div>
+    <div class="field"><label>مصدر الكهرباء</label>
+      <select id="sv-power"><option>عام (شبكة وطنية)</option><option>مولد</option><option>UPS</option><option>طاقة شمسية</option><option>غير متوفر</option></select></div>
+    <div class="field"><label>جودة الإنترنت</label>
+      <select id="sv-inet"><option>ممتاز</option><option>متوسط</option><option>ضعيف</option><option>غير متوفر</option></select></div>
+    <div class="s2 field"><label>نوع الإنترنت</label><input id="sv-inettype" placeholder="فايبر / راديو لينك / ستالايت..."></div>
+    <div class="s2 field"><label>تحديات/عوائق</label><textarea id="sv-challenges" placeholder="ارتفاعات، عوائق خط بصر، صعوبة كهرباء..."></textarea></div>
+    <div class="s2 field"><label>ملاحظات عامة</label><textarea id="sv-notes"></textarea></div>
+    ${invPhotoPickerHTML('surv')}
+  </div>
+  ${mft('💾 حفظ المعاينة','saveSurvey()')}`);
+}
+function useSurveyLocation(){
+  if(!navigator.geolocation){ toast('المتصفح لا يدعم تحديد الموقع','err'); return; }
+  toast('⏳ جاري تحديد الموقع...');
+  navigator.geolocation.getCurrentPosition(function(pos){
+    const el = document.getElementById('sv-coords');
+    if(el) el.value = pos.coords.latitude.toFixed(6)+', '+pos.coords.longitude.toFixed(6);
+    toast('✅ تم تحديد الموقع');
+  }, function(){ toast('تعذّر تحديد الموقع — تأكد من إذن الموقع','err'); });
+}
+function saveSurvey(){
+  const name = val('sv-name');
+  if(!name){ toast('اكتب اسم/عنوان الموقع','err'); return; }
+  const photos = (window._survPhotos||[]).map(url=>({url, by:CU.name, time:ts()}));
+  fbPush('surveys', {
+    siteName: name, coords: val('sv-coords'), coverageType: val('sv-coverage'),
+    camerasNeeded: parseInt(val('sv-camcount'))||0, cameraTypes: val('sv-camtypes'),
+    powerSource: val('sv-power'), internetQuality: val('sv-inet'), internetType: val('sv-inettype'),
+    challenges: val('sv-challenges'), notes: val('sv-notes'), photos,
+    status: 'draft', surveyedBy: CU.name, date: ts(), _ts: Date.now()
+  });
+  window._survPhotos = [];
+  closeModal();
+  toast('✅ تم حفظ المعاينة');
+}
+function openSurveyDetail(id){
+  const s = (DB.surveys||[]).find(x=>x.id===id);
+  if(!s) return;
+  const canManage = CU.role==='manager' || s.surveyedBy===CU.name;
+  openModal(`${mhd('📋 '+esc(s.siteName))}
+  <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+    ${s.coords?`<div>📍 <b>الإحداثيات:</b> ${esc(s.coords)}</div>`:''}
+    <div>🏗️ <b>نوع التغطية:</b> ${esc(s.coverageType||'—')}</div>
+    <div>📷 <b>عدد الكاميرات:</b> ${s.camerasNeeded||0}${s.cameraTypes?' — '+esc(s.cameraTypes):''}</div>
+    <div>🔌 <b>الكهرباء:</b> ${esc(s.powerSource||'—')}</div>
+    <div>🌐 <b>الإنترنت:</b> ${esc(s.internetQuality||'—')}${s.internetType?' — '+esc(s.internetType):''}</div>
+    ${s.challenges?`<div>⚠️ <b>تحديات:</b> ${esc(s.challenges)}</div>`:''}
+    ${s.notes?`<div>📝 <b>ملاحظات:</b> ${esc(s.notes)}</div>`:''}
+    <div style="color:var(--mt);font-size:11px">بواسطة ${esc(s.surveyedBy)} — ${esc(s.date)}</div>
+  </div>
+  ${s.photos&&s.photos.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">
+    ${s.photos.map(ph=>`<img src="${ph.url}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--br);cursor:pointer" onclick="viewPhoto(this.src)">`).join('')}
+  </div>`:''}
+  <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+    ${canExport()?`<button class="btn btn-bl" onclick="printSurvey('${id}')">🖨️ طباعة (لعرض سعر للعميل)</button>`:''}
+    ${canManage&&s.status!=='converted'?`<select onchange="updateSurveyStatus('${id}',this.value)" style="padding:8px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx)">
+      <option value="draft" ${s.status==='draft'?'selected':''}>📝 مسودة</option>
+      <option value="ready" ${s.status==='ready'?'selected':''}>📤 جاهزة للعرض</option>
+    </select>`:''}
+    ${canManage?`<button class="btn btn-rd" onclick="delSurvey('${id}')">🗑️ حذف</button>`:''}
+  </div>
+  <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
+}
+function updateSurveyStatus(id, status){
+  fbUpdate('surveys/'+id, {status});
+  toast('تم التحديث');
+}
+function delSurvey(id){
+  confirmDel('حذف هذه المعاينة نهائياً؟', `archiveDel('surveys/${id}');closeModal();toast('تم الحذف','err')`);
+}
+function printSurvey(id){
+  const s = (DB.surveys||[]).find(x=>x.id===id);
+  if(!s) return;
+  const now = fmtDateTime(new Date().toISOString());
+  const win = window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
+  <title>معاينة ميدانية — ${esc(s.siteName)}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:30px;color:#111;direction:rtl}
+    h2{text-align:center;margin-bottom:2px}
+    .sub{text-align:center;color:#666;margin-bottom:24px;font-size:12px}
+    table{width:100%;border-collapse:collapse;margin-bottom:20px}
+    td{border:1px solid #ccc;padding:10px;font-size:14px}
+    td.lbl{background:#f3f4f6;font-weight:700;width:180px}
+    .imgs{display:flex;flex-wrap:wrap;gap:8px}
+    .imgs img{width:140px;height:140px;object-fit:cover;border-radius:6px;border:1px solid #ccc}
+    @media print{button{display:none}}
+  </style></head><body>
+  <h2>📋 تقرير معاينة ميدانية</h2>
+  <div class="sub">CCTV Manager — تاريخ الطباعة: ${now}</div>
+  <button onclick="window.print()" style="margin-bottom:20px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
+  <table>
+    <tr><td class="lbl">الموقع</td><td>${esc(s.siteName||'—')}</td></tr>
+    ${s.coords?`<tr><td class="lbl">الإحداثيات</td><td>${esc(s.coords)}</td></tr>`:''}
+    <tr><td class="lbl">نوع التغطية</td><td>${esc(s.coverageType||'—')}</td></tr>
+    <tr><td class="lbl">عدد الكاميرات المطلوبة</td><td>${s.camerasNeeded||0}</td></tr>
+    ${s.cameraTypes?`<tr><td class="lbl">أنواع الكاميرات</td><td>${esc(s.cameraTypes)}</td></tr>`:''}
+    <tr><td class="lbl">مصدر الكهرباء</td><td>${esc(s.powerSource||'—')}</td></tr>
+    <tr><td class="lbl">جودة الإنترنت</td><td>${esc(s.internetQuality||'—')}${s.internetType?' — '+esc(s.internetType):''}</td></tr>
+    ${s.challenges?`<tr><td class="lbl">تحديات/عوائق</td><td>${esc(s.challenges)}</td></tr>`:''}
+    ${s.notes?`<tr><td class="lbl">ملاحظات</td><td>${esc(s.notes)}</td></tr>`:''}
+    <tr><td class="lbl">أُجريت بواسطة</td><td>${esc(s.surveyedBy||'—')} — ${esc(s.date||'')}</td></tr>
+  </table>
+  ${s.photos&&s.photos.length?`<div class="imgs">${s.photos.map(ph=>`<img src="${ph.url}">`).join('')}</div>`:''}
+  </body></html>`);
+  win.document.close();
+}
 //  بالتطبيق. الوصول محكوم بنفس صلاحية "الطباعة وتصدير الملفات"
 //  (exportPrint) اللي يمنحها المدير — نفس الصلاحية المستخدمة بكل
 //  أزرار التصدير المتفرقة بالتطبيق، هذا فقط تجميع لها بمكان وحد.
@@ -923,6 +1065,9 @@ function pgPrintHub(){
   ${fieldSites.length===0?`<div style="color:var(--mt);font-size:13px;padding:8px">لا مواقع ميدانية بعد</div>`:
     fieldSites.map(fs=>printHubRow('📍', fs.name, 'تصدير KML — كاميرات ومعدات الموقع', `_FSITE='${fs.id}';exportMapImage()`)).join('')}
   ${printHubRow('🗺️','خريطة مواقع الفنيين الحالية','Excel — إحداثيات كل فني','exportTechMapExcel()')}
+
+  ${printHubSection('📋 المعاينات الميدانية')}
+  ${printHubRow('📋','طباعة معاينة ميدانية (لعرض سعر عميل)','افتح المعاينة المطلوبة واضغط طباعة',`go('surveys')`)}
 
   ${printHubSection('📝 الإنجازات والنشاطات')}
   ${printHubRow('📝','تصدير الإنجازات اليومية','Excel — حسب آخر فلترة مفعّلة بصفحة الإنجازات',`go('achievements');setTimeout(exportAchievements,300)`)}
@@ -1058,6 +1203,7 @@ let DB = {
   archive:{},
   loginLog:[],
   achievements:[],
+  surveys:[],
   fieldSites:[],   // [{id, name, desc, cameras:[], allowedUsers:[]}]
   actlog:[],        // سجل النشاط
   maintain:[],
@@ -1783,6 +1929,12 @@ function fbStartSync(){
     DB.achievements = snap.exists() ? Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
     if(PAGE==='achievements') pgAchievements();
   });
+
+  // ── Listener منفصل للمعاينات الميدانية ──
+  FBDB.ref('cctv/surveys').on('value', snap=>{
+    DB.surveys = snap.exists() ? Object.values(snap.val()||{}) : [];
+    if(PAGE==='surveys') pgSurveys();
+  });
 }
 
 // ============================================
@@ -1811,10 +1963,12 @@ function buildNav(){
     { group: '📍 المواقع', items: [
       {id:'sites',     label:'المواقع والمخازن', icon:'📍', perm:'sites'},
       {id:'fieldmap',  label:'الميدانية',        icon:'🗺️', perm:'fieldmap'},
+      {id:'networkdiagrams', label:'مخططات الشبكة', icon:'🔌', perm:'docs'},
     ]},
     // ── الفريق ──
     { group: '👤 الفريق', items: [
       {id:'achievements', label:'الإنجازات اليومية', icon:'📝', perm:null},
+      {id:'surveys', label:'المعاينات الميدانية', icon:'📋', perm:null},
     ]},
     // ── الطباعة ──
     { group: '🖨️ الطباعة', items: [
@@ -1867,7 +2021,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive,loginlog:pgLoginLog,achievements:pgAchievements,printhub:pgPrintHub})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive,loginlog:pgLoginLog,achievements:pgAchievements,printhub:pgPrintHub,surveys:pgSurveys,networkdiagrams:pgNetworkDiagrams})[page]?.();
   });
 }
 
@@ -2017,6 +2171,8 @@ function pgDash(){
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
         {id:'achievements', ic:'📝', lb:'الإنجازات اليومية', perm:null},
+        {id:'surveys', ic:'📋', lb:'المعاينات الميدانية', perm:null},
+        {id:'networkdiagrams', ic:'🔌', lb:'مخططات الشبكة', perm:'docs'},
         {id:'printhub', ic:'🖨️', lb:'لوحة الطباعة', perm:'exportPrint'},
         {id:'docs',       ic:'📁', lb:'المستندات',         perm:'docs'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
@@ -8690,7 +8846,7 @@ function pgDocs(){
     <div style="padding:0 16px">
       ${docs.length?`
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
-        ${['الكل','عقد','تقرير','تصريح','صورة','أخرى'].map(t=>
+        ${['الكل','عقد','تقرير','تصريح','صورة','مخطط شبكة','أخرى'].map(t=>
           `<button class="btn btn-sm btn-gy" onclick="filterDocs('${t}',this)">${t}</button>`
         ).join('')}
       </div>
@@ -8705,7 +8861,7 @@ function pgDocs(){
 function renderDocsList(docs, canDownload, canDelete){
   if(canDownload===undefined) canDownload = CU.role==='manager' || CU.perms?.downloadDocs;
   if(canDelete===undefined)   canDelete   = CU.role==='manager';
-  const icons = {عقد:'📄',تقرير:'📊',تصريح:'📋',صورة:'🖼️',أخرى:'📎'};
+  const icons = {عقد:'📄',تقرير:'📊',تصريح:'📋',صورة:'🖼️','مخطط شبكة':'🔌',أخرى:'📎'};
   return docs.map(d=>`
   <div class="panel" style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
     <div style="font-size:28px">${icons[d.category]||'📎'}</div>
@@ -8732,13 +8888,50 @@ function filterDocs(type, btn){
   });
 }
 
-function openAddDoc(){
+// ══════════════════════════════════════════════════════
+//  🔌 مكتبة مخططات الشبكة — عرض مخصّص فوق نظام المستندات
+//  الموجود أصلاً (نفس التخزين والصلاحيات)، مفلترة على فئة
+//  "مخطط شبكة" فقط، مجمّعة حسب الموقع
+// ══════════════════════════════════════════════════════
+function pgNetworkDiagrams(){
+  if(!p('docs')&&CU.role!=='manager'){
+    $('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px">⛔</div><div style="margin-top:12px">ليس لديك صلاحية لعرض المخططات</div></div>';
+    return;
+  }
+  const canUpload = CU.role==='manager';
+  const canDownload = CU.role==='manager' || CU.perms?.downloadDocs;
+  const canDelete = CU.role==='manager';
+
+  FBDB.ref('cctv/docs').once('value').then(snap=>{
+    const all = snap.val() ? Object.values(snap.val()) : [];
+    const diagrams = all.filter(d=>d.category==='مخطط شبكة').sort((a,b)=>(b._ts||0)-(a._ts||0));
+    // تجميع حسب الموقع
+    const bySite = {};
+    diagrams.forEach(d=>{
+      const key = d.site||'عام';
+      if(!bySite[key]) bySite[key]=[];
+      bySite[key].push(d);
+    });
+    $('page').innerHTML=`
+    <div class="ph">
+      <div><div class="pt">🔌 مخططات الشبكة (${diagrams.length})</div><div class="ps">مخططات IP الشبكية لكل موقع</div></div>
+      ${canUpload?`<button class="btn btn-bl" onclick="openAddDoc('مخطط شبكة')">+ رفع مخطط</button>`:''}
+    </div>
+    ${diagrams.length===0?`<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">🔌</div><div style="margin-top:12px">لا مخططات مرفوعة بعد</div></div>`:
+      Object.entries(bySite).map(([site,docs])=>`
+      <div style="font-weight:700;color:var(--bl);margin:14px 0 8px;font-size:13px">📍 ${esc(site)}</div>
+      ${renderDocsList(docs, canDownload, canDelete)}
+      `).join('')}`;
+  });
+}
+
+function openAddDoc(presetCat){
   openModal(`${mhd('📁 رفع مستند')}
   <div style="display:flex;flex-direction:column;gap:10px">
     <div class="field"><label>اسم المستند *</label><input id="dc-name" placeholder="عقد صيانة 2025"></div>
     <div class="field"><label>النوع</label>
       <select id="dc-cat">
-        ${['عقد','تقرير','تصريح','صورة','أخرى'].map(t=>`<option>${t}</option>`).join('')}
+        ${['عقد','تقرير','تصريح','صورة','مخطط شبكة','أخرى'].map(t=>`<option ${presetCat===t?'selected':''}>${t}</option>`).join('')}
       </select>
     </div>
     <div class="field"><label>الموقع المرتبط</label>
@@ -8816,6 +9009,8 @@ function openAppMenu(){
     {id:'performance',ic:'🏆',lb:'أداء الفنيين',       perm:'users'},
     {id:'chat',      ic:'💬', lb:'الدردشة',            perm:null},
     {id:'achievements', ic:'📝', lb:'الإنجازات اليومية', perm:null},
+    {id:'surveys', ic:'📋', lb:'المعاينات الميدانية', perm:null},
+    {id:'networkdiagrams', ic:'🔌', lb:'مخططات الشبكة', perm:'docs'},
     {id:'printhub', ic:'🖨️', lb:'لوحة الطباعة', perm:'exportPrint'},
     {id:'docs',      ic:'📁', lb:'المستندات',          perm:'docs'},
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
