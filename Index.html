@@ -1385,6 +1385,108 @@ function fbInitDB(){
 let _syncRef = null;
 let _syncHandler = null;
 
+// ══════════════════════════════════════════════════════
+//  📥 تحويل بيانات Firebase الخام (snapshot) إلى بنية DB.* الداخلية
+//  — دالة واحدة مشتركة يستخدمها الاتصال الحي (fbStartSync) وأيضاً
+//  التحميل الأوفلاين (loadLocalDB) لتفادي ازدواج نفس المنطق المعقد
+//  بمكانين (وخطر انحرافهما عن بعض مستقبلاً)
+// ══════════════════════════════════════════════════════
+function applyDBSnapshot(data){
+  // sites
+  // sites مخزنة كـ {key: name} — Firebase يرتبها أبجدياً بالـ key
+  const mainSiteName = data.mainSite || 'المستودع المركزي';
+  if(data.sites){
+    const raw = data.sites;
+    if(Array.isArray(raw)){
+      DB.sites = raw.filter(s=>typeof s==='string');
+    } else {
+      // ترتيب حسب الـ key لضمان الرئيسي أولاً (000_main يجي قبل أي رقم آخر)
+      const sortedEntries = Object.entries(raw)
+        .sort((a,b)=>a[0].localeCompare(b[0]))
+        .filter(([k,v])=>typeof v==='string');
+      DB.sites = sortedEntries.map(([k,v])=>v);
+      window._sitesKeys = {}; // {siteName: firebaseKey}
+      sortedEntries.forEach(([k,v])=>{ window._sitesKeys[v]=k; });
+    }
+  } else {
+    DB.sites = [mainSiteName];
+  }
+  // ضمان أن الرئيسي أول دائماً
+  if(!DB.sites.length) DB.sites = [mainSiteName];
+  if(DB.sites[0] !== mainSiteName){
+    DB.sites = [mainSiteName, ...DB.sites.filter(s=>s!==mainSiteName)];
+  }
+  DB.mainSite = data.mainSite || DB.sites[0];
+
+  // inventory
+  DB.inv={};
+  DB.sites.forEach(s=>DB.inv[s]=[]);
+  if(data.inv){
+    Object.entries(data.inv).forEach(([k,items])=>{
+      const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
+      if(!DB.inv[siteName]) DB.inv[siteName]=[];
+      Object.values(items).forEach(item=>{ if(!item.___init) DB.inv[siteName].push(item); });
+    });
+  }
+
+  // collections
+  DB.moves       = data.moves       ? Object.values(data.moves).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+  DB.faults      = data.faults      ? Object.values(data.faults) : [];
+  // فلترة الإشعارات حسب صلاحيات المستخدم ومواقعه
+  const allNotifs = data.notifs ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+  const myUid = CU?.uid||CU?.id;
+  const myAllowedSites = CU?.perms?.allowedSites||[];
+  DB.notifs = allNotifs.filter(n=>{
+    // المدير والسيد يريان كل الإشعارات
+    if(!CU || CU.role==='manager' || CU.role==='viewer') return true;
+    // إشعار موجّه لمستخدم محدد
+    if(n.targetUid) return n.targetUid===myUid;
+    // إشعار مرتبط بموقع ميداني
+    if(n.fieldSiteId){
+      // إذا كان للمستخدم مواقع محددة، تحقق منها
+      if(myAllowedSites.length) return myAllowedSites.includes(n.fieldSiteId);
+      // إذا لم تحدد مواقع، تحقق من allowedUsers
+      if(n.allowedUsers) return n.allowedUsers.includes(myUid)||n.allowedUsers.includes('all');
+      return false;
+    }
+    // إشعار عام
+    if(!n.allowedUsers) return true;
+    if(n.allowedUsers.includes('all')) return true;
+    if(n.allowedUsers.includes('manager_only')) return false;
+    return n.allowedUsers.includes(myUid);
+  });
+  DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
+  DB.customTypes = data.customTypes || {};
+  DB.archive = data.archive || {};
+  DB.fieldSites  = data.fieldSites
+    ? Object.values(data.fieldSites).map(fs=>({...fs, cameras:fs.cameras?Object.values(fs.cameras):[]}))
+    : [];
+  DB.users       = data.users       ? Object.values(data.users) : [];
+  DB.actlog      = data.actlog      ? Object.values(data.actlog).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+  DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
+  DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+  DB.siteInventory = data.siteInventory || {};
+  DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+  DB.uavDevices = data.uavDevices ? Object.values(data.uavDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+  DB.pwVault = data.pwVault ? Object.values(data.pwVault).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+  DB.faultTemplates = data.faultTemplates || [];
+  // تحميل روابط المستودعات الأب
+  if(data.siteParents){
+    window._siteParents = data.siteParents
+      ? Object.fromEntries(Object.entries(data.siteParents).map(([k,v])=>[decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/')),v]))
+      : {};
+  }
+  // تحديث صفحة المهام إذا كانت مفتوحة
+  if(PAGE==='tasks') pgTasks();
+
+  // تحديث المستخدم الحالي إذا تغيرت بياناته
+  if(CU && data.users && data.users[CU.uid]){
+    const updated=data.users[CU.uid];
+    if(!updated.active){ doLogout(); return; }
+    CU={...CU,...updated};
+  }
+}
+
 function fbStartSync(){
   // إذا offline — حمّل البيانات المحلية
   if(!navigator.onLine){ loadLocalDB(); }
@@ -1398,101 +1500,7 @@ function fbStartSync(){
   _syncRef = FBDB.ref('cctv');
   _syncHandler = _syncRef.on('value', snap=>{
     const data=snap.val()||{};
-
-    // sites
-    // sites مخزنة كـ {key: name} — Firebase يرتبها أبجدياً بالـ key
-    const mainSiteName = data.mainSite || 'المستودع المركزي';
-    if(data.sites){
-      const raw = data.sites;
-      if(Array.isArray(raw)){
-        DB.sites = raw.filter(s=>typeof s==='string');
-      } else {
-        // ترتيب حسب الـ key لضمان الرئيسي أولاً (000_main يجي قبل أي رقم آخر)
-        const sortedEntries = Object.entries(raw)
-          .sort((a,b)=>a[0].localeCompare(b[0]))
-          .filter(([k,v])=>typeof v==='string');
-        DB.sites = sortedEntries.map(([k,v])=>v);
-        window._sitesKeys = {}; // {siteName: firebaseKey}
-        sortedEntries.forEach(([k,v])=>{ window._sitesKeys[v]=k; });
-      }
-    } else {
-      DB.sites = [mainSiteName];
-    }
-    // ضمان أن الرئيسي أول دائماً
-    if(!DB.sites.length) DB.sites = [mainSiteName];
-    if(DB.sites[0] !== mainSiteName){
-      DB.sites = [mainSiteName, ...DB.sites.filter(s=>s!==mainSiteName)];
-    }
-    DB.mainSite = data.mainSite || DB.sites[0];
-
-    // inventory
-    DB.inv={};
-    DB.sites.forEach(s=>DB.inv[s]=[]);
-    if(data.inv){
-      Object.entries(data.inv).forEach(([k,items])=>{
-        const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
-        if(!DB.inv[siteName]) DB.inv[siteName]=[];
-        Object.values(items).forEach(item=>{ if(!item.___init) DB.inv[siteName].push(item); });
-      });
-    }
-
-    // collections
-    DB.moves       = data.moves       ? Object.values(data.moves).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-    DB.faults      = data.faults      ? Object.values(data.faults) : [];
-    // فلترة الإشعارات حسب صلاحيات المستخدم ومواقعه
-    const allNotifs = data.notifs ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-    const myUid = CU?.uid||CU?.id;
-    const myAllowedSites = CU?.perms?.allowedSites||[];
-    DB.notifs = allNotifs.filter(n=>{
-      // المدير والسيد يريان كل الإشعارات
-      if(!CU || CU.role==='manager' || CU.role==='viewer') return true;
-      // إشعار موجّه لمستخدم محدد
-      if(n.targetUid) return n.targetUid===myUid;
-      // إشعار مرتبط بموقع ميداني
-      if(n.fieldSiteId){
-        // إذا كان للمستخدم مواقع محددة، تحقق منها
-        if(myAllowedSites.length) return myAllowedSites.includes(n.fieldSiteId);
-        // إذا لم تحدد مواقع، تحقق من allowedUsers
-        if(n.allowedUsers) return n.allowedUsers.includes(myUid)||n.allowedUsers.includes('all');
-        return false;
-      }
-      // إشعار عام
-      if(!n.allowedUsers) return true;
-      if(n.allowedUsers.includes('all')) return true;
-      if(n.allowedUsers.includes('manager_only')) return false;
-      return n.allowedUsers.includes(myUid);
-    });
-    DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
-    DB.customTypes = data.customTypes || {};
-    DB.archive = data.archive || {};
-    DB.fieldSites  = data.fieldSites
-      ? Object.values(data.fieldSites).map(fs=>({...fs, cameras:fs.cameras?Object.values(fs.cameras):[]}))
-      : [];
-    DB.users       = data.users       ? Object.values(data.users) : [];
-    DB.actlog      = data.actlog      ? Object.values(data.actlog).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-    DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
-    DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-    DB.siteInventory = data.siteInventory || {};
-    DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
-    DB.uavDevices = data.uavDevices ? Object.values(data.uavDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
-    DB.pwVault = data.pwVault ? Object.values(data.pwVault).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
-    DB.faultTemplates = data.faultTemplates || [];
-    // تحميل روابط المستودعات الأب
-    if(data.siteParents){
-      window._siteParents = data.siteParents
-        ? Object.fromEntries(Object.entries(data.siteParents).map(([k,v])=>[decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/')),v]))
-        : {};
-    }
-    // تحديث صفحة المهام إذا كانت مفتوحة
-    if(PAGE==='tasks') pgTasks();
-
-    // تحديث المستخدم الحالي إذا تغيرت بياناته
-    if(CU && data.users && data.users[CU.uid]){
-      const updated=data.users[CU.uid];
-      if(!updated.active){ doLogout(); return; }
-      CU={...CU,...updated};
-    }
-
+    applyDBSnapshot(data);
     if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
     try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); monthlyReportAutoCheck(); weeklyReportAutoCheck(); cacheLocalDB(data); }catch(e){}
 
@@ -8101,10 +8109,6 @@ function updateOnlineStatus(online){
 function queueOfflineOp(op, path, data){
   _offlineQueue.push({op, path, data, time: Date.now()});
   localStorage.setItem('cctv_offline_queue', JSON.stringify(_offlineQueue));
-  // حفظ البيانات محلياً فوراً
-  const local = JSON.parse(localStorage.getItem('cctv_local_db')||'{}');
-  local[path] = data;
-  localStorage.setItem('cctv_local_db', JSON.stringify(local));
 }
 
 // مزامنة القائمة عند عودة الاتصال
@@ -8126,51 +8130,71 @@ function syncOfflineQueue(){
 }
 
 // حفظ البيانات محلياً عند المزامنة
+// ══════════════════════════════════════════════════════
+//  🗄️ IndexedDB — تخزين محلي شامل (بدل localStorage المحدود بـ5MB)
+//  مخزن مفتاح/قيمة بسيط، بدون مكتبات خارجية
+// ══════════════════════════════════════════════════════
+const IDB_NAME = 'cctv_offline_db', IDB_STORE = 'kv';
+function idbOpen(){
+  return new Promise(function(resolve, reject){
+    if(!window.indexedDB){ reject(new Error('IndexedDB غير مدعوم')); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = function(){ req.result.createObjectStore(IDB_STORE); };
+    req.onsuccess = function(){ resolve(req.result); };
+    req.onerror = function(){ reject(req.error); };
+  });
+}
+function idbSet(key, value){
+  return idbOpen().then(function(db){
+    return new Promise(function(resolve, reject){
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, key);
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(){ reject(tx.error); };
+    });
+  });
+}
+function idbGet(key){
+  return idbOpen().then(function(db){
+    return new Promise(function(resolve, reject){
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+  });
+}
+
+// تخزين نسخة شاملة من كل بيانات التطبيق تقريباً — تُستدعى بعد كل مزامنة ناجحة.
+// نستثني عمداً: خزنة كلمات المرور (حساسية أمنية)، والتقارير الدورية/الأرشيف
+// (نصوص HTML كبيرة نادراً ما تُحتاج أوفلاين) — الباقي كله محفوظ لأن IndexedDB
+// ما عنده سقف صغير زي localStorage (5MB)، فقادرين نغطي "شامل" فعلاً.
 function cacheLocalDB(data){
   try{
-    const mini = {
-      faults:     data.faults     ||{},
-      notifs:     data.notifs     ||{},
-      fieldSites: data.fieldSites ||{},
-      maintain:   data.maintain   ||{},
-      users:      data.users      ||{},
-      sites:      data.sites      ||[],
-      inv:        data.inv        ||{},
-      tasks:      data.tasks      ||{},
-    };
-    // تجنب تجاوز حد localStorage (5MB) — نحذف القديم إذا فشل
-    try{
-      localStorage.setItem('cctv_local_db', JSON.stringify(mini));
-    }catch(quota){
-      // إذا كان الحجم كبيراً، احفظ الأساسيات فقط
-      localStorage.setItem('cctv_local_db', JSON.stringify({
-        faults: data.faults||{}, fieldSites: data.fieldSites||{}, maintain: data.maintain||{}
-      }));
-    }
+    const snapshot = {...data};
+    delete snapshot.pwVault;
+    delete snapshot.monthlyReports;
+    delete snapshot.weeklyReports;
+    delete snapshot.archive;
+    delete snapshot.chat;
+    idbSet('snapshot', snapshot).catch(function(e){ console.warn('IndexedDB cache failed:', e.message); });
   }catch(e){}
 }
 
-// تحميل البيانات المحلية عند offline
+// تحميل البيانات المحلية عند عدم توفر اتصال — نستخدم نفس دالة المعالجة
+// الموحّدة (applyDBSnapshot) المستخدمة بالاتصال الحي، لضمان تطابق تام
 function loadLocalDB(){
-  try{
-    const local = JSON.parse(localStorage.getItem('cctv_local_db')||'{}');
-    if(local.faults)     DB.faults     = Object.values(local.faults).sort((a,b)=>(b._ts||0)-(a._ts||0));
-    if(local.notifs)     DB.notifs     = Object.values(local.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0));
-    if(local.fieldSites) DB.fieldSites = Object.values(local.fieldSites).map(fs=>({...fs,cameras:fs.cameras?Object.values(fs.cameras):[]}));
-    if(local.maintain)   DB.maintain   = Object.values(local.maintain);
-    if(local.users)      DB.users      = Object.values(local.users);
-    if(local.sites)      DB.sites      = Array.isArray(local.sites) ? local.sites : Object.values(local.sites);
-    if(local.tasks)      DB.tasks      = Object.values(local.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0));
-    if(local.inv){
-      DB.inv={};
-      Object.entries(local.inv).forEach(([k,items])=>{
-        const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
-        DB.inv[siteName]=Object.values(items).filter(i=>!i.___init);
-      });
-    }
-    toast('📴 عرض بيانات محفوظة — غير متصل','warn');
+  idbGet('snapshot').then(function(local){
+    if(!local){ toast('📴 غير متصل ولا توجد بيانات محفوظة بعد','err'); return; }
+    applyDBSnapshot(local);
+    if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
+    toast('📴 عرض بيانات محفوظة محلياً — غير متصل حالياً','warn');
+    try{ buildNav(); }catch(e){}
     if(PAGE) go(PAGE); else go('dashboard');
-  }catch(e){ console.warn('loadLocalDB error:',e); }
+  }).catch(function(e){
+    console.warn('loadLocalDB error:', e.message);
+    toast('📴 غير متصل — تعذّر تحميل البيانات المحفوظة','err');
+  });
 }
 
 
