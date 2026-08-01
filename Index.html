@@ -754,6 +754,106 @@ function pgLoginLog(){
     </tbody>
   </table></div>`;
 }
+
+// ══════════════════════════════════════════════════════
+//  📝 الإنجازات اليومية — الفني/المخبر يسجّل شنو سوّى بيومه،
+//  اختيارياً مرتبط بعطل/مهمة/موقع ميداني، أو نص حر مستقل.
+//  المدير يشوف الكل، غيره يشوف بس مالته.
+// ══════════════════════════════════════════════════════
+function pgAchievements(){
+  const isManager = CU.role==='manager';
+  const filterUser = window._achvUser||'';
+  let list = (DB.achievements||[]);
+  if(isManager){
+    if(filterUser) list = list.filter(a=>a.uid===filterUser);
+  } else {
+    list = list.filter(a=>a.uid===(CU.uid||CU.id));
+  }
+  const userOptions = isManager ? [...new Map(DB.achievements.map(a=>[a.uid,a.name])).entries()] : [];
+
+  $('page').innerHTML=`
+  <div class="ph">
+    <div class="pt">📝 الإنجازات اليومية (${list.length})</div>
+    <button class="btn btn-bl" onclick="openAddAchievement()">➕ تسجيل إنجاز</button>
+  </div>
+  ${isManager && userOptions.length?`<select onchange="window._achvUser=this.value;pgAchievements()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:14px">
+    <option value="">👥 كل الفنيين</option>
+    ${userOptions.map(([uid,name])=>`<option value="${uid}" ${filterUser===uid?'selected':''}>${esc(name)}</option>`).join('')}
+  </select>`:''}
+  ${list.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا إنجازات مسجّلة بعد</div>`:
+    list.map(a=>`
+    <div class="panel" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          ${isManager?`<div style="font-weight:700;font-size:13px;margin-bottom:2px">${esc(a.name||'—')} <span style="font-weight:400;color:var(--mt);font-size:11px">(${esc(ROLES[a.role]||a.role||'')})</span></div>`:''}
+          <div style="white-space:pre-line;font-size:14px">${esc(a.text||'')}</div>
+          ${a.linkLabel?`<div style="margin-top:6px"><span class="badge" style="background:#1d4ed822;color:#1d4ed8">${a.linkType==='fault'?'⚠️':a.linkType==='task'?'✅':'📍'} ${esc(a.linkLabel)}</span></div>`:''}
+          <div style="font-size:11px;color:#555;margin-top:8px">${esc(a.date||'')}</div>
+        </div>
+        ${(a.uid===(CU.uid||CU.id) || isManager)?`<button class="btn btn-sm btn-rd" onclick="delAchievement('${a.id}')">🗑️</button>`:''}
+      </div>
+    </div>`).join('')}`;
+}
+
+function openAddAchievement(){
+  window._achvLinkType = '';
+  openModal(`${mhd('📝 تسجيل إنجاز اليوم')}
+  <div class="field"><label>شنو سوّيت اليوم؟ *</label>
+    <textarea id="achv-text" placeholder="مثال: تركيب كاميرتين بموقع الميناء، صيانة NVR بالمستودع الرئيسي..." style="min-height:90px"></textarea></div>
+  <div class="field"><label>ربط اختياري (لو يخص عطل/مهمة/موقع معيّن)</label>
+    <select id="achv-linktype" onchange="refreshAchvLinkOptions()">
+      <option value="">— بدون ربط —</option>
+      <option value="fault">⚠️ عطل</option>
+      <option value="task">✅ مهمة</option>
+      <option value="site">📍 موقع ميداني</option>
+    </select>
+  </div>
+  <div class="field" id="achv-linkid-wrap" style="display:none">
+    <label id="achv-linkid-label">اختر</label>
+    <select id="achv-linkid"></select>
+  </div>
+  ${mft('💾 حفظ الإنجاز','saveAchievement()')}`);
+}
+function refreshAchvLinkOptions(){
+  const type = val('achv-linktype');
+  const wrap = document.getElementById('achv-linkid-wrap');
+  const sel = document.getElementById('achv-linkid');
+  const lbl = document.getElementById('achv-linkid-label');
+  if(!type){ wrap.style.display='none'; return; }
+  wrap.style.display='block';
+  if(type==='fault'){
+    lbl.textContent = 'اختر العطل';
+    sel.innerHTML = getVisibleFaults().filter(f=>f.status!=='resolved').map(f=>`<option value="${f.id}">${esc(f.reason||f.desc||f.location||f.id)}</option>`).join('') || '<option value="">لا أعطال مفتوحة</option>';
+  } else if(type==='task'){
+    lbl.textContent = 'اختر المهمة';
+    const myTasks = CU.role==='manager' ? (DB.tasks||[]) : (DB.tasks||[]).filter(t=>t.assignedToId===(CU.uid||CU.id));
+    sel.innerHTML = myTasks.map(t=>`<option value="${t.id}">${esc(t.title||t.id)}</option>`).join('') || '<option value="">لا مهام مسندة لك</option>';
+  } else if(type==='site'){
+    lbl.textContent = 'اختر الموقع الميداني';
+    sel.innerHTML = (DB.fieldSites||[]).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('') || '<option value="">لا مواقع</option>';
+  }
+}
+function saveAchievement(){
+  const text = val('achv-text');
+  if(!text){ toast('اكتب شنو سوّيت اليوم','err'); return; }
+  const linkType = val('achv-linktype');
+  const linkId = linkType ? val('achv-linkid') : '';
+  let linkLabel = '';
+  if(linkType==='fault'){ const f=(DB.faults||[]).find(x=>x.id===linkId); linkLabel = f?(f.reason||f.desc||f.location||''):''; }
+  else if(linkType==='task'){ const t=(DB.tasks||[]).find(x=>x.id===linkId); linkLabel = t?(t.title||''):''; }
+  else if(linkType==='site'){ const s=(DB.fieldSites||[]).find(x=>x.id===linkId); linkLabel = s?s.name:''; }
+
+  fbPush('achievements', {
+    uid: CU.uid||CU.id, name: CU.name, role: CU.role,
+    text, linkType: linkType||'', linkId: linkId||'', linkLabel,
+    date: ts(), _ts: Date.now()
+  });
+  closeModal();
+  toast('✅ تم تسجيل الإنجاز');
+}
+function delAchievement(id){
+  confirmDel('حذف هذا الإنجاز نهائياً؟', `archiveDel('achievements/${id}');toast('تم الحذف','err')`);
+}
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.L=null;console.warn('Leaflet failed to load - map disabled')"></script>
@@ -851,6 +951,7 @@ let DB = {
   customTypes:{},
   archive:{},
   loginLog:[],
+  achievements:[],
   fieldSites:[],   // [{id, name, desc, cameras:[], allowedUsers:[]}]
   actlog:[],        // سجل النشاط
   maintain:[],
@@ -1570,6 +1671,12 @@ function fbStartSync(){
     DB.loginLog = Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
     if(PAGE==='loginlog') pgLoginLog();
   });
+
+  // ── Listener منفصل للإنجازات اليومية — آخر 500 فقط من Firebase ──
+  FBDB.ref('cctv/achievements').limitToLast(500).on('value', snap=>{
+    DB.achievements = snap.exists() ? Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    if(PAGE==='achievements') pgAchievements();
+  });
 }
 
 // ============================================
@@ -1598,6 +1705,10 @@ function buildNav(){
     { group: '📍 المواقع', items: [
       {id:'sites',     label:'المواقع والمخازن', icon:'📍', perm:'sites'},
       {id:'fieldmap',  label:'الميدانية',        icon:'🗺️', perm:'fieldmap'},
+    ]},
+    // ── الفريق ──
+    { group: '👤 الفريق', items: [
+      {id:'achievements', label:'الإنجازات اليومية', icon:'📝', perm:null},
     ]},
     // ── الإدارة ──
     { group: '⚙️ الإدارة', items: [
@@ -1646,7 +1757,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive,loginlog:pgLoginLog})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive,loginlog:pgLoginLog,achievements:pgAchievements})[page]?.();
   });
 }
 
@@ -1795,6 +1906,7 @@ function pgDash(){
         {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
+        {id:'achievements', ic:'📝', lb:'الإنجازات اليومية', perm:null},
         {id:'docs',       ic:'📁', lb:'المستندات',         perm:'docs'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
@@ -8543,6 +8655,7 @@ function openAppMenu(){
     {id:'actlog',    ic:'📋', lb:'سجل النشاط',         perm:'users'},
     {id:'performance',ic:'🏆',lb:'أداء الفنيين',       perm:'users'},
     {id:'chat',      ic:'💬', lb:'الدردشة',            perm:null},
+    {id:'achievements', ic:'📝', lb:'الإنجازات اليومية', perm:null},
     {id:'docs',      ic:'📁', lb:'المستندات',          perm:'docs'},
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
