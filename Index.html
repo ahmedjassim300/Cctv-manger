@@ -10247,14 +10247,17 @@ function openManageStrands(linkId){
     const strands = link.strands || generateFiberStrands(link.coreCount||12);
     window._editStrandsLinkId = linkId;
     openModal(`${mhd('🧵 إدارة شعيرات: '+esc(link.name))}
-    <div style="font-size:12px;color:var(--mt);margin-bottom:12px">${strands.length} شعيرة — حدد نقطة البداية/النهاية وحالة كل شعيرة</div>
+    <div style="font-size:12px;color:var(--mt);margin-bottom:8px">${strands.length} شعيرة — حدد نقطة الوصل وحالة كل شعيرة</div>
+    <div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:var(--tx)">
+      💡 كل شعيرة مستقلة تماماً — لو الكيبل يمر بعدة نقاط ويتفرّع منها شعائر مختلفة قبل ما توصل كلها لنقطة تجميع رئيسية وحدة، اكتب لكل شعيرة نقطة تفرّعها الفعلية بـ"نقطة الوصل" (مو بالضرورة بداية الكيبل)، ووجهتها النهائية بـ"الوجهة".
+    </div>
     <div style="max-height:400px;overflow-y:auto">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="position:sticky;top:0;background:var(--bg)">
         <th style="padding:6px;text-align:right;color:var(--mt);font-weight:400">#</th>
         ${strands[0]&&strands[0].tubeColorHex?'<th style="padding:6px;text-align:right">الأنبوب</th>':''}
         <th style="padding:6px;text-align:right">لون الشعيرة</th>
-        <th style="padding:6px;text-align:right">من</th><th style="padding:6px;text-align:right">إلى</th>
+        <th style="padding:6px;text-align:right">نقطة الوصل</th><th style="padding:6px;text-align:right">الوجهة</th>
         <th style="padding:6px;text-align:right">الحالة</th>
       </tr></thead>
       <tbody id="strands-tbody">
@@ -10263,8 +10266,8 @@ function openManageStrands(linkId){
             <td style="padding:5px;color:var(--mt)">${s.num}</td>
             ${s.tubeColorHex?`<td style="padding:5px;white-space:nowrap"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${s.tubeColorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.tubeColor||'')}</td>`:''}
             <td style="padding:5px;white-space:nowrap"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${s.colorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.color)}</td>
-            <td style="padding:5px"><input data-i="${i}" data-f="from" value="${esc(s.from||'')}" placeholder="نقطة/منفذ" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
-            <td style="padding:5px"><input data-i="${i}" data-f="to" value="${esc(s.to||'')}" placeholder="نقطة/منفذ" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
+            <td style="padding:5px"><input data-i="${i}" data-f="from" value="${esc(s.from||'')}" placeholder="مثال: نقطة 2 على المسار" style="width:90px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
+            <td style="padding:5px"><input data-i="${i}" data-f="to" value="${esc(s.to||'')}" placeholder="مثال: النقطة المجمّعة" style="width:90px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
             <td style="padding:5px"><select data-i="${i}" data-f="status" style="padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px">
               <option value="used" ${s.status==='used'?'selected':''}>✅ مستخدمة</option>
               <option value="spare" ${s.status==='spare'?'selected':''}>⚪ احتياط</option>
