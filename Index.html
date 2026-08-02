@@ -966,6 +966,7 @@ function openSurveyDetail(id){
   </div>`:''}
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
     ${canExport()?`<button class="btn btn-bl" onclick="printSurvey('${id}')">🖨️ طباعة (لعرض سعر للعميل)</button>`:''}
+    ${canManage&&(s.status==='ready'||s.status==='converted')&&canEditNetwork()?`<button class="btn" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44" onclick="closeModal();go('fieldmap');setTimeout(()=>openAddNetLink('${esc(s.siteName)}'),400)">🔗 إنشاء رابط شبكة لهذا الموقع</button>`:''}
     ${canManage&&s.status!=='converted'?`<select onchange="updateSurveyStatus('${id}',this.value)" style="padding:8px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx)">
       <option value="draft" ${s.status==='draft'?'selected':''}>📝 مسودة</option>
       <option value="ready" ${s.status==='ready'?'selected':''}>📤 جاهزة للعرض</option>
@@ -5850,25 +5851,41 @@ function exportMapImage(){
   if(!_FSITE){ toast('افتح موقعاً ميدانياً أولاً','err'); return; }
   openModal(mhd('📍 تصدير KML')
     +'<div style="font-size:13px;color:var(--mt);margin-bottom:14px">يُصدَّر الموقع الحالي بصيغة KML — يفتح مباشرة بتطبيقات Google Earth، Google Maps، وأي برنامج خرائط يدعم KML</div>'
-    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px;background:var(--bg);border-radius:8px">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:var(--bg);border-radius:8px">'
     +'<input type="checkbox" id="kml-include-equip" style="width:18px;height:18px;accent-color:var(--bl)">'
     +'<label for="kml-include-equip" style="cursor:pointer;font-size:14px">إضافة الأبراج/P2P/الراديو/NVR إلى نفس الملف</label>'
+    +'</div>'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px;background:var(--bg);border-radius:8px">'
+    +'<input type="checkbox" id="kml-include-links" style="width:18px;height:18px;accent-color:var(--bl)">'
+    +'<label for="kml-include-links" style="cursor:pointer;font-size:14px">إضافة مسارات الكابلات الضوئية وروابط P2P (كل الشبكة)</label>'
     +'</div>'
     +mft('📥 تصدير KML','doExportKML()'));
 }
 
 function doExportKML(){
   const includeEquip = document.getElementById('kml-include-equip')?.checked;
+  const includeLinks = document.getElementById('kml-include-links')?.checked;
   const fs = DB.fieldSites.find(function(s){return s.id===_FSITE;});
   if(!fs){ toast('الموقع غير موجود','err'); return; }
 
   const cams = (fs.cameras||[]).filter(function(c){return c.lat && c.lng && !isNaN(parseFloat(c.lat));});
   const equip = includeEquip ? Object.values(fs.equipment||{}).filter(function(eq){return eq.lat && eq.lng && !isNaN(parseFloat(eq.lat));}) : [];
 
-  if(!cams.length && !equip.length){
+  if(!cams.length && !equip.length && !includeLinks){
     toast('لا توجد عناصر بإحداثيات صالحة للتصدير','warn');
     return;
   }
+
+  const linksPromise = includeLinks
+    ? FBDB.ref('cctv/network/links').once('value').then(function(snap){ return snap.val()?Object.values(snap.val()):[]; })
+    : Promise.resolve([]);
+
+  linksPromise.then(function(links){
+    finishExportKML(fs, cams, equip, links.filter(function(l){return l.points&&l.points.length>=2;}));
+  });
+}
+
+function finishExportKML(fs, cams, equip, links){
 
   const kmlIconStyle = function(id, color){
     return '<Style id="'+id+'"><IconStyle><color>'+color+'</color><scale>1.1</scale>'
@@ -5927,12 +5944,46 @@ function doExportKML(){
       +'</Placemark>\n';
   });
 
+  // مسارات الكابلات والروابط (Fiber/P2P/UTP/Coax) كـLineString
+  let lineStyles = '';
+  let linePlacemarks = '';
+  const linkColors = {fiber:'ff0095ff', p2p:'ffff5f58', utp:'ff3fb950', coax:'ff00d0e8'};
+  links.forEach(function(link, i){
+    const styleId = 'lineStyle'+i;
+    const color = linkColors[link.type] || 'ffffffff';
+    lineStyles += '<Style id="'+styleId+'"><LineStyle><color>'+color+'</color><width>3</width></LineStyle></Style>';
+    let desc = [
+      link.typeName?'النوع: '+link.typeName:'',
+      link.length?'الطول التقريبي: '+link.length+' م':'',
+      link.device?'الجهاز: '+link.device:'',
+      link.pointA?'نقطة A: '+link.pointA:'',
+      link.pointB?'نقطة B: '+link.pointB:'',
+      link.coreCount?'عدد الأنوية: '+link.coreCount:'',
+      link.notes?'ملاحظات: '+link.notes:''
+    ].filter(Boolean).join('&#10;');
+    if(link.strands && link.strands.length){
+      const usedStrands = link.strands.filter(function(s){return s.status==='used';});
+      if(usedStrands.length){
+        desc += '&#10;&#10;الشعيرات المستخدمة:&#10;'+usedStrands.map(function(s){
+          return '  #'+s.num+' ('+s.color+'): '+(s.from||'؟')+' → '+(s.to||'؟');
+        }).join('&#10;');
+      }
+    }
+    const coords = link.points.map(function(pt){ return pt[1]+','+pt[0]+',0'; }).join(' ');
+    linePlacemarks += '<Placemark>'
+      +'<name>'+escapeXml((link.type==='fiber'?'🔵 ':link.type==='p2p'?'📡 ':'')+(link.name||'رابط'))+'</name>'
+      +(desc?'<description>'+escapeXml(desc)+'</description>':'')
+      +'<styleUrl>#'+styleId+'</styleUrl>'
+      +'<LineString><tessellate>1</tessellate><coordinates>'+coords+'</coordinates></LineString>'
+      +'</Placemark>\n';
+  });
+
   const kml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     +'<kml xmlns="http://www.opengis.net/kml/2.2">\n'
     +'<Document>\n'
     +'<name>'+escapeXml(fs.name||'موقع ميداني')+'</name>\n'
-    +styles
-    +placemarks
+    +styles + lineStyles
+    +placemarks + linePlacemarks
     +'</Document>\n</kml>';
 
   const blob = new Blob([kml], {type:'application/vnd.google-earth.kml+xml'});
@@ -5942,9 +5993,9 @@ function doExportKML(){
   a.download = (fs.name||'موقع').replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+fmtDate(new Date().toISOString())+'.kml';
   a.click();
   URL.revokeObjectURL(url);
-  logAct('تصدير KML', fs.name+' — '+cams.length+' كاميرا'+(equip.length?(' + '+equip.length+' معدة'):''));
+  logAct('تصدير KML', fs.name+' — '+cams.length+' كاميرا'+(equip.length?(' + '+equip.length+' معدة'):'')+(links.length?(' + '+links.length+' مسار'):''));
   closeModal();
-  toast('✅ تم تصدير '+cams.length+' كاميرا'+(equip.length?(' و'+equip.length+' معدة'):''));
+  toast('✅ تم تصدير '+cams.length+' كاميرا'+(equip.length?(' و'+equip.length+' معدة'):'')+(links.length?(' و'+links.length+' مسار شبكة'):''));
 }
 
 function escapeXml(str){
@@ -10049,20 +10100,47 @@ function loadNetworkLayer(){
 }
 
 // ── إضافة رابط/كابل ──
-function openAddNetLink(){
+// نظام ألوان الشعيرات الضوئية القياسي (TIA/EIA-598) — 12 لون يتكرر كل مجموعة (Binder)
+const FIBER_COLORS = [
+  {n:'أزرق',hex:'#1f5fd4'},{n:'برتقالي',hex:'#ff8c1a'},{n:'أخضر',hex:'#2fa84f'},{n:'بني',hex:'#8b4a1f'},
+  {n:'رصاصي',hex:'#8a8f98'},{n:'أبيض',hex:'#e6e6e6'},{n:'أحمر',hex:'#e13333'},{n:'أسود',hex:'#222222'},
+  {n:'أصفر',hex:'#e8d000'},{n:'بنفسجي',hex:'#8a2fbf'},{n:'وردي',hex:'#ff7fb0'},{n:'فيروزي',hex:'#1fbfbf'}
+];
+function generateFiberStrands(coreCount){
+  const n = parseInt(coreCount)||0;
+  const strands = [];
+  for(let i=1;i<=n;i++){
+    const group = Math.ceil(i/12);
+    const colorIdx = (i-1)%12;
+    strands.push({
+      num:i, color:FIBER_COLORS[colorIdx].n, colorHex:FIBER_COLORS[colorIdx].hex,
+      group: n>12 ? group : null,
+      from:'', to:'', status:'spare', notes:''
+    });
+  }
+  return strands;
+}
+
+function openAddNetLink(presetName){
   if(!canEditNetwork()){ toast('لا صلاحية','err'); return; }
   openModal(mhd('🔵 إضافة كابل / رابط شبكة')
     +'<div class="fg">'
-    +'<div class="s2 field"><label>الاسم *</label><input id="nl-name" placeholder="كابل الحسينية-الرجيبة"></div>'
+    +'<div class="s2 field"><label>الاسم *</label><input id="nl-name" value="'+esc(presetName||'')+'" placeholder="كابل الحسينية-الرجيبة"></div>'
     +'<div class="field"><label>النوع *</label>'
     +'<select id="nl-type" onchange="onNetTypeChange()">'
     +'<option value="fiber">🔵 كابل ضوئي (Fiber)</option>'
-    +'<option value="p2p">📡 رابط P2P لاسلكي</option>'
+    +'<option value="p2p">📡 رابط P2P / P2MP لاسلكي</option>'
     +'<option value="utp">🟢 كابل شبكي (UTP)</option>'
     +'<option value="coax">🟡 كابل محوري (Coax)</option>'
     +'</select></div>'
     +'<div class="field" id="nl-device-row"><label>اسم الجهاز</label>'
     +'<input id="nl-device" placeholder="Mimosa C5C, Mikrotik SXTsq..."></div>'
+    +'<div class="field" id="nl-cores-row" style="display:none"><label>عدد الأنوية (Core)</label>'
+    +'<select id="nl-cores"><option value="1">1</option><option value="2">2</option><option value="4">4</option>'
+    +'<option value="6">6</option><option value="12" selected>12</option><option value="24">24</option>'
+    +'<option value="48">48</option><option value="96">96</option><option value="144">144</option></select></div>'
+    +'<div class="field" id="nl-pa-row" style="display:none"><label>نقطة A</label><input id="nl-pa" placeholder="مثال: غرفة السيرفر"></div>'
+    +'<div class="field" id="nl-pb-row" style="display:none"><label>نقطة B (أو أكثر لـP2MP، افصل بفاصلة)</label><input id="nl-pb" placeholder="مثال: البرج 1, البرج 2"></div>'
     +'<div class="s2 field"><label>الطول التقريبي (متر)</label><input id="nl-length" type="number" placeholder="500"></div>'
     +'<div class="s2 field"><label>ملاحظات</label><textarea id="nl-notes" rows="2"></textarea></div>'
     +'</div>'
@@ -10074,18 +10152,28 @@ function openAddNetLink(){
 
 function onNetTypeChange(){
   const t = val('nl-type');
-  const row = document.getElementById('nl-device-row');
-  if(row) row.style.display = (t==='p2p') ? 'block' : 'none';
+  const devRow = document.getElementById('nl-device-row');
+  const coresRow = document.getElementById('nl-cores-row');
+  const paRow = document.getElementById('nl-pa-row');
+  const pbRow = document.getElementById('nl-pb-row');
+  if(devRow) devRow.style.display = (t==='p2p') ? 'block' : 'none';
+  if(coresRow) coresRow.style.display = (t==='fiber') ? 'block' : 'none';
+  if(paRow) paRow.style.display = (t==='p2p') ? 'block' : 'none';
+  if(pbRow) pbRow.style.display = (t==='p2p') ? 'block' : 'none';
 }
 
 function startNetDraw(){
   const name = val('nl-name');
   if(!name){ toast('الاسم مطلوب','err'); return; }
+  const type = val('nl-type');
   window._pendingNetLink = {
-    id: gid(), name, type: val('nl-type'),
+    id: gid(), name, type,
     device: val('nl-device')||'',
     length: val('nl-length')||'',
-    notes: val('nl-notes')||''
+    notes: val('nl-notes')||'',
+    coreCount: type==='fiber' ? (parseInt(val('nl-cores'))||0) : 0,
+    pointA: type==='p2p' ? (val('nl-pa')||'') : '',
+    pointB: type==='p2p' ? (val('nl-pb')||'') : ''
   };
   closeModal();
   _drawingNet = true;
@@ -10129,11 +10217,74 @@ function finishNetDraw(){
   const link = window._pendingNetLink;
   link.points = _netDrawPoints;
   link.typeName = {fiber:'كابل ضوئي',p2p:'رابط P2P',utp:'كابل شبكي',coax:'كابل محوري'}[link.type]||link.type;
+  if(link.type==='fiber' && link.coreCount>0){
+    link.strands = generateFiberStrands(link.coreCount);
+  }
   fbSet('network/links/'+link.id, link);
   logAct('شبكة — إضافة رابط', link.name);
   clearNetDraw();
   toast('✅ تم حفظ '+link.name);
   loadNetworkLayer();
+  if(link.type==='fiber' && link.coreCount>0){
+    setTimeout(function(){ openManageStrands(link.id); }, 400);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  🧵 إدارة شعيرات الكابل الضوئي — كل شعيرة بلونها القياسي،
+//  من/إلى (نقطة ومنفذ)، وحالتها (مستخدمة/احتياط/تالفة)
+// ══════════════════════════════════════════════════════
+function openManageStrands(linkId){
+  FBDB.ref('cctv/network/links/'+linkId).once('value').then(function(snap){
+    const link = snap.val();
+    if(!link){ toast('الرابط غير موجود','err'); return; }
+    const strands = link.strands || generateFiberStrands(link.coreCount||12);
+    window._editStrandsLinkId = linkId;
+    openModal(`${mhd('🧵 إدارة شعيرات: '+esc(link.name))}
+    <div style="font-size:12px;color:var(--mt);margin-bottom:12px">${strands.length} شعيرة — حدد نقطة البداية/النهاية وحالة كل شعيرة</div>
+    <div style="max-height:400px;overflow-y:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="position:sticky;top:0;background:var(--bg)">
+        <th style="padding:6px;text-align:right">#</th><th style="padding:6px;text-align:right">اللون</th>
+        <th style="padding:6px;text-align:right">من</th><th style="padding:6px;text-align:right">إلى</th>
+        <th style="padding:6px;text-align:right">الحالة</th>
+      </tr></thead>
+      <tbody id="strands-tbody">
+        ${strands.map(function(s,i){
+          return `<tr style="border-bottom:1px solid var(--br)">
+            <td style="padding:5px">${s.num}${s.group?' <span style="color:var(--mt)">(مج'+s.group+')</span>':''}</td>
+            <td style="padding:5px"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${s.colorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.color)}</td>
+            <td style="padding:5px"><input data-i="${i}" data-f="from" value="${esc(s.from||'')}" placeholder="نقطة/منفذ" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
+            <td style="padding:5px"><input data-i="${i}" data-f="to" value="${esc(s.to||'')}" placeholder="نقطة/منفذ" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
+            <td style="padding:5px"><select data-i="${i}" data-f="status" style="padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px">
+              <option value="used" ${s.status==='used'?'selected':''}>✅ مستخدمة</option>
+              <option value="spare" ${s.status==='spare'?'selected':''}>⚪ احتياط</option>
+              <option value="damaged" ${s.status==='damaged'?'selected':''}>❌ تالفة</option>
+            </select></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>
+    ${mft('💾 حفظ الشعيرات','saveStrands()')}`);
+  });
+}
+function saveStrands(){
+  const linkId = window._editStrandsLinkId;
+  if(!linkId) return;
+  FBDB.ref('cctv/network/links/'+linkId).once('value').then(function(snap){
+    const link = snap.val();
+    if(!link) return;
+    const strands = link.strands || generateFiberStrands(link.coreCount||12);
+    document.querySelectorAll('#strands-tbody input, #strands-tbody select').forEach(function(el){
+      const i = parseInt(el.dataset.i);
+      const f = el.dataset.f;
+      if(strands[i]) strands[i][f] = el.value;
+    });
+    fbUpdate('network/links/'+linkId, {strands});
+    closeModal();
+    toast('✅ تم حفظ خريطة الشعيرات');
+  });
 }
 
 function clearNetDraw(){
@@ -10206,16 +10357,22 @@ function editNetLink(id){
     openModal(mhd('✏️ تعديل الرابط')
       +'<div class="fg">'
       +'<div class="s2 field"><label>الاسم</label><input id="nl-name" value="'+esc(link.name||'')+'"></div>'
-      +'<div class="field"><label>النوع</label><select id="nl-type">'
+      +'<div class="field"><label>النوع</label><select id="nl-type" onchange="onNetTypeChange()">'
       +'<option value="fiber" '+(link.type==='fiber'?'selected':'')+'>🔵 كابل ضوئي</option>'
       +'<option value="p2p" '+(link.type==='p2p'?'selected':'')+'>📡 رابط P2P</option>'
       +'<option value="utp" '+(link.type==='utp'?'selected':'')+'>🟢 كابل شبكي</option>'
       +'<option value="coax" '+(link.type==='coax'?'selected':'')+'>🟡 كابل محوري</option>'
       +'</select></div>'
-      +'<div class="field"><label>الجهاز</label><input id="nl-device" value="'+esc(link.device||'')+'"></div>'
+      +'<div class="field" id="nl-device-row" style="display:'+(link.type==='p2p'?'block':'none')+'"><label>الجهاز</label><input id="nl-device" value="'+esc(link.device||'')+'"></div>'
+      +'<div class="field" id="nl-cores-row" style="display:'+(link.type==='fiber'?'block':'none')+'"><label>عدد الأنوية (Core)</label>'
+      +'<select id="nl-cores">'+[1,2,4,6,12,24,48,96,144].map(function(c){return '<option value="'+c+'" '+(link.coreCount==c?'selected':'')+'>'+c+'</option>';}).join('')+'</select>'
+      +'<div style="font-size:11px;color:var(--mt);margin-top:4px">⚠️ تغيير العدد يعيد توليد جدول الشعيرات — استخدمه بحذر لو عندك بيانات مربوطة أصلاً</div></div>'
+      +'<div class="field" id="nl-pa-row" style="display:'+(link.type==='p2p'?'block':'none')+'"><label>نقطة A</label><input id="nl-pa" value="'+esc(link.pointA||'')+'"></div>'
+      +'<div class="field" id="nl-pb-row" style="display:'+(link.type==='p2p'?'block':'none')+'"><label>نقطة B (أو أكثر لـP2MP)</label><input id="nl-pb" value="'+esc(link.pointB||'')+'"></div>'
       +'<div class="s2 field"><label>الطول (م)</label><input id="nl-length" type="number" value="'+esc(link.length||'')+'"></div>'
       +'<div class="s2 field"><label>ملاحظات</label><textarea id="nl-notes" rows="2">'+esc(link.notes||'')+'</textarea></div>'
       +'</div>'
+      +(link.type==='fiber'?'<button class="btn btn-pu btn-fw" style="margin-bottom:10px" onclick="closeModal();openManageStrands(\''+id+'\')">🧵 إدارة الشعيرات ('+(link.strands?link.strands.length:link.coreCount||0)+')</button>':'')
       +mft('💾 حفظ','saveNetLinkEdit()'));
     window._editNetLinkId = id;
   });
@@ -10224,11 +10381,24 @@ function editNetLink(id){
 function saveNetLinkEdit(){
   const id = window._editNetLinkId;
   if(!id) return;
-  fbUpdate('network/links/'+id,{
-    name:val('nl-name'), type:val('nl-type'),
-    device:val('nl-device'), length:val('nl-length'), notes:val('nl-notes')
+  const type = val('nl-type');
+  FBDB.ref('cctv/network/links/'+id).once('value').then(function(snap){
+    const link = snap.val()||{};
+    const newCoreCount = type==='fiber' ? (parseInt(val('nl-cores'))||0) : 0;
+    const upd = {
+      name:val('nl-name'), type,
+      device:val('nl-device')||'', length:val('nl-length'), notes:val('nl-notes'),
+      coreCount:newCoreCount,
+      pointA: type==='p2p' ? (val('nl-pa')||'') : '',
+      pointB: type==='p2p' ? (val('nl-pb')||'') : ''
+    };
+    // لو تغيّر عدد الأنوية عن قبل، أعد توليد جدول الشعيرات
+    if(type==='fiber' && newCoreCount>0 && newCoreCount!==(link.coreCount||0)){
+      upd.strands = generateFiberStrands(newCoreCount);
+    }
+    fbUpdate('network/links/'+id, upd);
+    closeModal(); toast('✅ تم التعديل'); loadNetworkLayer();
   });
-  closeModal(); toast('✅ تم التعديل'); loadNetworkLayer();
 }
 
 // ── تعديل جهاز ──
