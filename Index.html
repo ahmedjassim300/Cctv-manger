@@ -4665,6 +4665,9 @@ function pgFieldMap(){
       <button onclick="openAddNetDevice()"
         style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
         title="إضافة جهاز">📡 جهاز</button>
+      <button onclick="openManageSplices()"
+        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
+        title="لحامات الشعيرات">🔗 اللحامات</button>
       <button onclick="openNetworkPerms()"
         style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
         title="صلاحيات الشبكة">🔐 صلاحيات الشبكة</button>
@@ -10258,7 +10261,7 @@ function openManageStrands(linkId){
         ${strands[0]&&strands[0].tubeColorHex?'<th style="padding:6px;text-align:right">الأنبوب</th>':''}
         <th style="padding:6px;text-align:right">لون الشعيرة</th>
         <th style="padding:6px;text-align:right">نقطة الوصل</th><th style="padding:6px;text-align:right">الوجهة</th>
-        <th style="padding:6px;text-align:right">الحالة</th>
+        <th style="padding:6px;text-align:right">الحالة</th><th></th>
       </tr></thead>
       <tbody id="strands-tbody">
         ${strands.map(function(s,i){
@@ -10273,11 +10276,13 @@ function openManageStrands(linkId){
               <option value="spare" ${s.status==='spare'?'selected':''}>⚪ احتياط</option>
               <option value="damaged" ${s.status==='damaged'?'selected':''}>❌ تالفة</option>
             </select></td>
+            <td style="padding:5px"><button type="button" class="btn btn-sm btn-pu" title="تتبّع المسار الكامل عبر اللحامات" onclick="showStrandFullPath('${linkId}',${s.num})">🔗</button></td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
     </div>
+    <button class="btn btn-gy btn-fw" style="margin-top:10px" onclick="closeModal();openManageSplices()">🔗 إدارة اللحامات (كل الشبكة)</button>
     ${mft('💾 حفظ الشعيرات','saveStrands()')}`);
   });
 }
@@ -10296,6 +10301,150 @@ function saveStrands(){
     fbUpdate('network/links/'+linkId, {strands});
     closeModal();
     toast('✅ تم حفظ خريطة الشعيرات');
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  🔗 نظام اللحامات (Splices) — يربط شعيرة من كيبل بشعيرة من
+//  كيبل ثاني عند نقطة لحام فعلية، بحيث يقدر النظام يتتبّع
+//  المسار الكامل من طرف لطرف عبر عدة مقاطع كيبل متتالية —
+//  يحل بالضبط حالة: عدة مقاطع كيبل منفصلة تلتقي بنقاط لحام
+//  وتكمل سوا لنفس الوجهة النهائية (المركزية).
+// ══════════════════════════════════════════════════════
+function openManageSplices(){
+  if(!canEditNetwork()){ toast('لا صلاحية','err'); return; }
+  Promise.all([
+    FBDB.ref('cctv/network/links').once('value'),
+    FBDB.ref('cctv/network/splices').once('value')
+  ]).then(function(results){
+    const links = results[0].val()||{};
+    const splices = results[1].val()||{};
+    const fiberLinks = Object.values(links).filter(function(l){return l.type==='fiber';});
+    const spliceList = Object.values(splices);
+
+    $('page').innerHTML=`
+    <div class="ph"><div><div class="pt">🔗 لحامات الشعيرات (${spliceList.length})</div>
+      <div class="ps">ربط شعيرة من كيبل بشعيرة من كيبل آخر عند نقطة لحام</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-gy" onclick="go('fieldmap')">🔙 رجوع للخريطة</button>
+        <button class="btn btn-bl" onclick="openAddSplice()">➕ لحام جديد</button>
+      </div>
+    </div>
+    ${fiberLinks.length<1?`<div class="panel" style="text-align:center;padding:30px;color:var(--mt)">تحتاج كيبل ضوئي واحد على الأقل بالشبكة قبل إضافة لحامات</div>`:''}
+    ${spliceList.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا لحامات مسجّلة بعد</div>`:
+      spliceList.map(function(sp){
+        const c1=sp.connections[0], c2=sp.connections[1];
+        return `<div class="panel" style="margin-bottom:10px">
+          <div style="font-weight:700;margin-bottom:4px">${esc(sp.locationLabel||'لحام')}</div>
+          <div style="font-size:12px;color:var(--mt)">
+            🔵 ${esc(c1?c1.linkName:'')} — شعيرة #${c1?c1.strandNum:''} (${esc(c1?c1.color:'')})
+            &nbsp;↔️&nbsp;
+            🔵 ${esc(c2?c2.linkName:'')} — شعيرة #${c2?c2.strandNum:''} (${esc(c2?c2.color:'')})
+          </div>
+          <button class="btn btn-sm btn-rd" style="margin-top:8px" onclick="delSplice('${sp.id}')">🗑️ حذف اللحام</button>
+        </div>`;
+      }).join('')}`;
+  });
+}
+
+function openAddSplice(){
+  FBDB.ref('cctv/network/links').once('value').then(function(snap){
+    const links = snap.val()||{};
+    const fiberLinks = Object.values(links).filter(function(l){return l.type==='fiber' && l.strands && l.strands.length;});
+    if(fiberLinks.length<1){ toast('تحتاج كيبل ضوئي فيه شعيرات أولاً','err'); return; }
+    window._spliceLinksCache = links;
+    openModal(`${mhd('🔗 لحام جديد')}
+    <div class="field"><label>اسم/وصف نقطة اللحام</label><input id="sp-loc" placeholder="مثال: علبة اللحام — نقطة 2"></div>
+    <div style="font-weight:700;margin:14px 0 6px;color:var(--bl)">الطرف الأول</div>
+    <div class="field"><label>الكيبل</label><select id="sp-link1" onchange="refreshSpliceStrands(1)">${fiberLinks.map(function(l){return `<option value="${l.id}">${esc(l.name)}</option>`;}).join('')}</select></div>
+    <div class="field"><label>الشعيرة</label><select id="sp-strand1"></select></div>
+    <div style="font-weight:700;margin:14px 0 6px;color:var(--pu)">الطرف الثاني</div>
+    <div class="field"><label>الكيبل</label><select id="sp-link2" onchange="refreshSpliceStrands(2)">${fiberLinks.map(function(l){return `<option value="${l.id}">${esc(l.name)}</option>`;}).join('')}</select></div>
+    <div class="field"><label>الشعيرة</label><select id="sp-strand2"></select></div>
+    ${mft('💾 حفظ اللحام','saveSplice()')}`);
+    refreshSpliceStrands(1); refreshSpliceStrands(2);
+  });
+}
+function refreshSpliceStrands(n){
+  const links = window._spliceLinksCache||{};
+  const linkId = val('sp-link'+n);
+  const link = links[linkId];
+  const sel = document.getElementById('sp-strand'+n);
+  if(!link||!sel) return;
+  sel.innerHTML = (link.strands||[]).map(function(s){
+    return `<option value="${s.num}">#${s.num} — ${esc(s.color)}${s.tubeColor?' (أنبوب '+esc(s.tubeColor)+')':''}${s.status==='used'?' — مستخدمة أصلاً':''}</option>`;
+  }).join('');
+}
+function saveSplice(){
+  const links = window._spliceLinksCache||{};
+  const link1Id = val('sp-link1'), strand1 = parseInt(val('sp-strand1'));
+  const link2Id = val('sp-link2'), strand2 = parseInt(val('sp-strand2'));
+  if(link1Id===link2Id && strand1===strand2){ toast('اختر طرفين مختلفين','err'); return; }
+  const link1 = links[link1Id], link2 = links[link2Id];
+  const s1 = link1 && (link1.strands||[]).find(function(s){return s.num===strand1;});
+  const s2 = link2 && (link2.strands||[]).find(function(s){return s.num===strand2;});
+  const id = gid();
+  fbSet('network/splices/'+id, {
+    id, locationLabel: val('sp-loc')||'',
+    connections: [
+      {linkId:link1Id, linkName:link1?link1.name:'', strandNum:strand1, color:s1?s1.color:''},
+      {linkId:link2Id, linkName:link2?link2.name:'', strandNum:strand2, color:s2?s2.color:''}
+    ],
+    by: CU.name, date: ts(), _ts: Date.now()
+  });
+  logAct('لحام شعيرتين', (link1?link1.name:'')+' ↔ '+(link2?link2.name:''));
+  closeModal(); toast('✅ تم حفظ اللحام'); openManageSplices();
+}
+function delSplice(id){
+  confirmDel('حذف هذا اللحام نهائياً؟', `archiveDel('network/splices/${id}');toast('تم الحذف','err');openManageSplices()`);
+}
+
+// ── تتبّع المسار الكامل لشعيرة عبر كل اللحامات المتتالية ──
+function traceStrandPath(startLinkId, startStrandNum, links, splices, visited){
+  visited = visited || {};
+  const key = startLinkId+'#'+startStrandNum;
+  if(visited[key]) return [];
+  visited[key] = true;
+
+  const link = links[startLinkId];
+  const strand = link && (link.strands||[]).find(function(s){return s.num===startStrandNum;});
+  const hop = {
+    linkId:startLinkId, linkName: link?link.name:startLinkId,
+    strandNum:startStrandNum, color: strand?strand.color:'',
+    tubeColor: strand?strand.tubeColor:'', from: strand?strand.from:'', to: strand?strand.to:''
+  };
+
+  const splice = splices.find(function(sp){
+    return sp.connections.some(function(c){return c.linkId===startLinkId && c.strandNum===startStrandNum;});
+  });
+  if(!splice) return [hop];
+  const otherEnd = splice.connections.find(function(c){return !(c.linkId===startLinkId && c.strandNum===startStrandNum);});
+  if(!otherEnd) return [hop];
+  return [hop].concat(traceStrandPath(otherEnd.linkId, otherEnd.strandNum, links, splices, visited));
+}
+function showStrandFullPath(linkId, strandNum){
+  Promise.all([
+    FBDB.ref('cctv/network/links').once('value'),
+    FBDB.ref('cctv/network/splices').once('value')
+  ]).then(function(results){
+    const links = results[0].val()||{};
+    const splices = Object.values(results[1].val()||{});
+    const path = traceStrandPath(linkId, strandNum, links, splices);
+    openModal(`${mhd('🔗 المسار الكامل — شعيرة #'+strandNum)}
+    <div style="display:flex;flex-direction:column;gap:0">
+      ${path.map(function(hop,i){
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--sf);border-radius:8px;margin-bottom:${i<path.length-1?'0':'8'}px">
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:13px">${esc(hop.linkName)}</div>
+            <div style="font-size:11px;color:var(--mt)">شعيرة #${hop.strandNum} — ${esc(hop.color)}${hop.tubeColor?' (أنبوب '+esc(hop.tubeColor)+')':''}</div>
+            ${hop.from||hop.to?`<div style="font-size:11px;color:var(--mt)">${esc(hop.from||'؟')} ← ${esc(hop.to||'؟')}</div>`:''}
+          </div>
+        </div>
+        ${i<path.length-1?'<div style="text-align:center;color:var(--bl);font-size:16px;padding:2px 0">🔗 لحام</div>':''}`;
+      }).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--mt);margin-top:10px">إجمالي المقاطع بالمسار: ${path.length}</div>
+    <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
   });
 }
 
