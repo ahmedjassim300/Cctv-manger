@@ -10108,17 +10108,18 @@ const FIBER_COLORS = [
 ];
 function generateFiberStrands(coreCount){
   const n = parseInt(coreCount)||0;
+  const hasMultipleTubes = n>12; // الكابلات الصغيرة (1،2،4،6،12) بأنبوب واحد فقط — لا داعي لتمييز لون الأنبوب
   const strands = [];
   for(let i=1;i<=n;i++){
     const tubeIdx = Math.floor((i-1)/12); // كل أنبوب (Buffer Tube) يحمل 12 شعيرة
     const tubeColorIdx = tubeIdx % 12;    // لون الأنبوب نفسه يتبع نفس دورة الـ12 لون
     const strandColorIdx = (i-1)%12;      // لون الشعيرة داخل الأنبوب
     strands.push({
-      num:i,
-      tubeNum: tubeIdx+1,
-      tubeColor: FIBER_COLORS[tubeColorIdx].n, tubeColorHex: FIBER_COLORS[tubeColorIdx].hex,
+      num:i, // الرقم يبقى محفوظاً دائماً — يُستخدم أساساً عند التصدير (KML)، والتعريف اليومي يكون باللون
+      tubeNum: hasMultipleTubes ? tubeIdx+1 : null,
+      tubeColor: hasMultipleTubes ? FIBER_COLORS[tubeColorIdx].n : '',
+      tubeColorHex: hasMultipleTubes ? FIBER_COLORS[tubeColorIdx].hex : '',
       color:FIBER_COLORS[strandColorIdx].n, colorHex:FIBER_COLORS[strandColorIdx].hex,
-      group: n>12 ? (tubeIdx+1) : null, // يبقى للتوافق مع بيانات محفوظة سابقاً
       from:'', to:'', status:'spare', notes:''
     });
   }
@@ -10250,15 +10251,17 @@ function openManageStrands(linkId){
     <div style="max-height:400px;overflow-y:auto">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="position:sticky;top:0;background:var(--bg)">
-        <th style="padding:6px;text-align:right">#</th><th style="padding:6px;text-align:right">الأنبوب</th><th style="padding:6px;text-align:right">لون الشعيرة</th>
+        <th style="padding:6px;text-align:right;color:var(--mt);font-weight:400">#</th>
+        ${strands[0]&&strands[0].tubeColorHex?'<th style="padding:6px;text-align:right">الأنبوب</th>':''}
+        <th style="padding:6px;text-align:right">لون الشعيرة</th>
         <th style="padding:6px;text-align:right">من</th><th style="padding:6px;text-align:right">إلى</th>
         <th style="padding:6px;text-align:right">الحالة</th>
       </tr></thead>
       <tbody id="strands-tbody">
         ${strands.map(function(s,i){
           return `<tr style="border-bottom:1px solid var(--br)">
-            <td style="padding:5px">${s.num}</td>
-            <td style="padding:5px;white-space:nowrap">${s.tubeColorHex?`<span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${s.tubeColorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.tubeColor||'')}`:'—'}</td>
+            <td style="padding:5px;color:var(--mt)">${s.num}</td>
+            ${s.tubeColorHex?`<td style="padding:5px;white-space:nowrap"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${s.tubeColorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.tubeColor||'')}</td>`:''}
             <td style="padding:5px;white-space:nowrap"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${s.colorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.color)}</td>
             <td style="padding:5px"><input data-i="${i}" data-f="from" value="${esc(s.from||'')}" placeholder="نقطة/منفذ" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
             <td style="padding:5px"><input data-i="${i}" data-f="to" value="${esc(s.to||'')}" placeholder="نقطة/منفذ" style="width:80px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
