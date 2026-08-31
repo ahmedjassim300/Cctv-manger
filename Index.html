@@ -533,7 +533,6 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <script src="https://unpkg.com/@zxing/library@latest"></script>
@@ -564,15 +563,13 @@ const FBDB   = firebase.database();
 let FBMSG = null;
 
 // ══ تفعيل الوضع الأوفلاين — Firebase يخزن البيانات محلياً ويتزامن عند الاتصال ══
-// ══ مراقبة الاتصال الحقيقي بـFirebase (أدق من حدث online/offline بالمتصفح وحده،
-//    لأن الجهاز ممكن يكون "متصل بالنت" لكن Firebase نفسه محجوب/غير قابل للوصول) ══
 try {
   FBDB.ref('.info/connected').on('value', snap => {
     const online = snap.val() === true;
-    if(typeof _isOnline!=='undefined' && _isOnline!==online){
-      _isOnline = online;
-      if(typeof updateOnlineStatus==='function') updateOnlineStatus(online);
-      if(online && typeof syncOfflineQueue==='function') syncOfflineQueue();
+    const dot = document.getElementById('conn-dot');
+    if(dot){
+      dot.style.background = online ? 'var(--gn)' : 'var(--rd)';
+      dot.title = online ? 'متصل' : 'غير متصل — بيانات محلية';
     }
   });
 } catch(e) {}
@@ -597,515 +594,12 @@ function logAct(action, details){
     _ts: Date.now()
   });
 }
-// تسجيل دخول/خروج (سجل منفصل مخصص للتدقيق الأمني)
-function logLoginEvent(userObj, type){
-  if(!userObj) return;
-  FBDB.ref('cctv/loginLog').push({
-    uid: userObj.uid||userObj.id,
-    name: userObj.name,
-    role: userObj.role,
-    type, // 'login' أو 'logout'
-    time: ts(),
-    _ts: Date.now()
-  });
-}
 
-// ── كتابة / تحديث / حذف — تدعم وضع أوفلاين: لو الاتصال مقطوع، تُحفظ العملية بطابور
-// محلي (موجود أصلاً بالكود عبر queueOfflineOp) وتُطبَّق تلقائياً بمجرد عودة الاتصال،
-// بدل ما تُفقد أو تتعلق بالانتظار على اتصال غير موجود ──
-function fbSet(path, val){
-  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('set', path, val); return Promise.resolve(); }
-  return FBDB.ref('cctv/'+path).set(val);
-}
-function fbUpdate(path, obj){
-  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('update', path, obj); return Promise.resolve(); }
-  return FBDB.ref('cctv/'+path).update(obj);
-}
-function fbPush(path, obj){
-  const id=gid();
-  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('set', path+'/'+id, {...obj,id}); return Promise.resolve(id); }
-  return FBDB.ref('cctv/'+path+'/'+id).set({...obj,id}).then(()=>id);
-}
-function fbDel(path){
-  if(typeof _isOnline!=='undefined' && !_isOnline){ queueOfflineOp('delete', path, null); return Promise.resolve(); }
-  return FBDB.ref('cctv/'+path).remove();
-}
-// ── حذف مع أرشفة: يحفظ نسخة من البيانات قبل حذفها فعلياً، بحيث يمكن استرجاعها لاحقاً ──
-// (الأرشفة تتطلب قراءة حيّة فلا تعمل أوفلاين — بهذي الحالة نكتفي بحذف مؤجَّل بالطابور بدون أرشفة)
-function archiveDel(path, reason){
-  if(typeof _isOnline!=='undefined' && !_isOnline){
-    queueOfflineOp('delete', path, null);
-    toast('📴 سيُحذف عند عودة الاتصال (بدون أرشفة لعدم توفر اتصال حي)','warn');
-    return Promise.resolve();
-  }
-  return FBDB.ref('cctv/'+path).once('value').then(function(snap){
-    const data = snap.val();
-    if(data!==null && data!==undefined){
-      const archId = gid();
-      FBDB.ref('cctv/archive/'+archId).set({
-        id: archId, path: path, data: data,
-        deletedBy: (typeof CU!=='undefined'&&CU)?CU.name:'—', deletedAt: ts(),
-        reason: reason||'', _ts: Date.now()
-      });
-    }
-    return FBDB.ref('cctv/'+path).remove();
-  });
-}
-
-// ══════════════════════════════════════════════════════
-//  🗄️ صفحة الأرشيف — عرض واسترجاع المحذوفات (مدير فقط)
-// ══════════════════════════════════════════════════════
-function archivePathLabel(path){
-  const seg = (path||'').split('/')[0];
-  const map = {
-    inv:'🏪 مادة مخزون', customTypes:'🗂️ نوع مادة', users:'👤 مستخدم', sites:'📍 موقع/مستودع',
-    fieldSites:'🗺️ موقع ميداني', boundaries:'⬛ حدود خريطة', maintain:'🗓️ مهمة صيانة',
-    docs:'📁 مستند', siteInventory:'📦 موجود ثابت', tasks:'✅ مهمة', network:'🔗 عنصر شبكة',
-    radioDevices:'📻 جهاز مناداة', uavDevices:'🛩️ طائرة مسيّرة'
-  };
-  return map[seg]||('📄 '+seg);
-}
-function archiveRecordName(data){
-  if(!data) return '—';
-  if(typeof data!=='object') return String(data);
-  return data.name||data.label||data.num||data.serial||data.title||data.model||'(بدون اسم)';
-}
-function pgArchive(){
-  if(CU.role!=='manager'){
-    $('page').innerHTML=`<div class="panel" style="text-align:center;padding:60px">
-      <div style="font-size:40px;margin-bottom:12px">⛔</div><div>هذه الصفحة للمدير فقط</div></div>`;
-    return;
-  }
-  const q = (window._archQ||'').toLowerCase();
-  const list = Object.values(DB.archive||{}).filter(a=>{
-    if(!q) return true;
-    return [archiveRecordName(a.data), a.reason, a.deletedBy, a.path].some(v=>v&&String(v).toLowerCase().includes(q));
-  }).sort((a,b)=>(b._ts||0)-(a._ts||0));
-
-  $('page').innerHTML=`
-  <div class="ph">
-    <div>
-      <div class="pt">🗄️ الأرشيف (${list.length})</div>
-      <div class="ps">كل المحذوفات محفوظة هنا ويمكن استرجاعها في أي وقت</div>
-    </div>
-  </div>
-  <input placeholder="🔍 بحث بالاسم أو السبب أو مين حذف..." value="${esc(window._archQ||'')}" oninput="window._archQ=this.value;pgArchive()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:14px">
-  ${list.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا محذوفات — الأرشيف فارغ</div>`:
-    list.map(a=>`
-    <div class="panel" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">
-      <div style="flex:1">
-        <div style="font-size:11px;color:var(--mt);margin-bottom:2px">${archivePathLabel(a.path)}</div>
-        <div style="font-weight:700">${esc(archiveRecordName(a.data))}</div>
-        ${a.reason?`<div style="font-size:12px;color:var(--mt);margin-top:2px">${esc(a.reason)}</div>`:''}
-        <div style="font-size:11px;color:#555;margin-top:6px">حذفه: ${esc(a.deletedBy||'—')} — ${esc(a.deletedAt||'')}</div>
-      </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
-        <button class="btn btn-sm" style="background:#3fb95022;color:var(--gn);border:1px solid #3fb95044" onclick="restoreArchived('${a.id}')" title="استرجاع">↩️</button>
-        <button class="btn btn-sm btn-rd" onclick="purgeArchived('${a.id}')" title="حذف نهائي من الأرشيف">🗑️</button>
-      </div>
-    </div>`).join('')}`;
-}
-function restoreArchived(archId){
-  const a = DB.archive[archId];
-  if(!a){ toast('السجل لم يعد موجوداً','err'); return; }
-  confirmDel('استرجاع "'+esc(archiveRecordName(a.data))+'" لمكانها الأصلي؟', `doRestoreArchived('${archId}')`);
-}
-function doRestoreArchived(archId){
-  const a = DB.archive[archId];
-  if(!a){ toast('السجل لم يعد موجوداً','err'); return; }
-  FBDB.ref('cctv/'+a.path).set(a.data);
-  FBDB.ref('cctv/archive/'+archId).remove();
-  logAct('استرجاع من الأرشيف', archiveRecordName(a.data));
-  toast('✅ تم الاسترجاع');
-  pgArchive();
-}
-function purgeArchived(archId){
-  confirmDel('حذف هذا السجل نهائياً من الأرشيف؟ لن يمكن استرجاعه بعدها إطلاقاً.',
-    `FBDB.ref('cctv/archive/${archId}').remove();toast('تم الحذف النهائي','err');pgArchive()`
-  );
-}
-
-// ══════════════════════════════════════════════════════
-//  🔐 سجل الدخول/الخروج (مدير فقط)
-// ══════════════════════════════════════════════════════
-function pgLoginLog(){
-  if(CU.role!=='manager'){
-    $('page').innerHTML=`<div class="panel" style="text-align:center;padding:60px">
-      <div style="font-size:40px;margin-bottom:12px">⛔</div><div>هذه الصفحة للمدير فقط</div></div>`;
-    return;
-  }
-  const q = (window._loginLogQ||'').toLowerCase();
-  const list = (DB.loginLog||[]).filter(l=> !q || (l.name||'').toLowerCase().includes(q));
-
-  $('page').innerHTML=`
-  <div class="ph"><div class="pt">🔐 سجل الدخول والخروج (${list.length})</div></div>
-  <input placeholder="🔍 بحث باسم المستخدم..." value="${esc(window._loginLogQ||'')}" oninput="window._loginLogQ=this.value;pgLoginLog()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:14px">
-  <div class="tw"><table>
-    <thead><tr><th>المستخدم</th><th>الدور</th><th>الحدث</th><th>الوقت</th></tr></thead>
-    <tbody>
-      ${list.length===0?`<tr class="erow"><td colspan="4">لا سجلات بعد</td></tr>`:
-        list.map(l=>`<tr>
-          <td class="tm">${esc(l.name||'—')}</td>
-          <td style="color:var(--mt)">${esc(ROLES[l.role]||l.role||'—')}</td>
-          <td><span class="badge" style="background:${l.type==='login'?'#3fb95022':'#f8514922'};color:${l.type==='login'?'var(--gn)':'var(--rd)'}">
-            ${l.type==='login'?'🔓 دخول':'🔒 خروج'}</span></td>
-          <td style="color:var(--mt);font-size:12px;white-space:nowrap">${esc(l.time)}</td>
-        </tr>`).join('')}
-    </tbody>
-  </table></div>`;
-}
-
-// ══════════════════════════════════════════════════════
-//  📝 الإنجازات اليومية — الفني/المخبر يسجّل شنو سوّى بيومه،
-//  اختيارياً مرتبط بعطل/مهمة/موقع ميداني، أو نص حر مستقل.
-//  المدير يشوف الكل، غيره يشوف بس مالته.
-// ══════════════════════════════════════════════════════
-function pgAchievements(){
-  const isManager = CU.role==='manager';
-  const filterUser = window._achvUser||'';
-  const filterFrom = window._achvFrom||'';
-  const filterTo = window._achvTo||'';
-  let list = (DB.achievements||[]);
-  if(isManager){
-    if(filterUser) list = list.filter(a=>a.uid===filterUser);
-  } else {
-    list = list.filter(a=>a.uid===(CU.uid||CU.id));
-  }
-  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(a=>new Date(a._ts||0)>=df); }
-  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(a=>new Date(a._ts||0)<dt); }
-  const userOptions = isManager ? [...new Map(DB.achievements.map(a=>[a.uid,a.name])).entries()] : [];
-
-  $('page').innerHTML=`
-  <div class="ph">
-    <div class="pt">📝 الإنجازات اليومية (${list.length})</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-bl" onclick="openAddAchievement()">➕ تسجيل إنجاز</button>
-      ${canExport()?`<button class="btn btn-gy" onclick="exportAchievements()">⬇️ تصدير</button>`:''}
-    </div>
-  </div>
-  ${isManager && userOptions.length?`<select onchange="window._achvUser=this.value;pgAchievements()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:10px">
-    <option value="">👥 كل الفنيين</option>
-    ${userOptions.map(([uid,name])=>`<option value="${uid}" ${filterUser===uid?'selected':''}>${esc(name)}</option>`).join('')}
-  </select>`:''}
-  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-    <input type="date" value="${filterFrom}" placeholder="من" onchange="window._achvFrom=this.value;pgAchievements()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
-    <input type="date" value="${filterTo}" placeholder="إلى" onchange="window._achvTo=this.value;pgAchievements()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
-    ${(filterFrom||filterTo)?`<button class="btn btn-gy" onclick="window._achvFrom='';window._achvTo='';pgAchievements()">✖ مسح</button>`:''}
-  </div>
-  ${list.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا إنجازات مسجّلة بعد</div>`:
-    list.map(a=>`
-    <div class="panel" style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-        <div style="flex:1">
-          ${isManager?`<div style="font-weight:700;font-size:13px;margin-bottom:2px">${esc(a.name||'—')} <span style="font-weight:400;color:var(--mt);font-size:11px">(${esc(ROLES[a.role]||a.role||'')})</span></div>`:''}
-          <div style="white-space:pre-line;font-size:14px">${esc(a.text||'')}</div>
-          ${a.linkLabel?`<div style="margin-top:6px"><span class="badge" style="background:#1d4ed822;color:#1d4ed8">${a.linkType==='fault'?'⚠️':a.linkType==='task'?'✅':'📍'} ${esc(a.linkLabel)}</span></div>`:''}
-          ${a.photos&&a.photos.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-            ${a.photos.map(ph=>`<img src="${ph.url}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;border:1px solid var(--br);cursor:pointer" onclick="viewPhoto(this.src)">`).join('')}
-          </div>`:''}
-          <div style="font-size:11px;color:#555;margin-top:8px">${esc(a.date||'')}</div>
-        </div>
-        ${(a.uid===(CU.uid||CU.id) || isManager)?`<button class="btn btn-sm btn-rd" onclick="delAchievement('${a.id}')">🗑️</button>`:''}
-      </div>
-    </div>`).join('')}`;
-}
-
-function openAddAchievement(){
-  window._achvLinkType = '';
-  window._achvPhotos = [];
-  openModal(`${mhd('📝 تسجيل إنجاز اليوم')}
-  <div class="field"><label>شنو سوّيت اليوم؟ *</label>
-    <textarea id="achv-text" placeholder="مثال: تركيب كاميرتين بموقع الميناء، صيانة NVR بالمستودع الرئيسي..." style="min-height:90px"></textarea></div>
-  <div class="field"><label>ربط اختياري (لو يخص عطل/مهمة/موقع معيّن)</label>
-    <select id="achv-linktype" onchange="refreshAchvLinkOptions()">
-      <option value="">— بدون ربط —</option>
-      <option value="fault">⚠️ عطل</option>
-      <option value="task">✅ مهمة</option>
-      <option value="site">📍 موقع ميداني</option>
-    </select>
-  </div>
-  <div class="field" id="achv-linkid-wrap" style="display:none">
-    <label id="achv-linkid-label">اختر</label>
-    <select id="achv-linkid"></select>
-  </div>
-  ${invPhotoPickerHTML('achv')}
-  ${mft('💾 حفظ الإنجاز','saveAchievement()')}`);
-}
-function refreshAchvLinkOptions(){
-  const type = val('achv-linktype');
-  const wrap = document.getElementById('achv-linkid-wrap');
-  const sel = document.getElementById('achv-linkid');
-  const lbl = document.getElementById('achv-linkid-label');
-  if(!type){ wrap.style.display='none'; return; }
-  wrap.style.display='block';
-  if(type==='fault'){
-    lbl.textContent = 'اختر العطل';
-    sel.innerHTML = getVisibleFaults().filter(f=>f.status!=='resolved').map(f=>`<option value="${f.id}">${esc(f.reason||f.desc||f.location||f.id)}</option>`).join('') || '<option value="">لا أعطال مفتوحة</option>';
-  } else if(type==='task'){
-    lbl.textContent = 'اختر المهمة';
-    const myTasks = CU.role==='manager' ? (DB.tasks||[]) : (DB.tasks||[]).filter(t=>t.assignedToId===(CU.uid||CU.id));
-    sel.innerHTML = myTasks.map(t=>`<option value="${t.id}">${esc(t.title||t.id)}</option>`).join('') || '<option value="">لا مهام مسندة لك</option>';
-  } else if(type==='site'){
-    lbl.textContent = 'اختر الموقع الميداني';
-    sel.innerHTML = (DB.fieldSites||[]).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('') || '<option value="">لا مواقع</option>';
-  }
-}
-function saveAchievement(){
-  const text = val('achv-text');
-  if(!text){ toast('اكتب شنو سوّيت اليوم','err'); return; }
-  const linkType = val('achv-linktype');
-  const linkId = linkType ? val('achv-linkid') : '';
-  let linkLabel = '';
-  if(linkType==='fault'){ const f=(DB.faults||[]).find(x=>x.id===linkId); linkLabel = f?(f.reason||f.desc||f.location||''):''; }
-  else if(linkType==='task'){ const t=(DB.tasks||[]).find(x=>x.id===linkId); linkLabel = t?(t.title||''):''; }
-  else if(linkType==='site'){ const s=(DB.fieldSites||[]).find(x=>x.id===linkId); linkLabel = s?s.name:''; }
-  const photos = (window._achvPhotos||[]).map(url=>({url, by:CU.name, time:ts()}));
-
-  fbPush('achievements', {
-    uid: CU.uid||CU.id, name: CU.name, role: CU.role,
-    text, linkType: linkType||'', linkId: linkId||'', linkLabel, photos,
-    date: ts(), _ts: Date.now()
-  });
-  window._achvPhotos = [];
-  closeModal();
-  toast('✅ تم تسجيل الإنجاز');
-}
-function delAchievement(id){
-  confirmDel('حذف هذا الإنجاز نهائياً؟', `archiveDel('achievements/${id}');toast('تم الحذف','err')`);
-}
-
-// ══════════════════════════════════════════════════════
-//  📋 معاينة/مسح ميداني — نموذج يعبّيه الفني قبل تركيب موقع جديد
-//  (تغطية، عدد كاميرات، كهرباء، إنترنت...) — يفيد بتجهيز عروض
-//  أسعار دقيقة للعملاء ولا يتطلب وجود موقع فعلي مسبقاً بالنظام.
-// ══════════════════════════════════════════════════════
-function pgSurveys(){
-  const list = (DB.surveys||[]).slice().sort((a,b)=>(b._ts||0)-(a._ts||0));
-  $('page').innerHTML=`
-  <div class="ph">
-    <div class="pt">📋 المعاينات الميدانية (${list.length})</div>
-    <button class="btn btn-bl" onclick="openAddSurvey()">➕ معاينة جديدة</button>
-  </div>
-  ${list.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا معاينات مسجّلة بعد</div>`:
-    list.map(s=>`
-    <div class="panel" style="margin-bottom:10px;cursor:pointer" onclick="openSurveyDetail('${s.id}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div>
-          <div style="font-weight:700">${esc(s.siteName||'—')}</div>
-          <div style="font-size:12px;color:var(--mt);margin-top:2px">📷 ${s.camerasNeeded||0} كاميرا — 🔌 ${esc(s.powerSource||'—')} — 🌐 ${esc(s.internetQuality||'—')}</div>
-        </div>
-        <span class="badge" style="background:${s.status==='converted'?'#3fb95022':s.status==='ready'?'#1d4ed822':'#8b949e22'};color:${s.status==='converted'?'var(--gn)':s.status==='ready'?'var(--bl)':'var(--mt)'}">
-          ${s.status==='converted'?'✅ تحوّل لموقع':s.status==='ready'?'📤 جاهزة للعرض':'📝 مسودة'}</span>
-      </div>
-      <div style="font-size:11px;color:#555;margin-top:8px">${esc(s.surveyedBy||'')} — ${esc(s.date||'')}</div>
-    </div>`).join('')}`;
-}
-function openAddSurvey(){
-  window._survPhotos = [];
-  openModal(`${mhd('📋 معاينة ميدانية جديدة')}
-  <div class="fg">
-    <div class="s2 field"><label>اسم/عنوان الموقع المُعايَن *</label><input id="sv-name" placeholder="مثال: محطة وقود الحارثة..."></div>
-    <div class="field"><label>الإحداثيات</label><input id="sv-coords" placeholder="lat, lng" readonly></div>
-    <div class="field" style="align-self:flex-end"><button type="button" class="btn btn-gy" style="width:100%" onclick="useSurveyLocation()">📍 موقعي الحالي</button></div>
-    <div class="field"><label>نوع التغطية</label>
-      <select id="sv-coverage"><option>داخلي</option><option>خارجي</option><option>محيطي</option><option>مختلط</option></select></div>
-    <div class="field"><label>عدد الكاميرات المطلوبة *</label><input type="number" id="sv-camcount" min="0" placeholder="0"></div>
-    <div class="s2 field"><label>أنواع الكاميرات المقترحة</label><input id="sv-camtypes" placeholder="مثال: 4 ثابتة + 2 PTZ خارجية 4MP"></div>
-    <div class="field"><label>مصدر الكهرباء</label>
-      <select id="sv-power"><option>عام (شبكة وطنية)</option><option>مولد</option><option>UPS</option><option>طاقة شمسية</option><option>غير متوفر</option></select></div>
-    <div class="field"><label>جودة الإنترنت</label>
-      <select id="sv-inet"><option>ممتاز</option><option>متوسط</option><option>ضعيف</option><option>غير متوفر</option></select></div>
-    <div class="s2 field"><label>نوع الإنترنت</label><input id="sv-inettype" placeholder="فايبر / راديو لينك / ستالايت..."></div>
-    <div class="s2 field"><label>تحديات/عوائق</label><textarea id="sv-challenges" placeholder="ارتفاعات، عوائق خط بصر، صعوبة كهرباء..."></textarea></div>
-    <div class="s2 field"><label>ملاحظات عامة</label><textarea id="sv-notes"></textarea></div>
-    ${invPhotoPickerHTML('surv')}
-  </div>
-  ${mft('💾 حفظ المعاينة','saveSurvey()')}`);
-}
-function useSurveyLocation(){
-  if(!navigator.geolocation){ toast('المتصفح لا يدعم تحديد الموقع','err'); return; }
-  toast('⏳ جاري تحديد الموقع...');
-  navigator.geolocation.getCurrentPosition(function(pos){
-    const el = document.getElementById('sv-coords');
-    if(el) el.value = pos.coords.latitude.toFixed(6)+', '+pos.coords.longitude.toFixed(6);
-    toast('✅ تم تحديد الموقع');
-  }, function(){ toast('تعذّر تحديد الموقع — تأكد من إذن الموقع','err'); });
-}
-function saveSurvey(){
-  const name = val('sv-name');
-  if(!name){ toast('اكتب اسم/عنوان الموقع','err'); return; }
-  const photos = (window._survPhotos||[]).map(url=>({url, by:CU.name, time:ts()}));
-  fbPush('surveys', {
-    siteName: name, coords: val('sv-coords'), coverageType: val('sv-coverage'),
-    camerasNeeded: parseInt(val('sv-camcount'))||0, cameraTypes: val('sv-camtypes'),
-    powerSource: val('sv-power'), internetQuality: val('sv-inet'), internetType: val('sv-inettype'),
-    challenges: val('sv-challenges'), notes: val('sv-notes'), photos,
-    status: 'draft', surveyedBy: CU.name, date: ts(), _ts: Date.now()
-  });
-  window._survPhotos = [];
-  closeModal();
-  toast('✅ تم حفظ المعاينة');
-}
-function openSurveyDetail(id){
-  const s = (DB.surveys||[]).find(x=>x.id===id);
-  if(!s) return;
-  const canManage = CU.role==='manager' || s.surveyedBy===CU.name;
-  openModal(`${mhd('📋 '+esc(s.siteName))}
-  <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
-    ${s.coords?`<div>📍 <b>الإحداثيات:</b> ${esc(s.coords)}</div>`:''}
-    <div>🏗️ <b>نوع التغطية:</b> ${esc(s.coverageType||'—')}</div>
-    <div>📷 <b>عدد الكاميرات:</b> ${s.camerasNeeded||0}${s.cameraTypes?' — '+esc(s.cameraTypes):''}</div>
-    <div>🔌 <b>الكهرباء:</b> ${esc(s.powerSource||'—')}</div>
-    <div>🌐 <b>الإنترنت:</b> ${esc(s.internetQuality||'—')}${s.internetType?' — '+esc(s.internetType):''}</div>
-    ${s.challenges?`<div>⚠️ <b>تحديات:</b> ${esc(s.challenges)}</div>`:''}
-    ${s.notes?`<div>📝 <b>ملاحظات:</b> ${esc(s.notes)}</div>`:''}
-    <div style="color:var(--mt);font-size:11px">بواسطة ${esc(s.surveyedBy)} — ${esc(s.date)}</div>
-  </div>
-  ${s.photos&&s.photos.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">
-    ${s.photos.map(ph=>`<img src="${ph.url}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--br);cursor:pointer" onclick="viewPhoto(this.src)">`).join('')}
-  </div>`:''}
-  <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
-    ${canExport()?`<button class="btn btn-bl" onclick="printSurvey('${id}')">🖨️ طباعة (لعرض سعر للعميل)</button>`:''}
-    ${canManage&&(s.status==='ready'||s.status==='converted')&&canEditNetwork()?`<button class="btn" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44" onclick="closeModal();go('fieldmap');setTimeout(()=>openAddNetLink('${esc(s.siteName)}'),400)">🔗 إنشاء رابط شبكة لهذا الموقع</button>`:''}
-    ${canManage&&s.status!=='converted'?`<select onchange="updateSurveyStatus('${id}',this.value)" style="padding:8px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx)">
-      <option value="draft" ${s.status==='draft'?'selected':''}>📝 مسودة</option>
-      <option value="ready" ${s.status==='ready'?'selected':''}>📤 جاهزة للعرض</option>
-    </select>`:''}
-    ${canManage?`<button class="btn btn-rd" onclick="delSurvey('${id}')">🗑️ حذف</button>`:''}
-  </div>
-  <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
-}
-function updateSurveyStatus(id, status){
-  fbUpdate('surveys/'+id, {status});
-  toast('تم التحديث');
-}
-function delSurvey(id){
-  confirmDel('حذف هذه المعاينة نهائياً؟', `archiveDel('surveys/${id}');closeModal();toast('تم الحذف','err')`);
-}
-function printSurvey(id){
-  const s = (DB.surveys||[]).find(x=>x.id===id);
-  if(!s) return;
-  const now = fmtDateTime(new Date().toISOString());
-  const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
-  <title>معاينة ميدانية — ${esc(s.siteName)}</title>
-  <style>
-    body{font-family:Arial,sans-serif;padding:30px;color:#111;direction:rtl}
-    h2{text-align:center;margin-bottom:2px}
-    .sub{text-align:center;color:#666;margin-bottom:24px;font-size:12px}
-    table{width:100%;border-collapse:collapse;margin-bottom:20px}
-    td{border:1px solid #ccc;padding:10px;font-size:14px}
-    td.lbl{background:#f3f4f6;font-weight:700;width:180px}
-    .imgs{display:flex;flex-wrap:wrap;gap:8px}
-    .imgs img{width:140px;height:140px;object-fit:cover;border-radius:6px;border:1px solid #ccc}
-    @media print{button{display:none}}
-  </style></head><body>
-  <h2>📋 تقرير معاينة ميدانية</h2>
-  <div class="sub">CCTV Manager — تاريخ الطباعة: ${now}</div>
-  <button onclick="window.print()" style="margin-bottom:20px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
-  <table>
-    <tr><td class="lbl">الموقع</td><td>${esc(s.siteName||'—')}</td></tr>
-    ${s.coords?`<tr><td class="lbl">الإحداثيات</td><td>${esc(s.coords)}</td></tr>`:''}
-    <tr><td class="lbl">نوع التغطية</td><td>${esc(s.coverageType||'—')}</td></tr>
-    <tr><td class="lbl">عدد الكاميرات المطلوبة</td><td>${s.camerasNeeded||0}</td></tr>
-    ${s.cameraTypes?`<tr><td class="lbl">أنواع الكاميرات</td><td>${esc(s.cameraTypes)}</td></tr>`:''}
-    <tr><td class="lbl">مصدر الكهرباء</td><td>${esc(s.powerSource||'—')}</td></tr>
-    <tr><td class="lbl">جودة الإنترنت</td><td>${esc(s.internetQuality||'—')}${s.internetType?' — '+esc(s.internetType):''}</td></tr>
-    ${s.challenges?`<tr><td class="lbl">تحديات/عوائق</td><td>${esc(s.challenges)}</td></tr>`:''}
-    ${s.notes?`<tr><td class="lbl">ملاحظات</td><td>${esc(s.notes)}</td></tr>`:''}
-    <tr><td class="lbl">أُجريت بواسطة</td><td>${esc(s.surveyedBy||'—')} — ${esc(s.date||'')}</td></tr>
-  </table>
-  ${s.photos&&s.photos.length?`<div class="imgs">${s.photos.map(ph=>`<img src="${ph.url}">`).join('')}</div>`:''}
-  </body></html>`);
-  win.document.close();
-}
-//  بالتطبيق. الوصول محكوم بنفس صلاحية "الطباعة وتصدير الملفات"
-//  (exportPrint) اللي يمنحها المدير — نفس الصلاحية المستخدمة بكل
-//  أزرار التصدير المتفرقة بالتطبيق، هذا فقط تجميع لها بمكان وحد.
-// ══════════════════════════════════════════════════════
-function printHubRow(icon, label, sub, onclick){
-  return `<button onclick="${onclick}" style="width:100%;text-align:right;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--sf);border:1px solid var(--br);border-radius:10px;margin-bottom:8px;cursor:pointer;color:var(--tx);font-family:inherit">
-    <div style="font-size:22px;flex-shrink:0">${icon}</div>
-    <div style="flex:1;text-align:right">
-      <div style="font-weight:700;font-size:14px">${esc(label)}</div>
-      ${sub?`<div style="font-size:11px;color:var(--mt);margin-top:2px">${esc(sub)}</div>`:''}
-    </div>
-    <div style="color:var(--mt)">◀</div>
-  </button>`;
-}
-function printHubSection(title){
-  return `<div style="font-weight:700;color:var(--bl);margin:18px 0 8px;font-size:13px">${title}</div>`;
-}
-function pgPrintHub(){
-  if(!canExport()){
-    $('page').innerHTML=`<div class="panel" style="text-align:center;padding:60px">
-      <div style="font-size:40px;margin-bottom:12px">⛔</div><div>ما عندك صلاحية الطباعة والتصدير — راجع المدير</div></div>`;
-    return;
-  }
-  const fieldSites = DB.fieldSites||[];
-
-  $('page').innerHTML=`
-  <div class="ph"><div><div class="pt">🖨️ لوحة الطباعة</div><div class="ps">كل الملفات القابلة للطباعة والتصدير بمكان وحد</div></div></div>
-
-  ${printHubSection('📦 المخزن')}
-  ${printHubRow('📦','تصدير المخزن الكامل','Excel — كل المواد بكل المستودعات','exportWarehouseOnly()')}
-  ${printHubRow('📷','الكاميرات المنصوبة','Excel — المواد المصروفة لمواقع ميدانية','exportDeployedOnly()')}
-  ${printHubRow('🏛️','الموجودات الثابتة (من المخزن)','Excel','exportFixedAssetsFromInv()')}
-  ${printHubRow('🏷️','باركود كل مواد المخزن','ملصقات Code128 + QR جاهزة للطباعة','printAllBarcodes()')}
-
-  ${printHubSection('🔄 حركة المواد والأعطال')}
-  ${printHubRow('🖨️','طباعة سجل حركة المواد','PDF — صرف وإيداع ونقل','printMovesReport()')}
-  ${printHubRow('🖨️','طباعة سجل الأعطال','PDF','printFaultsReport()')}
-  ${printHubRow('📊','التقرير الشامل والمقارنة الشهرية','يفتح صفحة التقارير الكاملة',`go('reports')`)}
-
-  ${printHubSection('🏛️ جرد الموجودات الثابتة (حسب الموقع الميداني)')}
-  ${fieldSites.length===0?`<div style="color:var(--mt);font-size:13px;padding:8px">لا مواقع ميدانية بعد</div>`:
-    fieldSites.map(fs=>printHubRow('🏛️', fs.name, 'Excel — جرد النقاط الثابتة بهذا الموقع', `exportSiteInventory('${fs.id}','${esc(fs.name)}')`)).join('')}
-
-  ${printHubSection('🗺️ الكاميرات والخرائط (حسب الموقع الميداني)')}
-  ${fieldSites.length===0?`<div style="color:var(--mt);font-size:13px;padding:8px">لا مواقع ميدانية بعد</div>`:
-    fieldSites.map(fs=>printHubRow('📍', fs.name, 'تصدير KML — كاميرات ومعدات الموقع', `_FSITE='${fs.id}';exportMapImage()`)).join('')}
-  ${printHubRow('🗺️','خريطة مواقع الفنيين الحالية','Excel — إحداثيات كل فني','exportTechMapExcel()')}
-
-  ${printHubSection('📋 المعاينات الميدانية')}
-  ${printHubRow('📋','طباعة معاينة ميدانية (لعرض سعر عميل)','افتح المعاينة المطلوبة واضغط طباعة',`go('surveys')`)}
-
-  ${printHubSection('📝 الإنجازات والنشاطات')}
-  ${printHubRow('📝','تصدير الإنجازات اليومية','Excel — حسب آخر فلترة مفعّلة بصفحة الإنجازات',`go('achievements');setTimeout(exportAchievements,300)`)}
-  ${printHubRow('📋','تصدير سجل النشاط','Excel','exportActLogExcel()')}
-
-  ${printHubSection('🛩️ الطائرات المسيّرة و📻 المناداة')}
-  ${printHubRow('🛩️','تصدير الطائرات المسيّرة','Excel','exportUAVExcel()')}
-  ${printHubRow('📻','تصدير أجهزة المناداة','Excel','exportRadioExcel()')}
-  `;
-}
-function exportAchievements(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
-  const isManager = CU.role==='manager';
-  const filterUser = window._achvUser||'';
-  const filterFrom = window._achvFrom||'';
-  const filterTo = window._achvTo||'';
-  let list = (DB.achievements||[]);
-  if(isManager){ if(filterUser) list = list.filter(a=>a.uid===filterUser); }
-  else { list = list.filter(a=>a.uid===(CU.uid||CU.id)); }
-  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(a=>new Date(a._ts||0)>=df); }
-  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(a=>new Date(a._ts||0)<dt); }
-  if(!list.length){ toast('لا إنجازات للتصدير','warn'); return; }
-  const h=['الاسم','الدور','الإنجاز','مرتبط بـ','التاريخ'];
-  let xls='<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#1a2332;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f5f8ff}</style></head><body>';
-  xls+='<h2>📝 الإنجازات اليومية</h2><p style="color:#666">'+list.length+' إنجاز</p>';
-  xls+='<table><thead><tr>'+h.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';
-  list.forEach(function(a){
-    xls+='<tr><td>'+esc(a.name||'')+'</td><td>'+esc(ROLES[a.role]||a.role||'')+'</td><td>'+esc(a.text||'')+'</td><td>'+esc(a.linkLabel||'—')+'</td><td>'+esc(a.date||'')+'</td></tr>';
-  });
-  xls+='</tbody></table></body></html>';
-  const blob=new Blob(['﻿'+xls],{type:'application/vnd.ms-excel;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;a.download='الإنجازات_اليومية_'+new Date().toISOString().split('T')[0]+'.xls';
-  a.click();URL.revokeObjectURL(url);
-  toast('✅ تم تصدير '+list.length+' إنجاز');
-}
+// ── كتابة / تحديث / حذف ──
+function fbSet(path, val){ return FBDB.ref('cctv/'+path).set(val); }
+function fbUpdate(path, obj){ return FBDB.ref('cctv/'+path).update(obj); }
+function fbPush(path, obj){ const id=gid(); return FBDB.ref('cctv/'+path+'/'+id).set({...obj,id}).then(()=>id); }
+function fbDel(path){ return FBDB.ref('cctv/'+path).remove(); }
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.L=null;console.warn('Leaflet failed to load - map disabled')"></script>
@@ -1154,13 +648,13 @@ const PERM_DEF = {
 };
 
 const DEF_PERMS = {
-  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1,maintain:1,reports:1,siteinv:1,camDrag:1,exportPrint:1},
-  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0,exportPrint:0},
-  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0,exportPrint:0},
-  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0,exportPrint:0},
-  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0,exportPrint:0},
-  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:1,siteinv:1,camDrag:0,exportPrint:0},
-  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:0,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0,exportPrint:0},
+  manager   : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:1,sites:1,types:1,fieldmap:1,docs:1,downloadDocs:1,radio:1,radioEdit:1,uav:1,uavEdit:1,maintain:1,reports:1,siteinv:1,camDrag:1},
+  admin     : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0},
+  engineer  : {inv:1,addItem:1,moves:1,faults:1,updFault:1,notifs:1,invoices:1,importInv:1,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
+  technician: {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
+  field     : {inv:0,addItem:0,moves:0,faults:1,updFault:0,notifs:1,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:1,reports:1,siteinv:1,camDrag:0},
+  viewer    : {inv:1,addItem:0,moves:1,faults:1,updFault:0,notifs:1,invoices:1,importInv:0,users:0,sites:1,types:1,fieldmap:1,docs:0,downloadDocs:0,radio:0,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:1,siteinv:1,camDrag:0},
+  signals   : {inv:0,addItem:0,moves:0,faults:0,updFault:0,notifs:0,invoices:0,importInv:0,users:0,sites:0,types:0,fieldmap:0,docs:0,downloadDocs:0,radio:1,radioEdit:0,uav:0,uavEdit:0,maintain:0,reports:0,siteinv:0,camDrag:0},
 };
 
 const FAULT_ST = [
@@ -1201,10 +695,6 @@ let DB = {
   notifs:[],
   invoices:[],
   customTypes:{},
-  archive:{},
-  loginLog:[],
-  achievements:[],
-  surveys:[],
   fieldSites:[],   // [{id, name, desc, cameras:[], allowedUsers:[]}]
   actlog:[],        // سجل النشاط
   maintain:[],
@@ -1241,10 +731,6 @@ function p(k){
   // الإداري وباقي الأدوار — يعتمدون على الصلاحيات المحددة من المدير
   const perms = CU.perms || DEF_PERMS[CU.role] || {};
   return !!perms[k];
-}
-// صلاحية مخصصة: الطباعة وتصدير الملفات (Excel/PDF/KML/صور) — يمنحها المدير لأي مستخدم
-function canExport(){
-  return !!CU && (CU.role==='manager' || p('exportPrint'));
 }
 
 // دالة للتحقق مما إذا كان المستخدم الحالي مسموح له برؤية موقع معين
@@ -1455,7 +941,6 @@ function doLogout(){
     try{ fbUpdate('techLocations/'+(CU.uid||CU.id),{online:false}); }catch(e){}
   }
   try{ FBDB.ref('cctv').off(); }catch(e){}
-  logLoginEvent(CU, 'logout');
   CU=null; PAGE='';
   FBAUTH.signOut().then(()=>{
     _isLoggingOut = false;
@@ -1642,7 +1127,6 @@ FBAUTH.onAuthStateChanged(function(fbUser){
       return;
     }
     CU={...userData, uid:fbUser.uid, email:fbUser.email};
-    logLoginEvent(CU, 'login');
     const splash=$('splash'); if(splash) splash.style.display='none';
     $('lload').style.display='none';
     $('lerr').style.display='none';
@@ -1739,108 +1223,6 @@ function fbInitDB(){
 let _syncRef = null;
 let _syncHandler = null;
 
-// ══════════════════════════════════════════════════════
-//  📥 تحويل بيانات Firebase الخام (snapshot) إلى بنية DB.* الداخلية
-//  — دالة واحدة مشتركة يستخدمها الاتصال الحي (fbStartSync) وأيضاً
-//  التحميل الأوفلاين (loadLocalDB) لتفادي ازدواج نفس المنطق المعقد
-//  بمكانين (وخطر انحرافهما عن بعض مستقبلاً)
-// ══════════════════════════════════════════════════════
-function applyDBSnapshot(data){
-  // sites
-  // sites مخزنة كـ {key: name} — Firebase يرتبها أبجدياً بالـ key
-  const mainSiteName = data.mainSite || 'المستودع المركزي';
-  if(data.sites){
-    const raw = data.sites;
-    if(Array.isArray(raw)){
-      DB.sites = raw.filter(s=>typeof s==='string');
-    } else {
-      // ترتيب حسب الـ key لضمان الرئيسي أولاً (000_main يجي قبل أي رقم آخر)
-      const sortedEntries = Object.entries(raw)
-        .sort((a,b)=>a[0].localeCompare(b[0]))
-        .filter(([k,v])=>typeof v==='string');
-      DB.sites = sortedEntries.map(([k,v])=>v);
-      window._sitesKeys = {}; // {siteName: firebaseKey}
-      sortedEntries.forEach(([k,v])=>{ window._sitesKeys[v]=k; });
-    }
-  } else {
-    DB.sites = [mainSiteName];
-  }
-  // ضمان أن الرئيسي أول دائماً
-  if(!DB.sites.length) DB.sites = [mainSiteName];
-  if(DB.sites[0] !== mainSiteName){
-    DB.sites = [mainSiteName, ...DB.sites.filter(s=>s!==mainSiteName)];
-  }
-  DB.mainSite = data.mainSite || DB.sites[0];
-
-  // inventory
-  DB.inv={};
-  DB.sites.forEach(s=>DB.inv[s]=[]);
-  if(data.inv){
-    Object.entries(data.inv).forEach(([k,items])=>{
-      const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
-      if(!DB.inv[siteName]) DB.inv[siteName]=[];
-      Object.values(items).forEach(item=>{ if(!item.___init) DB.inv[siteName].push(item); });
-    });
-  }
-
-  // collections
-  DB.moves       = data.moves       ? Object.values(data.moves).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-  DB.faults      = data.faults      ? Object.values(data.faults) : [];
-  // فلترة الإشعارات حسب صلاحيات المستخدم ومواقعه
-  const allNotifs = data.notifs ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-  const myUid = CU?.uid||CU?.id;
-  const myAllowedSites = CU?.perms?.allowedSites||[];
-  DB.notifs = allNotifs.filter(n=>{
-    // المدير والسيد يريان كل الإشعارات
-    if(!CU || CU.role==='manager' || CU.role==='viewer') return true;
-    // إشعار موجّه لمستخدم محدد
-    if(n.targetUid) return n.targetUid===myUid;
-    // إشعار مرتبط بموقع ميداني
-    if(n.fieldSiteId){
-      // إذا كان للمستخدم مواقع محددة، تحقق منها
-      if(myAllowedSites.length) return myAllowedSites.includes(n.fieldSiteId);
-      // إذا لم تحدد مواقع، تحقق من allowedUsers
-      if(n.allowedUsers) return n.allowedUsers.includes(myUid)||n.allowedUsers.includes('all');
-      return false;
-    }
-    // إشعار عام
-    if(!n.allowedUsers) return true;
-    if(n.allowedUsers.includes('all')) return true;
-    if(n.allowedUsers.includes('manager_only')) return false;
-    return n.allowedUsers.includes(myUid);
-  });
-  DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
-  DB.customTypes = data.customTypes || {};
-  DB.archive = data.archive || {};
-  DB.fieldSites  = data.fieldSites
-    ? Object.values(data.fieldSites).map(fs=>({...fs, cameras:fs.cameras?Object.values(fs.cameras):[]}))
-    : [];
-  DB.users       = data.users       ? Object.values(data.users) : [];
-  DB.actlog      = data.actlog      ? Object.values(data.actlog).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-  DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
-  DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-  DB.siteInventory = data.siteInventory || {};
-  DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
-  DB.uavDevices = data.uavDevices ? Object.values(data.uavDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
-  DB.pwVault = data.pwVault ? Object.values(data.pwVault).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
-  DB.faultTemplates = data.faultTemplates || [];
-  // تحميل روابط المستودعات الأب
-  if(data.siteParents){
-    window._siteParents = data.siteParents
-      ? Object.fromEntries(Object.entries(data.siteParents).map(([k,v])=>[decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/')),v]))
-      : {};
-  }
-  // تحديث صفحة المهام إذا كانت مفتوحة
-  if(PAGE==='tasks') pgTasks();
-
-  // تحديث المستخدم الحالي إذا تغيرت بياناته
-  if(CU && data.users && data.users[CU.uid]){
-    const updated=data.users[CU.uid];
-    if(!updated.active){ doLogout(); return; }
-    CU={...CU,...updated};
-  }
-}
-
 function fbStartSync(){
   // إذا offline — حمّل البيانات المحلية
   if(!navigator.onLine){ loadLocalDB(); }
@@ -1854,9 +1236,102 @@ function fbStartSync(){
   _syncRef = FBDB.ref('cctv');
   _syncHandler = _syncRef.on('value', snap=>{
     const data=snap.val()||{};
-    applyDBSnapshot(data);
+
+    // sites
+    // sites مخزنة كـ {key: name} — Firebase يرتبها أبجدياً بالـ key
+    const mainSiteName = data.mainSite || 'المستودع المركزي';
+    if(data.sites){
+      const raw = data.sites;
+      if(Array.isArray(raw)){
+        DB.sites = raw.filter(s=>typeof s==='string');
+      } else {
+        // ترتيب حسب الـ key لضمان الرئيسي أولاً (000_main يجي قبل أي رقم آخر)
+        const sortedEntries = Object.entries(raw)
+          .sort((a,b)=>a[0].localeCompare(b[0]))
+          .filter(([k,v])=>typeof v==='string');
+        DB.sites = sortedEntries.map(([k,v])=>v);
+        window._sitesKeys = {}; // {siteName: firebaseKey}
+        sortedEntries.forEach(([k,v])=>{ window._sitesKeys[v]=k; });
+      }
+    } else {
+      DB.sites = [mainSiteName];
+    }
+    // ضمان أن الرئيسي أول دائماً
+    if(!DB.sites.length) DB.sites = [mainSiteName];
+    if(DB.sites[0] !== mainSiteName){
+      DB.sites = [mainSiteName, ...DB.sites.filter(s=>s!==mainSiteName)];
+    }
+    DB.mainSite = data.mainSite || DB.sites[0];
+
+    // inventory
+    DB.inv={};
+    DB.sites.forEach(s=>DB.inv[s]=[]);
+    if(data.inv){
+      Object.entries(data.inv).forEach(([k,items])=>{
+        const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
+        if(!DB.inv[siteName]) DB.inv[siteName]=[];
+        Object.values(items).forEach(item=>{ if(!item.___init) DB.inv[siteName].push(item); });
+      });
+    }
+
+    // collections
+    DB.moves       = data.moves       ? Object.values(data.moves).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    DB.faults      = data.faults      ? Object.values(data.faults) : [];
+    // فلترة الإشعارات حسب صلاحيات المستخدم ومواقعه
+    const allNotifs = data.notifs ? Object.values(data.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    const myUid = CU?.uid||CU?.id;
+    const myAllowedSites = CU?.perms?.allowedSites||[];
+    DB.notifs = allNotifs.filter(n=>{
+      // المدير والسيد يريان كل الإشعارات
+      if(!CU || CU.role==='manager' || CU.role==='viewer') return true;
+      // إشعار موجّه لمستخدم محدد
+      if(n.targetUid) return n.targetUid===myUid;
+      // إشعار مرتبط بموقع ميداني
+      if(n.fieldSiteId){
+        // إذا كان للمستخدم مواقع محددة، تحقق منها
+        if(myAllowedSites.length) return myAllowedSites.includes(n.fieldSiteId);
+        // إذا لم تحدد مواقع، تحقق من allowedUsers
+        if(n.allowedUsers) return n.allowedUsers.includes(myUid)||n.allowedUsers.includes('all');
+        return false;
+      }
+      // إشعار عام
+      if(!n.allowedUsers) return true;
+      if(n.allowedUsers.includes('all')) return true;
+      if(n.allowedUsers.includes('manager_only')) return false;
+      return n.allowedUsers.includes(myUid);
+    });
+    DB.invoices    = data.invoices    ? Object.values(data.invoices) : [];
+    DB.customTypes = data.customTypes || {};
+    DB.fieldSites  = data.fieldSites
+      ? Object.values(data.fieldSites).map(fs=>({...fs, cameras:fs.cameras?Object.values(fs.cameras):[]}))
+      : [];
+    DB.users       = data.users       ? Object.values(data.users) : [];
+    DB.actlog      = data.actlog      ? Object.values(data.actlog).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    DB.maintain    = data.maintain    ? Object.values(data.maintain).sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate)) : [];
+    DB.tasks       = data.tasks       ? Object.values(data.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
+    DB.siteInventory = data.siteInventory || {};
+    DB.radioDevices = data.radioDevices ? Object.values(data.radioDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+    DB.uavDevices = data.uavDevices ? Object.values(data.uavDevices).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+    DB.pwVault = data.pwVault ? Object.values(data.pwVault).sort(function(a,b){return (b._ts||0)-(a._ts||0);}) : [];
+    DB.faultTemplates = data.faultTemplates || [];
+    // تحميل روابط المستودعات الأب
+    if(data.siteParents){
+      window._siteParents = data.siteParents
+        ? Object.fromEntries(Object.entries(data.siteParents).map(([k,v])=>[decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/')),v]))
+        : {};
+    }
+    // تحديث صفحة المهام إذا كانت مفتوحة
+    if(PAGE==='tasks') pgTasks();
+
+    // تحديث المستخدم الحالي إذا تغيرت بياناته
+    if(CU && data.users && data.users[CU.uid]){
+      const updated=data.users[CU.uid];
+      if(!updated.active){ doLogout(); return; }
+      CU={...CU,...updated};
+    }
+
     if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
-    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); monthlyReportAutoCheck(); weeklyReportAutoCheck(); cacheLocalDB(data); }catch(e){}
+    try{ buildNav(); checkAutoRefresh(); autoBackupCheck(); monthlyReportAutoCheck(); cacheLocalDB(data); }catch(e){}
 
     // إخفاء Splash فوراً عند أول تحميل للبيانات
     const splash=$('splash');
@@ -1917,25 +1392,6 @@ function fbStartSync(){
     DB.actlog = Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
     if(PAGE==='actlog') pgActLog();
   });
-
-  // ── Listener منفصل لسجل الدخول/الخروج — آخر 300 فقط من Firebase ──
-  FBDB.ref('cctv/loginLog').limitToLast(300).on('value', snap=>{
-    if(!snap.exists()) return;
-    DB.loginLog = Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0));
-    if(PAGE==='loginlog') pgLoginLog();
-  });
-
-  // ── Listener منفصل للإنجازات اليومية — آخر 500 فقط من Firebase ──
-  FBDB.ref('cctv/achievements').limitToLast(500).on('value', snap=>{
-    DB.achievements = snap.exists() ? Object.values(snap.val()||{}).sort((a,b)=>(b._ts||0)-(a._ts||0)) : [];
-    if(PAGE==='achievements') pgAchievements();
-  });
-
-  // ── Listener منفصل للمعاينات الميدانية ──
-  FBDB.ref('cctv/surveys').on('value', snap=>{
-    DB.surveys = snap.exists() ? Object.values(snap.val()||{}) : [];
-    if(PAGE==='surveys') pgSurveys();
-  });
 }
 
 // ============================================
@@ -1964,16 +1420,6 @@ function buildNav(){
     { group: '📍 المواقع', items: [
       {id:'sites',     label:'المواقع والمخازن', icon:'📍', perm:'sites'},
       {id:'fieldmap',  label:'الميدانية',        icon:'🗺️', perm:'fieldmap'},
-      {id:'networkdiagrams', label:'مخططات الشبكة', icon:'🔌', perm:'docs'},
-    ]},
-    // ── الفريق ──
-    { group: '👤 الفريق', items: [
-      {id:'achievements', label:'الإنجازات اليومية', icon:'📝', perm:null},
-      {id:'surveys', label:'المعاينات الميدانية', icon:'📋', perm:null},
-    ]},
-    // ── الطباعة ──
-    { group: '🖨️ الطباعة', items: [
-      {id:'printhub', label:'لوحة الطباعة', icon:'🖨️', perm:'exportPrint'},
     ]},
     // ── الإدارة ──
     { group: '⚙️ الإدارة', items: [
@@ -1981,8 +1427,6 @@ function buildNav(){
       {id:'maintain',  label:'جدول الصيانة',    icon:'🗓️', perm:'faults'},
       {id:'reports',   label:'التقارير',         icon:'📊', perm:'faults'},
       {id:'actlog',    label:'سجل النشاط',      icon:'📋', perm:'users'},
-      {id:'loginlog',  label:'سجل الدخول/الخروج', icon:'🔐', perm:'__manager_only__'},
-      {id:'archive',   label:'الأرشيف',          icon:'🗄️', perm:'__manager_only__'},
     ]},
   ];
 
@@ -2022,7 +1466,7 @@ function go(page){
       notifs:pgNotifs,users:pgUsers,invoices:pgInvoices,types:pgTypes,sites:pgSites,fieldmap:pgFieldMap,
       search:pgSearch,urgent:pgUrgent,actlog:pgActLog,reports:pgReports,maintain:pgMaintain,barcode:pgBarcode,
       performance:pgPerformance,backup:()=>openBackupManager(),techmap:pgTechMap,handovers:pgHandovers,
-      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive(),archive:pgArchive,loginlog:pgLoginLog,achievements:pgAchievements,printhub:pgPrintHub,surveys:pgSurveys,networkdiagrams:pgNetworkDiagrams})[page]?.();
+      branding:()=>openBrandSettings(),chat:pgChat,docs:pgDocs,siteinv:pgSiteInventory,tasks:pgTasks,radio:pgRadio,uav:pgUAV,pwvault:pgPwVault,monthlyreports:()=>openMonthlyReportsArchive()})[page]?.();
   });
 }
 
@@ -2165,16 +1609,10 @@ function pgDash(){
         {id:'siteinv',    ic:'📦', lb:'جرد الموجودات',    perm:'siteinv'},
         {id:'pwvault', ic:'🔐', lb:'سجل كلمات المرور', perm:'__manager_only__'},
         {id:'monthlyreports', ic:'📅', lb:'التقارير الشهرية', perm:'__manager_only__'},
-        {id:'archive', ic:'🗄️', lb:'الأرشيف', perm:'__manager_only__'},
-        {id:'loginlog', ic:'🔐', lb:'سجل الدخول/الخروج', perm:'__manager_only__'},
         {id:'radio', ic:'📻', lb:'أجهزة المناداة', perm:'radio'},
         {id:'uav', ic:'🛩️', lb:'الطائرات المسيرة', perm:'uav'},
         {id:'branding',   ic:'🎨', lb:'تخصيص الشركة',    perm:'users'},
         {id:'chat',       ic:'💬', lb:'الدردشة',          perm:null},
-        {id:'achievements', ic:'📝', lb:'الإنجازات اليومية', perm:null},
-        {id:'surveys', ic:'📋', lb:'المعاينات الميدانية', perm:null},
-        {id:'networkdiagrams', ic:'🔌', lb:'مخططات الشبكة', perm:'docs'},
-        {id:'printhub', ic:'🖨️', lb:'لوحة الطباعة', perm:'exportPrint'},
         {id:'docs',       ic:'📁', lb:'المستندات',         perm:'docs'},
         {id:'types',     ic:'🗂️', lb:'الأنواع',         perm:'types'},
       ].filter(t => t.perm===null ? true : p(t.perm));
@@ -2246,12 +1684,11 @@ function pgInv(){
       ${p('addItem')?`<button class="btn btn-bl" onclick="openAddItem()">+ إضافة عنصر</button>`:''}
       ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openAddWarehouse()">🏪+ مستودع جديد</button>`:''}
       ${p('moves')&&!isMain?`<button class="btn btn-gy" onclick="openTransfer()">🔁 ترحيل للرئيسي</button>`:''}
-      ${p('moves')?`<button class="btn" style="background:#1d4ed822;color:#1d4ed8;border:1px solid #1d4ed844" onclick="openScanToIssue()">📷 مسح للصرف</button>`:''}
       ${CU.role==='manager'&&linkedFieldSites.length?`
         <button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
         <button class="btn" style="background:#d1242f22;color:var(--rd);border:1px solid #d1242f44" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
       `:''}
-      ${canExport()?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📷 الكاميرات المنصوبة</button><button class="btn btn-gy" onclick="exportFixedAssetsFromInv()">🏛️ الموجودات الثابتة</button>':''}${CU.role==='manager'?'<button class="btn btn-pu" onclick="openBulkExcelImport(&quot;warehouse&quot;)">📥 استيراد جماعي</button>':''}
+      ${CU.role==='manager'?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📷 الكاميرات المنصوبة</button><button class="btn btn-gy" onclick="exportFixedAssetsFromInv()">🏛️ الموجودات الثابتة</button><button class="btn btn-pu" onclick="openBulkExcelImport(&quot;warehouse&quot;)">📥 استيراد جماعي</button>':''}
     </div>
     </div>
   </div>
@@ -2521,6 +1958,27 @@ function openAddItem(){ _ei=-1; _es=isMainSite(ISITE)?DB.mainSite:ISITE; _eit=nu
 function openEditItem(i){ _ei=i; _es=ISITE; _eit=DB.inv[ISITE][i]; showItemForm(_eit); }
 function openEditItemAt(i,site){ _ei=i; _es=site; _eit=DB.inv[site][i]; showItemForm(_eit); }
 
+function updateMoveDestPoints(){
+  const sel = document.getElementById('mds');
+  const ptSel = document.getElementById('mv-point-select');
+  if(!sel || !ptSel) return;
+  const val = sel.value;
+  ptSel.innerHTML = '<option value="">— اختر نقطة موجودة أو اكتب اسماً جديداً بالأسفل —</option>';
+  if(!val.startsWith('field:')) return;
+  const fsId = val.split(':')[1];
+  FBDB.ref('cctv/siteInventory/'+fsId).once('value').then(function(snap){
+    const data = snap.val()||{};
+    const points = Object.values(data);
+    if(!points.length) return;
+    points.forEach(function(pt){
+      const opt = document.createElement('option');
+      opt.value = pt.name||'';
+      opt.textContent = '📍 '+(pt.name||'');
+      ptSel.appendChild(opt);
+    });
+  });
+}
+
 function openMoveItem(i,site){
   const s=site||ISITE;
   const item=DB.inv[s][i];
@@ -2551,7 +2009,7 @@ function openMoveItem(i,site){
     </select>
   </div>
   <div class="field"><label>${isOut?'الموقع الوجهة / اسم النقطة المنصوب بها':'المستودع الوجهة'}</label>
-    <select id="mds">
+    <select id="mds" onchange="updateMoveDestPoints()">
       ${fieldDests.length?`<optgroup label="📍 مواقع ميدانية (تنصيب فعلي)">
         ${fieldDests.map(fs=>`<option value="field:${fs.id}:${esc(fs.name)}">📍 ${esc(fs.name)}</option>`).join('')}
       </optgroup>`:''}
@@ -2559,14 +2017,18 @@ function openMoveItem(i,site){
         ${dests.map(d=>`<option value="${esc(d)}">${isMainSite(d)?'🏭 ':'🏪 '}${esc(d)}</option>`).join('')}
       </optgroup>
     </select></div>
-  ${isOut?`<div class="field"><label>اسم النقطة المنصوب بها (اختياري)</label>
-    <input id="mv-point" placeholder="مثال: كاميرا بوابة رئيسية، NVR غرفة الموزع..."></div>
+  ${isOut?`<div class="field"><label>النقطة المنصوب بها ضمن الموقع (اختياري)</label>
+    <select id="mv-point-select" onchange="document.getElementById('mv-point').value=this.value==='__new__'?'':this.value" style="margin-bottom:6px">
+      <option value="">— اختر نقطة موجودة أو اكتب اسماً جديداً بالأسفل —</option>
+    </select>
+    <input id="mv-point" placeholder="أو اكتب اسم نقطة جديدة: كاميرا بوابة رئيسية، NVR غرفة الموزع..."></div>
   <div class="field"><label>اسم المستلم <span style="color:var(--rd)">*</span></label>
-    <input id="mv-receiver" placeholder="اسم الشخص المستلم للمادة..."></div>
-  <div class="field"><label>المسلّم</label>
+    <input id="mv-receiver" placeholder="اسم الشخص المستلم للمادة...">
+    <label style="margin-top:8px;display:block">المسلّم</label>
     <input id="mv-sender" value="${CU.name}" readonly style="opacity:.7"></div>`:''}
-  <div class="field"><label>${isOut?'الغاية من الصرف':'ملاحظات'}</label><textarea id="mnt" placeholder="${isOut?'تنصيب كاميرا جديدة، صيانة، استبدال...':'سبب الإعادة...'}"></textarea></div>
+  <div class="field"><label>ملاحظات</label><textarea id="mnt" placeholder="سبب الصرف أو الإعادة..."></textarea></div>
   ${mft(isOut?'🔼 تأكيد':'🔽 تأكيد',`confirmMove(${i},'${s}',${isOut})`,isOut?'btn-rd':'btn-gn')}`);
+  if(isOut) setTimeout(updateMoveDestPoints, 50);
 }
 
 
@@ -2639,7 +2101,6 @@ function doReturn(siteId,warehouse,ptId,itemId,it,reason,notes,fbPath){
   // 3. تسجيل في حركات المواد
   fbPush('moves',{
     name: '↩️ '+(it.name||itemId),
-    qty: parseInt(it.qty)||1,
     dir: 'in',
     from: (site.name||siteId),
     to: warehouse,
@@ -2694,9 +2155,8 @@ function confirmMove(i,src,isOut){
     const parts = destRaw.split(':');
     const fsId = parts[1];
     const fsName = parts.slice(2).join(':'); // احتياطاً لو الاسم نفسه فيه ':'
-    const fieldMovePush = fbPush('moves',{
+    fbPush('moves',{
       name:icon+' '+(item.name||item.serial||''),
-      qty: parseInt(item.qty)||1,
       dir:'out', from:src, to:fsName,
       by:CU.name, date:ts(), notes,
       status:newStatus, point:installPoint,
@@ -2713,33 +2173,32 @@ function confirmMove(i,src,isOut){
     // ── 🔗 الربط العكسي: تسجيل المادة فعلياً بالموقع الميداني ──
     // بدون هذا، المادة "تختفي" من المخزن دون أن تظهر بأي مكان بالموقع الميداني
     if(item.type==='camera'){
-      // كاميرا (قد تكون بكمية أكثر من 1 لو صُرفت كسطر واحد) → تُضاف نسخة مستقلة
-      // لكل وحدة بقائمة كاميرات الموقع (بانتظار إحداثيات دقيقة من الفني لاحقاً)،
-      // بدل إنشاء علامة واحدة فقط بغض النظر عن الكمية
+      // كاميرا → تُضاف مباشرة لقائمة كاميرات الموقع (بانتظار إحداثيات دقيقة من الفني لاحقاً)
+      // ⚠️ نضيف بعدد الكاميرات المصروفة فعلياً (item.qty) وليس سجلاً واحداً فقط —
+      // كانت المشكلة السابقة أن صرف 3 كاميرات مثلاً يُنشئ سجلاً واحداً بدل 3
       const fs = DB.fieldSites.find(function(x){return x.id===fsId;});
       if(fs){
-        const camQty = parseInt(item.qty)||1;
+        const camQty = parseInt(item.qty) || 1;
         const centerLat = fs.cameras&&fs.cameras.length ? fs.cameras[0].lat : (fs.lat||'');
         const centerLng = fs.cameras&&fs.cameras.length ? fs.cameras[0].lng : (fs.lng||'');
-        const camsUpdate = {};
-        for(let k=1;k<=camQty;k++){
+        for(let qi=0; qi<camQty; qi++){
           const camId = gid();
-          camsUpdate[camId] = {
-            id:camId,
-            name:(item.name||item.serial||'كاميرا جديدة')+(camQty>1?' #'+k:''),
-            serial: camQty>1 ? (item.serial?item.serial+'-'+k:'') : (item.serial||''),
+          fbSet('fieldSites/'+fsId+'/cameras/'+camId, {
+            id:camId, name:(item.name||item.serial||'كاميرا جديدة')+(camQty>1?' #'+(qi+1):''), serial:item.serial||'',
             model:item.model||'', mfr:item.mfr||'',
             installDesc:installPoint||'', status:'active',
             lat: centerLat, lng: centerLng, // إحداثيات مبدئية تقريبية — الفني يعدّلها لاحقاً من الخريطة
-            addedBy:CU.name, addedAt:ts(), _ts:Date.now(),
+            addedBy:CU.name, addedAt:ts(), _ts:Date.now()+qi,
             fromWarehouse: true // علامة تدل أنها أُضيفت تلقائياً من الصرف، ولم تُضبط إحداثياتها الدقيقة بعد
-          };
+          });
         }
-        fbUpdate('fieldSites/'+fsId+'/cameras', camsUpdate);
       }
     } else {
       // أي معدة أخرى → تُسجَّل بجرد الموجودات الثابتة للموقع، بنقطة "من المخزن"
-      const ptId = 'from_warehouse_'+fsId;
+      // ⚠️ نستخدم اسم النقطة الذي اختاره/كتبه المستخدم (installPoint) بدل نقطة
+      // ثابتة دائماً — لو لم يحدد شيئاً، نستخدم "📦 من المخزن" كافتراضي
+      const chosenPointName = (installPoint && installPoint.trim()) ? installPoint.trim() : '📦 من المخزن';
+      const ptId = 'pt_'+chosenPointName.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_');
       const itemId = gid();
       const AT = allT();
       const typeLbl = AT[item.type]?AT[item.type].label:(item.type||'');
@@ -2752,25 +2211,21 @@ function confirmMove(i,src,isOut){
           status:newStatus, notes:'صُرفت من مخزن '+src, date:ts()
         };
         fbSet('siteInventory/'+fsId+'/'+ptId, {
-          id:ptId, name:'📦 من المخزن',
+          id:ptId, name:chosenPointName,
           items: items, addedBy:CU.name, addedAt: (existing&&existing.addedAt)||ts()
         });
       });
     }
 
     pushN('🔼 صرف — منصوب في موقع ميداني — '+(item.name||item.serial)+' → 📍 '+fsName);
-    toast('✅ تم الصرف لموقع '+fsName);
-    fieldMovePush.then(function(moveId){
-      showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:parseInt(item.qty)||1, from:src, to:fsName, point:installPoint, receiver, sender, notes, date:ts(), moveId});
-    });
+    closeModal(); toast('✅ تم الصرف لموقع '+fsName);
     return;
   }
 
   // ── النقل بين مستودعات (يدعم الآن الكمية الجزئية أيضاً) ──
   const dest = destRaw;
-  const whMovePush = fbPush('moves',{
-    name:icon+' '+(item.name||item.serial||''),
-    qty: movedQty,
+  fbPush('moves',{
+    name:icon+' '+(item.name||item.serial||'')+(isPartial?' (كمية: '+movedQty+')':''),
     dir:isOut?'out':'in', from:src, to:dest,
     by:CU.name, date:ts(), notes,
     status:newStatus, point:installPoint,
@@ -2792,14 +2247,7 @@ function confirmMove(i,src,isOut){
   }
   const statusLabel = {deployed:'منصوب',consumed:'مصروف',warehouse:'في المخزن',returned:'راجع'}[newStatus]||newStatus;
   pushN((isOut?'🔼 صرف':'🔽 إيداع')+' — '+statusLabel+' — '+(item.name||item.serial)+(isPartial?' (كمية: '+movedQty+')':'')+' → '+dest);
-  if(isOut){
-    toast('✅ تم الصرف');
-    whMovePush.then(function(moveId){
-      showIssueSuccess({name:icon+' '+(item.name||item.serial||''), qty:movedQty, from:src, to:dest, point:installPoint, receiver, sender, notes, date:ts(), moveId});
-    });
-  } else {
-    closeModal(); toast('✅ تم الإيداع');
-  }
+  closeModal(); toast(isOut?'✅ تم الصرف':'✅ تم الإيداع');
 }
 
 function openTransferItem(i,site){
@@ -2838,8 +2286,7 @@ function confirmTransfer(i,src){
     fbDel('inv/'+fbKey(src)+'/'+item.id);
   }
   fbSet('inv/'+fbKey(dest)+'/'+item.id,{...item,currentSite:dest});
-  fbPush('moves',{name:'🔁 '+(allT()[item.type]?.icon||'')+' '+(item.name||item.serial||''),
-    qty: movedQty,
+  fbPush('moves',{name:'🔁 '+(allT()[item.type]?.icon||'')+' '+(item.name||item.serial||'')+(isPartial?' (كمية: '+movedQty+')':''),
     dir:'transfer',from:src,to:dest,by:CU.name,date:ts(),notes:note||'ترحيل بين مستودعات',_ts:Date.now()});
   pushN('🔁 ترحيل: '+(item.name||item.serial||'—')+(isPartial?' (كمية: '+movedQty+')':'')+' من '+src+' إلى '+dest);
   closeModal(); toast('تم الترحيل');
@@ -2881,7 +2328,6 @@ function confirmBulkTransfer(src){
       fbDel('inv/'+fbKey(src)+'/'+it.id);
       fbSet('inv/'+fbKey(dest)+'/'+it.id,{...it,currentSite:dest});
       fbPush('moves',{name:'🔁 '+(allT()[it.type]?.icon||'')+' '+(it.name||it.serial||''),
-        qty: parseInt(it.qty)||1,
         dir:'transfer',from:src,to:dest,by:CU.name,date:ts(),notes:note,_ts:Date.now()});
       count++;
     }
@@ -2892,7 +2338,7 @@ function confirmBulkTransfer(src){
 
 function setMaintAt(i,site){ const s=site||ISITE; const item=DB.inv[s][i]; if(!item)return; fbSet('inv/'+fbKey(s)+'/'+item.id+'/status','maintenance'); toast('إرسال للصيانة','warn'); }
 function setMaint(i){ setMaintAt(i,ISITE); }
-function delItemAt(i,site){ const s=site||ISITE; const item=DB.inv[s]?.[i]; if(!item)return; confirmDel('حذف المادة: '+item.name+'؟', `archiveDel('inv/${fbKey(s)}/${item.id}');toast('تم الحذف','err')`); }
+function delItemAt(i,site){ const s=site||ISITE; const item=DB.inv[s]?.[i]; if(!item)return; confirmDel('حذف المادة: '+item.name+'؟', `fbDel('inv/${fbKey(s)}/${item.id}');toast('تم الحذف','err')`); }
 function delItem(i){ delItemAt(i,ISITE); }
 
 function showItemForm(f){
@@ -3055,8 +2501,7 @@ function pgTypes(){
   ${cust.length>0?`<div class="panel">
     <div class="ptitle">الأنواع المخصصة</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px">
-      ${cust.map(([k,v])=>`<span class="tch">${v.icon} ${esc(v.label)}
-        <button onclick="openEditType('${k}')" style="background:none;border:none;color:var(--mt);cursor:pointer;font-size:14px;padding:0;margin-right:6px" title="تعديل">✏️</button>
+      ${cust.map(([k,v])=>`<span class="tch">${v.icon} ${v.label}
         <button onclick="delType('${k}')" style="background:none;border:none;color:var(--rd);cursor:pointer;font-size:18px;padding:0;margin-right:3px">×</button>
       </span>`).join('')}
     </div>
@@ -3075,263 +2520,33 @@ function saveType(){
   fbSet('customTypes/'+key,{label:nm,icon:ic});
   closeModal(); toast('تم إضافة النوع');
 }
-function openEditType(k){
-  const t = DB.customTypes[k];
-  if(!t){ toast('تعذّر إيجاد النوع','err'); return; }
-  openModal(`${mhd('✏️ تعديل نوع المادة')}
-  <div class="field"><label>اسم النوع *</label><input id="tnm-e" value="${esc(t.label)}"></div>
-  <div class="field"><label>الأيقونة (emoji)</label><input id="tic-e" value="${esc(t.icon||'')}" style="font-size:20px;text-align:center" maxlength="2"></div>
-  ${mft('💾 حفظ التعديل',`saveEditType('${k}')`)}`);
-}
-function saveEditType(k){
-  const nm=val('tnm-e'),ic=val('tic-e')||'🔧';
-  if(!nm){ toast('أدخل اسم النوع','err'); return; }
-  fbSet('customTypes/'+k,{label:nm,icon:ic});
-  logAct('تعديل نوع مادة', nm);
-  closeModal(); toast('✅ تم حفظ التعديل');
-}
 function delType(k){
-  // فحص الاستخدام قبل الحذف — نتفادى ترك مواد بنوع "يتيم" أيقونته تختفي
-  let usageCount = 0;
-  Object.values(DB.inv||{}).forEach(items=>{
-    (items||[]).forEach(item=>{ if(item.type===k) usageCount++; });
-  });
-  Object.values(DB.siteInventory||{}).forEach(pts=>{
-    Object.values(pts||{}).forEach(pt=>{
-      Object.values(pt.items||{}).forEach(item=>{ if(item.itemType===k) usageCount++; });
-    });
-  });
-  if(usageCount>0){
-    toast('⛔ لا يمكن الحذف — هذا النوع مستخدم بـ'+usageCount+' مادة حالياً. غيّر نوعها أولاً ثم احذف','err');
-    return;
-  }
-  confirmDel('حذف هذا النوع نهائياً؟', `archiveDel('customTypes/${k}')`);
+  confirmDel('حذف هذا النوع نهائياً؟', `fbDel('customTypes/${k}')`);
 }
 
 // ============================================
 //  MOVEMENTS
 // ============================================
 function pgMoves(){
-  const filterFrom = window._movesFilterFrom || '';
-  const filterTo = window._movesFilterTo || '';
-  let list = [...DB.moves];
-  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(m=>new Date(m._ts||0)>=df); }
-  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(m=>new Date(m._ts||0)<=dt); }
-
   $('page').innerHTML=`
-  <div class="ph">
-    <div class="pt">🔄 سجل حركة المواد (${list.length}${list.length!==DB.moves.length?' من '+DB.moves.length:''})</div>
-    ${canExport()?`<button class="btn" style="background:#238636;color:#fff" onclick="printMovesReport()">🖨️ طباعة / PDF</button>`:''}
-  </div>
-  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-    <input type="date" id="moves-filter-from" value="${filterFrom}" placeholder="من" onchange="window._movesFilterFrom=this.value;pgMoves()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
-    <input type="date" id="moves-filter-to" value="${filterTo}" placeholder="إلى" onchange="window._movesFilterTo=this.value;pgMoves()" style="flex:1;min-width:130px;padding:7px 10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:13px">
-    ${(filterFrom||filterTo)?`<button class="btn btn-gy" onclick="window._movesFilterFrom='';window._movesFilterTo='';pgMoves()">✖ مسح الفلترة</button>`:''}
-  </div>
+  <div class="ph"><div class="pt">🔄 سجل حركة المواد (${DB.moves.length})</div></div>
   <div class="tw"><table>
-    <thead><tr><th>العنصر</th><th>الكمية</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th><th></th></tr></thead>
+    <thead><tr><th>العنصر</th><th>الحركة</th><th>من</th><th>إلى</th><th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th></tr></thead>
     <tbody>
-      ${list.length===0?`<tr class="erow"><td colspan="10">لا حركات مسجلة</td></tr>`:
-        [...list].reverse().map(m=>`<tr>
+      ${DB.moves.length===0?`<tr class="erow"><td colspan="8">لا حركات مسجلة</td></tr>`:
+        [...DB.moves].reverse().map(m=>`<tr>
           <td class="tm">${esc(m.name)}</td>
-          <td style="text-align:center;font-weight:700">${parseInt(m.qty)||1}</td>
-          <td><span class="badge" style="background:${m.dir==='out'?'#f8514922':(m.dir==='transfer'||m.dir==='site-transfer'?'#bc8cff22':'#3fb95022')};color:${m.dir==='out'?'var(--rd)':(m.dir==='transfer'||m.dir==='site-transfer'?'var(--pu)':'var(--gn)')}">
-            ${m.dir==='out'?'↑ صرف':(m.dir==='transfer'?'🔁 ترحيل':(m.dir==='site-transfer'?'🔁 نقل ميداني':'↓ إيداع'))}</span></td>
+          <td><span class="badge" style="background:${m.dir==='out'?'#f8514922':'#3fb95022'};color:${m.dir==='out'?'var(--rd)':'var(--gn)'}">
+            ${m.dir==='out'?'↑ صرف':'↓ إيداع'}</span></td>
           <td style="color:var(--mt)">${esc(m.from||'—')}</td>
           <td style="color:var(--mt)">${esc(m.to||'—')}</td>
           <td style="color:var(--mt)">${esc(m.sender||m.by||'—')}</td>
           <td style="color:var(--mt);font-weight:${m.receiver?'700':'400'}">${esc(m.receiver||'—')}</td>
           <td style="color:var(--mt);font-size:12px">${esc(m.notes||'—')}</td>
           <td style="color:var(--mt);font-size:12px;white-space:nowrap">${esc(m.date)}</td>
-          <td>${(m.dir==='out'&&m.id)?`<button class="btn btn-sm btn-gy" title="طباعة سند التسليم" onclick="printIssueReceiptById('${m.id}')">🖨️</button>${m.signature?`<span title="موقّع" style="margin-right:4px">✅</span>`:`<button class="btn btn-sm" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" title="توقيع المستلم" onclick="openSignaturePad('${m.id}','${esc(m.receiver||'المستلم')}')">✍️</button>`}`:''}</td>
         </tr>`).join('')}
     </tbody>
   </table></div>`;
-}
-
-function printMovesReport(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
-  const filterFrom = window._movesFilterFrom || '';
-  const filterTo = window._movesFilterTo || '';
-  let list = [...DB.moves];
-  if(filterFrom){ const df=new Date(filterFrom); list=list.filter(m=>new Date(m._ts||0)>=df); }
-  if(filterTo){ const dt=new Date(filterTo); dt.setDate(dt.getDate()+1); list=list.filter(m=>new Date(m._ts||0)<=dt); }
-  list = [...list].reverse();
-  const now = fmtDateTime(new Date().toISOString());
-  const periodLabel = (filterFrom||filterTo) ? ((filterFrom||'…')+' → '+(filterTo||'…')) : 'كل الفترة';
-  const rows = list.map(m=>`
-    <tr>
-      <td>${esc(m.name)}</td>
-      <td style="text-align:center;font-weight:700">${parseInt(m.qty)||1}</td>
-      <td>${m.dir==='out'?'↑ صرف':(m.dir==='transfer'?'🔁 ترحيل':(m.dir==='site-transfer'?'🔁 نقل ميداني':'↓ إيداع'))}</td>
-      <td>${esc(m.from||'—')}</td>
-      <td>${esc(m.to||'—')}</td>
-      <td>${esc(m.sender||m.by||'—')}</td>
-      <td>${esc(m.receiver||'—')}</td>
-      <td>${esc(m.notes||'—')}</td>
-      <td>${esc(m.date)}</td>
-    </tr>`).join('');
-  const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
-  <title>سجل حركة المواد</title>
-  <style>
-    body{font-family:Arial,sans-serif;padding:24px;color:#111;direction:rtl}
-    h2{text-align:center;margin-bottom:4px}
-    .sub{text-align:center;color:#666;margin-bottom:20px;font-size:13px}
-    table{width:100%;border-collapse:collapse;font-size:12px}
-    th{background:#1f2937;color:#fff;padding:8px;text-align:right}
-    td{border:1px solid #ddd;padding:7px}
-    tr:nth-child(even){background:#f9f9f9}
-    @media print{button{display:none}}
-  </style></head><body>
-  <h2>🔄 تقرير حركة المواد — CCTV Manager</h2>
-  <div class="sub">الفترة: ${esc(periodLabel)} — تاريخ الطباعة: ${now} — إجمالي الحركات: ${list.length}</div>
-  <button onclick="window.print()" style="margin-bottom:16px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
-  <table>
-    <thead><tr>
-      <th>العنصر</th><th>الكمية</th><th>الحركة</th><th>من</th><th>إلى</th>
-      <th>المسلّم</th><th>المستلم</th><th>ملاحظات</th><th>التاريخ</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  </body></html>`);
-  win.document.close();
-}
-
-// ── سند صرف/تسليم قابل للطباعة لعملية صرف واحدة ──
-function printIssueReceiptById(moveId){
-  const m = DB.moves.find(x=>x.id===moveId);
-  if(!m){ toast('تعذّر إيجاد الحركة','err'); return; }
-  printIssueReceipt({...m, moveId:m.id});
-}
-function printIssueReceipt(data){
-  const now = fmtDateTime(new Date().toISOString());
-  const mv = data.moveId ? DB.moves.find(x=>x.id===data.moveId) : null;
-  const sig = mv && mv.signature;
-  const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
-  <title>سند صرف / تسليم</title>
-  <style>
-    body{font-family:Arial,sans-serif;padding:30px;color:#111;direction:rtl}
-    h2{text-align:center;margin-bottom:2px}
-    .sub{text-align:center;color:#666;margin-bottom:24px;font-size:12px}
-    table{width:100%;border-collapse:collapse;margin-bottom:30px}
-    td{border:1px solid #ccc;padding:10px;font-size:14px}
-    td.lbl{background:#f3f4f6;font-weight:700;width:160px}
-    .sign{display:flex;justify-content:space-between;margin-top:50px;gap:20px}
-    .sigcol{width:44%;text-align:center}
-    .sigimg{height:60px;display:flex;align-items:flex-end;justify-content:center}
-    .sigline{border-top:1px solid #333;padding-top:6px;font-size:12px;margin-top:4px}
-    @media print{button{display:none}}
-  </style></head><body>
-  <h2>📤 سند صرف / تسليم مواد</h2>
-  <div class="sub">CCTV Manager — تاريخ الطباعة: ${now}</div>
-  <button onclick="window.print()" style="margin-bottom:20px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة</button>
-  <table>
-    <tr><td class="lbl">المادة</td><td>${esc(data.name||'—')}</td></tr>
-    <tr><td class="lbl">الكمية</td><td>${parseInt(data.qty)||1}</td></tr>
-    <tr><td class="lbl">من (المصدر)</td><td>${esc(data.from||'—')}</td></tr>
-    <tr><td class="lbl">إلى (الوجهة)</td><td>${esc(data.to||'—')}</td></tr>
-    ${data.point?`<tr><td class="lbl">مكان التنصيب / الاستخدام</td><td>${esc(data.point)}</td></tr>`:''}
-    <tr><td class="lbl">الغاية / السبب</td><td>${esc(data.notes||'—')}</td></tr>
-    <tr><td class="lbl">اسم المستلم</td><td>${esc(data.receiver||'—')}</td></tr>
-    <tr><td class="lbl">اسم المُسلِّم</td><td>${esc(data.sender||'—')}</td></tr>
-    <tr><td class="lbl">التاريخ</td><td>${esc(data.date||now)}</td></tr>
-  </table>
-  <div class="sign">
-    <div class="sigcol"><div class="sigimg"></div><div class="sigline">توقيع المُسلِّم</div></div>
-    <div class="sigcol"><div class="sigimg">${sig?`<img src="${sig}" style="max-height:58px;max-width:100%">`:''}</div>
-      <div class="sigline">توقيع المستلم${(mv&&mv.signedAt)?' — وُقّع رقمياً بتاريخ '+esc(mv.signedAt):''}</div></div>
-  </div>
-  </body></html>`);
-  win.document.close();
-}
-// ── نافذة نجاح بعد الصرف مباشرة، تعرض خيار طباعة سند التسليم فوراً ──
-function showIssueSuccess(receiptData){
-  window._lastReceipt = receiptData;
-  openModal(`<div style="text-align:center;padding:6px 0 14px">
-    <div style="font-size:44px;margin-bottom:8px">✅</div>
-    <div style="font-weight:700;font-size:16px;margin-bottom:4px">تم الصرف بنجاح</div>
-    <div style="color:var(--mt);font-size:13px">${esc(receiptData.name)} ← ${esc(receiptData.to)}</div>
-  </div>
-  ${receiptData.moveId?`<button class="btn" style="width:100%;background:#8250df;color:#fff;margin-bottom:8px" onclick="openSignaturePad('${receiptData.moveId}','${esc(receiptData.receiver||'المستلم')}')">✍️ توقيع المستلم الآن</button>`:''}
-  <button class="btn" style="width:100%;background:#1d4ed8;color:#fff;margin-bottom:8px" onclick="printIssueReceipt(window._lastReceipt)">🖨️ طباعة سند التسليم</button>
-  <button class="btn btn-gy" style="width:100%" onclick="closeModal()">إغلاق</button>`);
-}
-
-// ══════════════════════════════════════════════════════
-//  ✍️ توقيع رقمي للمستلم على سند التسليم (لوحة رسم باللمس/الفأرة)
-// ══════════════════════════════════════════════════════
-let _sigDrawing = false;
-let _sigLastPt = null;
-function openSignaturePad(moveId, personLabel){
-  window._sigMoveId = moveId;
-  openModal(`${mhd('✍️ توقيع '+esc(personLabel||'المستلم'))}
-  <div style="font-size:12px;color:var(--mt);margin-bottom:10px;text-align:center">وقّع بإصبعك أو الفأرة داخل المربع أدناه</div>
-  <div style="background:#fff;border-radius:10px;border:2px dashed var(--br);overflow:hidden">
-    <canvas id="sig-pad" style="width:100%;height:160px;display:block;touch-action:none"></canvas>
-  </div>
-  <div style="display:flex;gap:8px;margin-top:12px">
-    <button class="btn btn-gy" style="flex:1" onclick="clearSignaturePad()">🗑️ مسح</button>
-    <button class="btn" style="flex:1;background:#1d4ed8;color:#fff" onclick="saveSignature()">💾 حفظ التوقيع</button>
-  </div>`);
-  setTimeout(initSignaturePad, 100);
-}
-function initSignaturePad(){
-  const canvas = document.getElementById('sig-pad');
-  if(!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.strokeStyle = '#111'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-
-  function getPos(e){
-    const r = canvas.getBoundingClientRect();
-    const cx = (e.touches?e.touches[0].clientX:e.clientX) - r.left;
-    const cy = (e.touches?e.touches[0].clientY:e.clientY) - r.top;
-    return {x:cx, y:cy};
-  }
-  function start(e){ e.preventDefault(); _sigDrawing=true; _sigLastPt = getPos(e); }
-  function move(e){
-    if(!_sigDrawing) return;
-    e.preventDefault();
-    const pt = getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(_sigLastPt.x,_sigLastPt.y);
-    ctx.lineTo(pt.x,pt.y);
-    ctx.stroke();
-    _sigLastPt = pt;
-  }
-  function end(){ _sigDrawing=false; }
-
-  canvas.onmousedown=start; canvas.onmousemove=move; canvas.onmouseup=end; canvas.onmouseleave=end;
-  canvas.ontouchstart=start; canvas.ontouchmove=move; canvas.ontouchend=end;
-}
-function clearSignaturePad(){
-  const canvas = document.getElementById('sig-pad');
-  if(!canvas) return;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
-}
-function saveSignature(){
-  const canvas = document.getElementById('sig-pad');
-  const moveId = window._sigMoveId;
-  if(!canvas || !moveId){ closeModal(); return; }
-  const ctx = canvas.getContext('2d');
-  const px = ctx.getImageData(0,0,canvas.width,canvas.height).data;
-  let hasInk = false;
-  for(let i=0;i<px.length;i+=4){ if(px[i]<250||px[i+1]<250||px[i+2]<250){hasInk=true;break;} }
-  if(!hasInk){ toast('وقّع أولاً داخل المربع','err'); return; }
-
-  const dataUrl = canvas.toDataURL('image/png');
-  fbUpdate('moves/'+moveId, {signature:dataUrl, signedAt:ts(), signedBy:CU.name});
-  const mv = DB.moves.find(x=>x.id===moveId);
-  if(mv){ mv.signature=dataUrl; mv.signedAt=ts(); mv.signedBy=CU.name; }
-  logAct('توقيع سند تسليم', moveId);
-  toast('✅ تم حفظ التوقيع');
-  closeModal();
 }
 
 // ============================================
@@ -3344,7 +2559,7 @@ function pgFaults(){
   let html=`<div class="ph">
     <div><div class="pt">⚠️ الأعطال</div><div class="ps">${active} نشط — ${visibleFaults.filter(f=>f.status==='resolved').length} محلول</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${canExport()?`<button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>`:''}
+      ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printFaultsReport()">🖨️ طباعة / PDF</button>`:''}
       ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openManageFaultTemplates()">📋 القوالب</button>`:''}
       <button class="btn btn-rd" onclick="openAddFault()">🚨 إبلاغ عن عطل</button>
     </div>
@@ -3539,7 +2754,7 @@ function saveFault(){
 }
 
 function printFaultsReport(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   const visibleFaults = getVisibleFaults();
   const now = fmtDateTime(new Date().toISOString());
   const rows = visibleFaults.map(f=>`
@@ -3603,31 +2818,6 @@ function updFaultStatus(f, ri, status){
     }
   }
   toast('تم تحديث حالة العطل');
-  if(status==='resolved'){
-    setTimeout(function(){ suggestAchievementForFault(f); }, 600);
-  }
-}
-// اقتراح لطيف (مو إجباري) لتسجيل إنجاز فور إغلاق عطل — يقلل الاحتكاك بدل ما
-// يحتاج الفني يفتح نموذج الإنجاز من الصفر ويكتب من جديد
-function suggestAchievementForFault(f){
-  openModal(`<div style="text-align:center;padding:10px 0">
-    <div style="font-size:40px;margin-bottom:10px">🎉</div>
-    <div style="font-weight:700;margin-bottom:6px">تم حل العطل</div>
-    <div style="color:var(--mt);font-size:13px;margin-bottom:20px">تسجّله كإنجاز اليوم؟</div>
-  </div>
-  <button class="btn btn-bl btn-fw" style="margin-bottom:8px" onclick="quickLogFaultAchievement('${f.id}','${esc((f.reason||f.desc||f.location||'').replace(/'/g,"\\'"))}')">✅ نعم، سجّله</button>
-  <button class="btn btn-gy btn-fw" onclick="closeModal()">لا، تجاهل</button>`);
-}
-function quickLogFaultAchievement(faultId, faultLabel){
-  const f = (DB.faults||[]).find(x=>x.id===faultId);
-  fbPush('achievements', {
-    uid: CU.uid||CU.id, name: CU.name, role: CU.role,
-    text: 'حل عطل: '+faultLabel+(f&&f.location?' — '+f.location:''),
-    linkType: 'fault', linkId: faultId, linkLabel: faultLabel,
-    date: ts(), _ts: Date.now()
-  });
-  closeModal();
-  toast('✅ تم تسجيل الإنجاز');
 }
 
 function doUpdFault(ri, status){
@@ -3812,7 +3002,7 @@ async function saveUser(idx){
 async function delUser(i){
   const u = DB.users[i];
   if(!u) return;
-  confirmDel('حذف المستخدم: '+u.name+'؟', `(()=>{logAct('حذف مستخدم','${u.name} — ${u.email||''}');archiveDel('users/${'${u.uid||u.id}'}');toast('تم حذف المستخدم')})()`);
+  confirmDel('حذف المستخدم: '+u.name+'؟<br><small style="color:var(--rd)">هذا الإجراء لا يمكن التراجع عنه</small>', `(()=>{logAct('حذف مستخدم','${u.name} — ${u.email||''}');fbDel('users/${'${u.uid||u.id}'}');toast('تم حذف المستخدم')})()`);
   // ملاحظة: Firebase Auth يحتاج Admin SDK للحذف الكامل
 }
 
@@ -3912,7 +3102,7 @@ function openPerms(i){
   const isViewer=u.role==='viewer';
   const isTechOrField = u.role!=='manager'&&u.role!=='viewer';
   const READ_PERMS  =['inv','moves','faults','notifs','invoices','sites','types','fieldmap','radio','uav','maintain','reports','docs','downloadDocs','siteinv'];
-  const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit','camDrag','exportPrint'];
+  const WRITE_PERMS =['addItem','updFault','importInv','users','radioEdit','uavEdit','camDrag'];
   const PERM_LABELS ={
     inv:'عرض المخزن', faults:'عرض الأعطال', notifs:'الإشعارات',
     invoices:'عرض الفواتير', moves:'عرض حركة المواد', sites:'عرض المواقع والمخازن',
@@ -3923,8 +3113,7 @@ function openPerms(i){
     radio:'عرض أجهزة المناداة', radioEdit:'تعديل أجهزة المناداة',
     uav:'عرض الطائرات المسيرة', uavEdit:'تعديل الطائرات المسيرة',
     maintain:'عرض جدول الصيانة', reports:'عرض التقارير', siteinv:'جرد الموجودات الثابتة',
-    camDrag:'تحريك الكاميرا بالسحب على الخريطة',
-    exportPrint:'🖨️ الطباعة وتصدير الملفات (Excel, PDF, KML, صور)'
+    camDrag:'تحريك الكاميرا بالسحب على الخريطة'
   };
   function permRow(k){
     const locked=k==='notifs';
@@ -3987,7 +3176,7 @@ function syncUserFieldSitePerms(userIdx, siteId, allow){
 }
 
 function savePerms(i){
-  var ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag','exportPrint'];
+  var ALL_KEYS=['inv','faults','notifs','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'];
   var perms={};
   ALL_KEYS.forEach(function(k){
     var el=document.getElementById('pm_'+k);
@@ -4017,12 +3206,12 @@ function savePerms(i){
 function resetPerms(i){ const u=DB.users[i]; if(u) fbUpdate('users/'+(u.uid||u.id),{perms:null}); closeModal(); toast('تم إعادة الصلاحيات للافتراضي'); }
 
 function revokeAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag','exportPrint'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=false;
   });
 }
 function grantAll(i){
-  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag','exportPrint'].forEach(k=>{
+  ['inv','faults','invoices','moves','sites','types','fieldmap','addItem','updFault','importInv','users','radio','radioEdit','uav','uavEdit','maintain','reports','docs','downloadDocs','siteinv','camDrag'].forEach(k=>{
     const el=document.getElementById('pm_'+k); if(el&&!el.disabled) el.checked=true;
   });
 }
@@ -4054,8 +3243,6 @@ function pgInvoices(){
         ${inv.items?`<div style="font-size:17px;color:var(--mt);margin-top:3px;white-space:pre-line">📦 ${esc(inv.items)}</div>`:''}
         ${inv.notes?`<div style="font-size:12px;color:var(--mt)">📝 ${esc(inv.notes)}</div>`:''}
         <div style="font-size:11px;color:#555;margin-top:8px">أُضيف: ${esc(inv.addedAt)}</div>
-        <button class="btn btn-sm ${(inv.photos&&inv.photos.length)?'btn-pu':'btn-gy'}" style="margin-top:8px" onclick="openInvoicePhotos('${inv.id}')">
-          📸 ${(inv.photos&&inv.photos.length)?'صور الفاتورة ('+inv.photos.length+')':'إضافة صورة'}</button>
       </div>
       <div style="text-align:center;flex-shrink:0">
         ${inv.amount?`<div style="font-size:26px;font-weight:800;color:var(--bl)">${parseFloat(inv.amount).toLocaleString()}</div>
@@ -4066,7 +3253,6 @@ function pgInvoices(){
 }
 
 function openAddInv(){
-  window._addinvPhotos=[];
   openModal(`${mhd('إضافة فاتورة يدوية')}
   <div class="fg">
     <div class="field"><label>المورد *</label><input id="ivsup"></div>
@@ -4077,23 +3263,19 @@ function openAddInv(){
     <div class="s2 field"><label>المبلغ (ريال)</label><input type="number" id="ivamt" placeholder="0.00"></div>
     <div class="s2 field"><label>الأصناف</label><textarea id="ivitm" placeholder="قائمة الأصناف والكميات..."></textarea></div>
     <div class="s2 field"><label>ملاحظات</label><input id="ivnts"></div>
-    ${invPhotoPickerHTML('addinv')}
   </div>
   ${mft('💾 حفظ','saveInv()')}`);
 }
 function saveInv(){
   const sup=val('ivsup'),num=val('ivnum');
   if(!sup||!num){ toast('المورد والرقم مطلوبان','err'); return; }
-  const photos=(window._addinvPhotos||[]).map(url=>({url,by:CU.name,time:ts()}));
   fbPush('invoices',{supplier:sup,num,site:val('ivste'),date:val('ivdat'),
-    amount:val('ivamt'),items:val('ivitm'),notes:val('ivnts'),addedAt:ts(),imported:false,photos});
-  window._addinvPhotos=[];
+    amount:val('ivamt'),items:val('ivitm'),notes:val('ivnts'),addedAt:ts(),imported:false});
   closeModal(); toast('تم إضافة الفاتورة');
 }
 
 function openImportInv(){
   window._impData=null;
-  window._impinvPhotos=[];
   openModal(`${mhd('📥 استيراد فاتورة')}
   <div style="font-size:17px;color:var(--mt);margin-bottom:14px">
     يمكنك رفع ملف <b style="color:var(--tx)">JSON</b> أو <b style="color:var(--tx)">CSV</b> أو إدخال البيانات يدوياً.
@@ -4113,7 +3295,6 @@ function openImportInv(){
     <div class="s2 field"><label>الأصناف (كل صنف في سطر)</label>
       <textarea id="imitm" placeholder="10 كاميرا Hikvision 4MP&#10;2 NVR 16 قناة&#10;..."></textarea></div>
     <div class="s2 field"><label>ملاحظات</label><input id="imnts" placeholder="اختياري"></div>
-    ${invPhotoPickerHTML('impinv')}
   </div>
   <div id="impprev" style="display:none;background:var(--bg);border-radius:8px;padding:12px;margin-top:10px;font-size:12px"></div>
   ${mft('📥 استيراد وحفظ','confirmImport()','btn-pu')}`);
@@ -4163,9 +3344,8 @@ function handleImpFile(input){
 
 function confirmImport(){
   const all=window._impData;
-  const photos=(window._impinvPhotos||[]).map(url=>({url,by:CU.name,time:ts()}));
   if(all&&all.length>0){
-    all.forEach((f,idx)=>{
+    all.forEach(f=>{
       fbPush('invoices',{
         supplier:f.supplier||f.مورد||val('imsup')||'—',
         num:f.invoiceNo||f.num||f.رقم||val('imnum')||gid(),
@@ -4173,9 +3353,7 @@ function confirmImport(){
         amount:f.amount||f.مبلغ||val('imamt'),
         items:f.items||f.أصناف||val('imitm'),
         notes:f.notes||f.ملاحظات||val('imnts'),
-        site:'',addedAt:ts(),imported:true,
-        photos: idx===0?photos:[] // الصورة المرفقة تخص المستند المستورد نفسه، تُربط بأول سجل فقط تفادياً للتكرار
-      });
+        site:'',addedAt:ts(),imported:true});
     });
     toast('✅ تم استيراد '+all.length+' فاتورة');
   } else {
@@ -4183,95 +3361,11 @@ function confirmImport(){
     if(!sup&&!num){ toast('أدخل بيانات الفاتورة','err'); return; }
     fbPush('invoices',{supplier:sup||'—',num:num||gid(),
       date:val('imdat'),amount:val('imamt'),items:val('imitm'),notes:val('imnts'),
-      site:'',addedAt:ts(),imported:true,photos});
+      site:'',addedAt:ts(),imported:true});
     toast('✅ تم استيراد الفاتورة');
   }
   window._impData=null;
-  window._impinvPhotos=null;
   closeModal(); pgInvoices();
-}
-
-// ── التقاط/رفع صور مسودة (قبل حفظ الفاتورة) — تُستخدم بنموذجَي الإضافة والاستيراد ──
-function invPhotoPickerHTML(prefix){
-  return `<div class="s2 field"><label>📸 صورة الفاتورة (اختياري — يدعم أكثر من صورة)</label>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <button type="button" class="btn btn-gy" style="flex:1" onclick="document.getElementById('${prefix}-cam').click()">📷 التقاط صورة</button>
-      <button type="button" class="btn btn-gy" style="flex:1" onclick="document.getElementById('${prefix}-gal').click()">🖼️ من المعرض</button>
-    </div>
-    <input id="${prefix}-cam" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleInvPhotoInput('${prefix}',this)">
-    <input id="${prefix}-gal" type="file" accept="image/*" style="display:none" onchange="handleInvPhotoInput('${prefix}',this)">
-    <div id="${prefix}-thumbs" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-  </div>`;
-}
-function handleInvPhotoInput(prefix, input){
-  const file = input.files[0];
-  if(!file) return;
-  toast('⏳ جارٍ معالجة الصورة...');
-  compressImageFile(file, 1280, 0.72).then(function(dataUrl){
-    const key = '_'+prefix+'Photos';
-    window[key] = window[key] || [];
-    window[key].push(dataUrl);
-    renderInvPhotoThumbs(prefix);
-    input.value='';
-  }).catch(function(){ toast('تعذّرت معالجة الصورة، جرّب صورة أخرى','err'); });
-}
-function renderInvPhotoThumbs(prefix){
-  const key='_'+prefix+'Photos';
-  const arr = window[key]||[];
-  const wrap = document.getElementById(prefix+'-thumbs');
-  if(!wrap) return;
-  wrap.innerHTML = arr.map(function(url,i){
-    return '<div style="position:relative">'+
-      '<img src="'+url+'" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--br)" onclick="viewPhoto(this.src)">'+
-      '<button onclick="removeInvPhotoDraft(\''+prefix+'\','+i+')" style="position:absolute;top:2px;right:2px;background:#f8514999;border:none;border-radius:50%;width:18px;height:18px;color:#fff;cursor:pointer;font-size:10px">✕</button>'+
-      '</div>';
-  }).join('');
-}
-function removeInvPhotoDraft(prefix, idx){
-  const key='_'+prefix+'Photos';
-  window[key] = (window[key]||[]).filter(function(_,i){return i!==idx;});
-  renderInvPhotoThumbs(prefix);
-}
-
-// ── عرض/إدارة صور فاتورة محفوظة مسبقاً ──
-function openInvoicePhotos(invId){
-  const inv = DB.invoices.find(x=>x.id===invId);
-  if(!inv) return;
-  const photos = inv.photos||[];
-  openModal(`${mhd('📸 صور الفاتورة: '+esc(inv.num))}
-  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;max-height:250px;overflow-y:auto">
-    ${photos.map((ph,i)=>`
-    <div style="position:relative">
-      <img src="${ph.url}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--br)" onclick="viewPhoto(this.src)">
-      ${p('invoices')?`<button onclick="delInvoicePhoto('${invId}',${i})" style="position:absolute;top:2px;right:2px;background:#f8514999;border:none;border-radius:50%;width:20px;height:20px;color:#fff;cursor:pointer;font-size:11px">✕</button>`:''}
-    </div>`).join('')}
-    ${!photos.length?'<div style="color:var(--mt);padding:20px;text-align:center;width:100%">لا صور بعد</div>':''}
-  </div>
-  ${p('invoices')?`
-  <div style="display:flex;gap:8px;margin-bottom:8px">
-    <button class="btn btn-gy" style="flex:1" onclick="document.getElementById('invph-cam').click()">📷 التقاط صورة</button>
-    <button class="btn btn-gy" style="flex:1" onclick="document.getElementById('invph-gal').click()">🖼️ من المعرض</button>
-  </div>
-  <input id="invph-cam" type="file" accept="image/*" capture="environment" style="display:none" onchange="uploadInvoicePhoto('${invId}',this)">
-  <input id="invph-gal" type="file" accept="image/*" style="display:none" onchange="uploadInvoicePhoto('${invId}',this)">
-  `:''}
-  <div class="mft" style="margin-top:12px"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
-}
-function uploadInvoicePhoto(invId, input){
-  const file = input.files[0];
-  if(!file) return;
-  toast('⏳ جارٍ رفع الصورة...');
-  compressImageFile(file, 1280, 0.72).then(function(dataUrl){
-    const inv = DB.invoices.find(x=>x.id===invId);
-    const photos = [...(inv?.photos||[]), {url:dataUrl, by:CU.name, time:ts()}];
-    fbUpdate('invoices/'+invId, {photos});
-    logAct('رفع صورة فاتورة', inv?.num||invId);
-    toast('✅ تم رفع الصورة');
-    setTimeout(function(){openInvoicePhotos(invId);}, 300);
-  }).catch(function(){ toast('تعذّر رفع الصورة','err'); });
-}
-function delInvoicePhoto(invId, idx){
-  confirmDel('حذف هذه الصورة نهائياً؟', `(()=>{const inv=DB.invoices.find(x=>x.id==='${invId}');const photos=(inv?.photos||[]).filter((_,i)=>i!==${idx});fbUpdate('invoices/${invId}',{photos});closeModal();toast('تم الحذف','err');setTimeout(()=>openInvoicePhotos('${invId}'),300)})()`);
 }
 
 // ============================================
@@ -4547,7 +3641,7 @@ function renameSite(i){
 }
 function delSite(i){
   const siteName = DB.sites[i];
-  confirmDel('حذف الموقع: '+siteName+' وجميع مخزونه؟', `(()=>{const siteKey=window._sitesKeys&&window._sitesKeys['${siteName}'];if(siteKey)archiveDel('sites/'+siteKey);archiveDel('inv/${fbKey(siteName||'')}');toast('تم حذف الموقع','err')})()`);
+  confirmDel('حذف الموقع: '+siteName+' وجميع مخزونه؟', `(()=>{const siteKey=window._sitesKeys&&window._sitesKeys['${siteName}'];if(siteKey)fbDel('sites/'+siteKey);fbDel('inv/${fbKey(siteName||'')}');toast('تم حذف الموقع','err')})()`);
 }
 
 // ============================================
@@ -4597,8 +3691,8 @@ function pgFieldMap(){
       </div>
     </div>
     ${CU.role==='manager'?`<button class="btn btn-bl" onclick="openAddFieldSite()">+ موقع جديد</button>`:''}
-    ${canExport()?`<button class="btn btn-gy" onclick="exportMapImage()">📍 تصدير KML</button>`:''}
-    ${canExport()&&window._FSITE?`<button class="btn btn-gy" onclick="exportFieldSiteExcel(window._FSITE)">⬇️ Excel الموقع</button>`:''}
+    ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportMapImage()">📍 تصدير KML</button>`:''}
+    ${CU.role==='manager'&&window._FSITE?`<button class="btn btn-gy" onclick="exportFieldSiteExcel(window._FSITE)">⬇️ Excel الموقع</button>`:''}
   </div>
 
   ${visibleSites.length===0
@@ -4665,9 +3759,6 @@ function pgFieldMap(){
       <button onclick="openAddNetDevice()"
         style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
         title="إضافة جهاز">📡 جهاز</button>
-      <button onclick="openManageSplices()"
-        style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
-        title="لحامات الشعيرات">🔗 اللحامات</button>
       <button onclick="openNetworkPerms()"
         style="background:var(--sf);border:1px solid var(--br);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px;color:var(--tx);font-family:inherit"
         title="صلاحيات الشبكة">🔐 صلاحيات الشبكة</button>
@@ -5021,7 +4112,6 @@ function renderFieldSiteDetail(fs){
                 <span style="font-size:11px;color:${hasGPS?'var(--gn)':'var(--rd)'}">${hasGPS?'📍 GPS':'❌ بدون GPS'}</span>
                 ${CU.role==='manager'||p('addItem')?`<div style="display:flex;gap:4px" onclick="event.stopPropagation()">
                   <button class="btn btn-sm btn-gy" style="padding:5px 8px;font-size:13px" onclick="openEditFieldCam('${fs.id}',${ci})">✏️</button>
-                  ${CU.role==='manager'?`<button class="btn btn-sm" style="padding:5px 8px;font-size:13px;background:#f8514922;color:var(--rd);border:1px solid #f8514944" title="إرجاع للمخزن" onclick="returnFieldCamToWarehouse('${fs.id}',${ci})">↩️</button>`:''}
                   ${CU.role==='manager'?`<button class="btn btn-sm btn-rd" style="padding:5px 8px;font-size:13px" onclick="delFieldCam('${fs.id}',${ci})">🗑</button>`:''}
                 </div>`:''}
               </div>
@@ -5512,7 +4602,7 @@ function delFieldSite(fsId){
   const fs=DB.fieldSites.find(x=>x.id===fsId);
   if(!fs) return;
   const camCount = fs.cameras ? fs.cameras.length : 0;
-  confirmDel(`حذف موقع "${fs.name}" وجميع كاميراته (${camCount})؟`, `archiveDel('fieldSites/${fsId}');if(window._FSITE==='${fsId}')window._FSITE='';toast('تم الحذف','err')`);
+  confirmDel(`حذف موقع "${fs.name}" وجميع كاميراته (${camCount})؟`, `fbDel('fieldSites/${fsId}');if(window._FSITE==='${fsId}')window._FSITE='';toast('تم الحذف','err')`);
 }
 
 function openAddFieldCam(fsId){ showFieldCamForm(fsId,-1,null); }
@@ -5785,7 +4875,7 @@ function loadBoundaries(){
 }
 
 function deleteBoundary(id){
-  confirmDel('حذف هذه الحدود نهائياً؟', `archiveDel('boundaries/${id}');loadBoundaries();toast('تم الحذف')`);
+  confirmDel('حذف هذه الحدود نهائياً؟', `fbDel('boundaries/${id}');loadBoundaries();toast('تم الحذف')`);
 }
 
 // ── استيراد KML ──
@@ -5850,45 +4940,29 @@ function importKML(input){
 
 // ── تصدير الخريطة كصورة ──
 function exportMapImage(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   if(!_FSITE){ toast('افتح موقعاً ميدانياً أولاً','err'); return; }
   openModal(mhd('📍 تصدير KML')
     +'<div style="font-size:13px;color:var(--mt);margin-bottom:14px">يُصدَّر الموقع الحالي بصيغة KML — يفتح مباشرة بتطبيقات Google Earth، Google Maps، وأي برنامج خرائط يدعم KML</div>'
-    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:var(--bg);border-radius:8px">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px;background:var(--bg);border-radius:8px">'
     +'<input type="checkbox" id="kml-include-equip" style="width:18px;height:18px;accent-color:var(--bl)">'
     +'<label for="kml-include-equip" style="cursor:pointer;font-size:14px">إضافة الأبراج/P2P/الراديو/NVR إلى نفس الملف</label>'
-    +'</div>'
-    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px;background:var(--bg);border-radius:8px">'
-    +'<input type="checkbox" id="kml-include-links" style="width:18px;height:18px;accent-color:var(--bl)">'
-    +'<label for="kml-include-links" style="cursor:pointer;font-size:14px">إضافة مسارات الكابلات الضوئية وروابط P2P (كل الشبكة)</label>'
     +'</div>'
     +mft('📥 تصدير KML','doExportKML()'));
 }
 
 function doExportKML(){
   const includeEquip = document.getElementById('kml-include-equip')?.checked;
-  const includeLinks = document.getElementById('kml-include-links')?.checked;
   const fs = DB.fieldSites.find(function(s){return s.id===_FSITE;});
   if(!fs){ toast('الموقع غير موجود','err'); return; }
 
   const cams = (fs.cameras||[]).filter(function(c){return c.lat && c.lng && !isNaN(parseFloat(c.lat));});
   const equip = includeEquip ? Object.values(fs.equipment||{}).filter(function(eq){return eq.lat && eq.lng && !isNaN(parseFloat(eq.lat));}) : [];
 
-  if(!cams.length && !equip.length && !includeLinks){
+  if(!cams.length && !equip.length){
     toast('لا توجد عناصر بإحداثيات صالحة للتصدير','warn');
     return;
   }
-
-  const linksPromise = includeLinks
-    ? FBDB.ref('cctv/network/links').once('value').then(function(snap){ return snap.val()?Object.values(snap.val()):[]; })
-    : Promise.resolve([]);
-
-  linksPromise.then(function(links){
-    finishExportKML(fs, cams, equip, links.filter(function(l){return l.points&&l.points.length>=2;}));
-  });
-}
-
-function finishExportKML(fs, cams, equip, links){
 
   const kmlIconStyle = function(id, color){
     return '<Style id="'+id+'"><IconStyle><color>'+color+'</color><scale>1.1</scale>'
@@ -5947,46 +5021,12 @@ function finishExportKML(fs, cams, equip, links){
       +'</Placemark>\n';
   });
 
-  // مسارات الكابلات والروابط (Fiber/P2P/UTP/Coax) كـLineString
-  let lineStyles = '';
-  let linePlacemarks = '';
-  const linkColors = {fiber:'ff0095ff', p2p:'ffff5f58', utp:'ff3fb950', coax:'ff00d0e8'};
-  links.forEach(function(link, i){
-    const styleId = 'lineStyle'+i;
-    const color = linkColors[link.type] || 'ffffffff';
-    lineStyles += '<Style id="'+styleId+'"><LineStyle><color>'+color+'</color><width>3</width></LineStyle></Style>';
-    let desc = [
-      link.typeName?'النوع: '+link.typeName:'',
-      link.length?'الطول التقريبي: '+link.length+' م':'',
-      link.device?'الجهاز: '+link.device:'',
-      link.pointA?'نقطة A: '+link.pointA:'',
-      link.pointB?'نقطة B: '+link.pointB:'',
-      link.coreCount?'عدد الأنوية: '+link.coreCount:'',
-      link.notes?'ملاحظات: '+link.notes:''
-    ].filter(Boolean).join('&#10;');
-    if(link.strands && link.strands.length){
-      const usedStrands = link.strands.filter(function(s){return s.status==='used';});
-      if(usedStrands.length){
-        desc += '&#10;&#10;الشعيرات المستخدمة:&#10;'+usedStrands.map(function(s){
-          return '  #'+s.num+' ('+(s.tubeColor?'أنبوب '+s.tubeColor+' / ':'')+s.color+'): '+(s.from||'؟')+' → '+(s.to||'؟');
-        }).join('&#10;');
-      }
-    }
-    const coords = link.points.map(function(pt){ return pt[1]+','+pt[0]+',0'; }).join(' ');
-    linePlacemarks += '<Placemark>'
-      +'<name>'+escapeXml((link.type==='fiber'?'🔵 ':link.type==='p2p'?'📡 ':'')+(link.name||'رابط'))+'</name>'
-      +(desc?'<description>'+escapeXml(desc)+'</description>':'')
-      +'<styleUrl>#'+styleId+'</styleUrl>'
-      +'<LineString><tessellate>1</tessellate><coordinates>'+coords+'</coordinates></LineString>'
-      +'</Placemark>\n';
-  });
-
   const kml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     +'<kml xmlns="http://www.opengis.net/kml/2.2">\n'
     +'<Document>\n'
     +'<name>'+escapeXml(fs.name||'موقع ميداني')+'</name>\n'
-    +styles + lineStyles
-    +placemarks + linePlacemarks
+    +styles
+    +placemarks
     +'</Document>\n</kml>';
 
   const blob = new Blob([kml], {type:'application/vnd.google-earth.kml+xml'});
@@ -5996,9 +5036,9 @@ function finishExportKML(fs, cams, equip, links){
   a.download = (fs.name||'موقع').replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_')+'_'+fmtDate(new Date().toISOString())+'.kml';
   a.click();
   URL.revokeObjectURL(url);
-  logAct('تصدير KML', fs.name+' — '+cams.length+' كاميرا'+(equip.length?(' + '+equip.length+' معدة'):'')+(links.length?(' + '+links.length+' مسار'):''));
+  logAct('تصدير KML', fs.name+' — '+cams.length+' كاميرا'+(equip.length?(' + '+equip.length+' معدة'):''));
   closeModal();
-  toast('✅ تم تصدير '+cams.length+' كاميرا'+(equip.length?(' و'+equip.length+' معدة'):'')+(links.length?(' و'+links.length+' مسار شبكة'):''));
+  toast('✅ تم تصدير '+cams.length+' كاميرا'+(equip.length?(' و'+equip.length+' معدة'):''));
 }
 
 function escapeXml(str){
@@ -6471,16 +5511,6 @@ function saveFieldCam(fsId,ci){
 function delFieldCam(fsId,ci){
   const fs=DB.fieldSites.find(x=>x.id===fsId);
   if(!fs||!confirm('حذف الكاميرا نهائياً؟')) return;
-  // أرشفة نسخة من بيانات الكاميرا قبل حذفها (تمكّن الاسترجاع لاحقاً من صفحة الأرشيف)
-  const removedCam = fs.cameras[ci];
-  if(removedCam){
-    const archId = gid();
-    FBDB.ref('cctv/archive/'+archId).set({
-      id: archId, path:'fieldSites/'+fsId+'/cameras', data: removedCam,
-      deletedBy: CU.name, deletedAt: ts(),
-      reason: 'كاميرا من موقع: '+fs.name, _ts: Date.now()
-    });
-  }
   // احذف من الـ array محلياً
   fs.cameras.splice(ci,1);
   // أعد حفظ الـ array كاملاً في Firebase
@@ -6494,61 +5524,6 @@ function delFieldCam(fsId,ci){
   closeModal();
   setTimeout(initFieldMap, 300);
 }
-
-// ── إرجاع كاميرا ميدانية للمخزن ──
-function returnFieldCamToWarehouse(fsId, ci){
-  if(CU.role!=='manager'){toast('العملية للمدير فقط','err');return;}
-  const fs=DB.fieldSites.find(x=>x.id===fsId);
-  const cam = fs&&fs.cameras[ci];
-  if(!fs||!cam) return;
-  const warehouse = fs.warehouse||'';
-  if(!warehouse){toast('لا يوجد مستودع مرتبط بهذا الموقع — اربطه أولاً من إعدادات الموقع','err');return;}
-  window._retCamPending = {fsId, ci, warehouse};
-  openModal('<div class="mhd">↩️ إرجاع كاميرا للمخزن</div>'+
-    '<div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px">'+
-    '<div style="font-weight:700">📷 '+esc(cam.name||cam.serial||'كاميرا')+'</div>'+
-    '<div style="font-size:12px;color:var(--mt);margin-top:4px">من: <b>'+esc(fs.name)+'</b> — سيُضاف إلى مستودع: <b>'+esc(warehouse)+'</b></div></div>'+
-    '<div class="field"><label>سبب الإرجاع</label>'+
-    '<select id="retcam-reason">'+
-    '<option value="عطل">🔧 عطل / يحتاج صيانة</option>'+
-    '<option value="تلف">💥 تلف</option>'+
-    '<option value="استبدال">🔄 استبدال بجهاز آخر</option>'+
-    '<option value="انتهاء مهمة">✅ انتهاء مهمة</option>'+
-    '<option value="أخرى">📝 أخرى</option>'+
-    '</select></div>'+
-    '<div class="field"><label>ملاحظات</label>'+
-    '<textarea id="retcam-notes" placeholder="تفاصيل إضافية..."></textarea></div>'+
-    '<button class="btn btn-rd" onclick="confirmReturnCamToWarehouse()">↩️ تأكيد الإرجاع</button>');
-}
-function confirmReturnCamToWarehouse(){
-  const p = window._retCamPending;
-  if(!p){ closeModal(); return; }
-  const {fsId, ci, warehouse} = p;
-  const fs=DB.fieldSites.find(x=>x.id===fsId);
-  const cam = fs&&fs.cameras[ci];
-  if(!fs||!cam){ closeModal(); return; }
-  const reason = val('retcam-reason')||'';
-  const notes = val('retcam-notes')||'';
-  const newId='ret_'+Date.now()+'_'+Math.random().toString(36).slice(2,5);
-  fbSet('inv/'+fbKey(warehouse)+'/'+newId, {
-    id:newId, name:cam.name||'', type:'camera', serial:cam.serial||'',
-    model:cam.model||'', mfr:cam.mfr||'', qty:1,
-    status:'returned', notes:(notes?notes+' — ':'')+reason,
-    addedBy:CU.name, addedAt:ts(), returnedFrom:fs.name, returnedAt:ts(), _ts:Date.now()
-  });
-  fbPush('moves',{
-    name:'↩️ 📷 '+(cam.name||cam.serial||''), qty:1, dir:'in', from:fs.name, to:warehouse,
-    by:CU.name, date:ts(), notes:reason+(notes?' — '+notes:''), status:'returned', returnReason:reason, _ts:Date.now()
-  });
-  fs.cameras.splice(ci,1);
-  const camsObj={}; fs.cameras.forEach((c,i)=>{camsObj[i]=c;});
-  FBDB.ref('cctv/fieldSites/'+fsId+'/cameras').set(fs.cameras.length ? camsObj : null);
-  pushFieldN('↩️ إرجاع كاميرا للمخزن: '+(cam.name||cam.serial||'')+' من '+fs.name+' → '+warehouse, fsId);
-  window._retCamPending = null;
-  closeModal(); toast('✅ تم إرجاع الكاميرا لمستودع '+warehouse);
-  setTimeout(initFieldMap, 300);
-}
-
 function getDirArrow(dir){
   const DIR_MAP = {'↖ شمال غرب':'↖','⬆ شمال':'⬆','↗ شمال شرق':'↗','⬅ غرب':'⬅','⊙ عام':'⊙','➡ شرق':'➡','↙ جنوب غرب':'↙','⬇ جنوب':'⬇','↘ جنوب شرق':'↘'};
   return DIR_MAP[dir]||'⊙';
@@ -6825,54 +5800,11 @@ function pgReports(){
   // ── إحصائيات الكاميرات الميدانية — فقط المواقع المصرح بها ──
   const totalCams = getVisibleFieldSites().reduce((s,fs)=>s+fs.cameras.length,0);
 
-  // ── مقارنة شهرية: هذا الشهر مقابل الشهر الماضي (بناءً على حركة المواد والأعطال) ──
-  const _now = new Date();
-  const _mStart = new Date(_now.getFullYear(), _now.getMonth(), 1).getTime();
-  const _pmStart = new Date(_now.getFullYear(), _now.getMonth()-1, 1).getTime();
-  const _pmEnd = _mStart;
-  const visibleMoves = DB.moves||[];
-  const issuedThisM = visibleMoves.filter(m=>m.dir==='out' && (m._ts||0)>=_mStart);
-  const issuedLastM = visibleMoves.filter(m=>m.dir==='out' && (m._ts||0)>=_pmStart && (m._ts||0)<_pmEnd);
-  const qtySum = arr => arr.reduce((s,m)=>s+(parseInt(m.qty)||1),0);
-  const faultsThisM = visibleFaults.filter(f=>(f._ts||0)>=_mStart);
-  const faultsLastM = visibleFaults.filter(f=>(f._ts||0)>=_pmStart && (f._ts||0)<_pmEnd);
-  const resolvedThisM = faultsThisM.filter(f=>f.status==='resolved');
-  const resolvedLastM = faultsLastM.filter(f=>f.status==='resolved');
-  function pctChange(cur,prev){
-    if(prev===0) return cur===0?0:100;
-    return Math.round(((cur-prev)/prev)*100);
-  }
-  function trendHTML(label, cur, prev, goodWhenUp){
-    const pct = pctChange(cur,prev);
-    const up = cur>=prev;
-    const good = goodWhenUp ? up : !up;
-    const color = pct===0?'var(--mt)':(good?'var(--gn)':'var(--rd)');
-    const arrow = pct===0?'—':(up?'▲':'▼');
-    return `<div style="background:var(--sf);border-radius:10px;padding:14px;border:1px solid var(--br)">
-      <div style="font-size:12px;color:var(--mt);margin-bottom:6px">${label}</div>
-      <div style="display:flex;align-items:baseline;gap:8px">
-        <div style="font-size:24px;font-weight:800">${cur}</div>
-        <div style="font-size:12px;color:var(--mt)">مقابل ${prev} بالشهر الماضي</div>
-      </div>
-      <div style="font-size:13px;color:${color};margin-top:4px;font-weight:700">${arrow} ${Math.abs(pct)}%</div>
-    </div>`;
-  }
-  const monthlyComparisonHTML = `
-  <div style="margin:0 16px 16px">
-    <div style="font-weight:700;margin-bottom:10px;color:var(--bl)">📆 مقارنة شهرية — ${_now.toLocaleDateString('ar-EG',{month:'long',year:'numeric'})} مقابل الشهر الماضي</div>
-    <div class="cg" style="grid-template-columns:repeat(2,1fr);gap:8px">
-      ${trendHTML('عمليات صرف', issuedThisM.length, issuedLastM.length, false)}
-      ${trendHTML('كمية المواد المصروفة', qtySum(issuedThisM), qtySum(issuedLastM), false)}
-      ${trendHTML('أعطال جديدة', faultsThisM.length, faultsLastM.length, false)}
-      ${trendHTML('أعطال محلولة', resolvedThisM.length, resolvedLastM.length, true)}
-    </div>
-  </div>`;
-
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📊 التقارير والإحصائيات</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${canExport()?`<button class="btn" style="background:#238636;color:#fff" onclick="printFullReport(${totalFaults},${openF},${resolvedF},${highF},${avgSLA},${totalItems},${deployedItems},${totalCams})">🖨️ طباعة / PDF</button>
+      ${CU.role==='manager'?`<button class="btn" style="background:#238636;color:#fff" onclick="printFullReport(${totalFaults},${openF},${resolvedF},${highF},${avgSLA},${totalItems},${deployedItems},${totalCams})">🖨️ طباعة / PDF</button>
       <button class="btn btn-bl" onclick="exportReportCSV()">⬇️ تصدير CSV</button>`:''}
     </div>
   </div>
@@ -6883,8 +5815,6 @@ function pgReports(){
     <div style="font-size:36px;font-weight:700;color:${avgSLA>24?'var(--rd)':avgSLA>8?'var(--yl)':'var(--gn)'}">${avgSLA} <span style="font-size:18px;color:var(--mt)">ساعة</span></div>
     <div style="font-size:12px;color:var(--mt);margin-top:4px">بناءً على ${resolvedWithTime.length} عطل محلول</div>
   </div>
-
-  ${monthlyComparisonHTML}
 
   <!-- إحصائيات الأعطال -->
   <div style="margin:0 16px 16px">
@@ -6968,7 +5898,7 @@ function fmtDateTime(val){
 }
 
 function exportFixedAssetsFromInv(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   // نستخدم الموقع الميداني المحدد حالياً، أو نصدّر كل المواقع
   var today=fmtDate(new Date().toISOString());
   var sites=DB.fieldSites||[];
@@ -7034,7 +5964,7 @@ function exportFixedAssetsFromInv(){
 }
 
 function exportWarehouseOnly(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   var isMain=isMainSite(ISITE);
   var exportSites=isMain?DB.sites:[ISITE];
   var allItems=[];
@@ -7091,7 +6021,7 @@ function toDMSFull(deg, isLat){
 }
 
 function exportDeployedOnly(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   var isMain=isMainSite(ISITE);
   // المواقع الميدانية المرتبطة بالمستودع الحالي (أو كل المواقع إن كان المستودع المركزي)
   var targetSites=isMain?(DB.fieldSites||[]):(DB.fieldSites||[]).filter(function(s){return s.warehouse===ISITE;});
@@ -7139,7 +6069,7 @@ function exportDeployedOnly(){
 }
 
 function exportFilteredInv(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   const AT=allT();
   // جلب المواد الصحيحة — تجاهل عناصر ___init
   let sItems;
@@ -7243,7 +6173,7 @@ function filterInvTable(){
 }
 
 function exportReportCSV(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const rows=[['الموقع','النقطة','السبب','الأولوية','الحالة','المبلغ','التاريخ','تاريخ الحل']];
   DB.faults.forEach(f=>rows.push([f.location,f.pointId,f.reason,f.priority==='high'?'عاجل':'عادي',f.status,f.by,f.date,f.resolvedAt||'']));
   const csv=rows.map(r=>r.map(v=>'"'+(v||'').split('"').join('""')+'"').join(',')).join('\n');
@@ -7386,56 +6316,31 @@ function doneMaintain(id){
 }
 
 function delMaintain(id){
-  confirmDel('حذف مهمة الصيانة نهائياً؟', `archiveDel('maintain/${id}');toast('تم الحذف','err')`);
+  confirmDel('حذف مهمة الصيانة نهائياً؟', `fbDel('maintain/${id}');toast('تم الحذف','err')`);
 }
 
 
 // ═══════════════════════════════════════════════════════
-//  📱 QR Code + 🏷️ باركود خطي (Code128) للكاميرات والمخزن
+//  📱 QR Code للكاميرات والمخزن
 // ═══════════════════════════════════════════════════════
-// ملاحظة مهمة: مكتبة qrcodejs القديمة المستخدمة هنا فيها خلل معروف —
-// لا تتعامل بشكل صحيح مع الأحرف العربية (UTF-8 متعدد البايتات)، فتُنتج
-// كود QR تالف أو فارغ لأي بيانات فيها نص عربي. الحل القياسي هو تحويل
-// النص لسلسلة "بايتات UTF-8" (كل بايت = حرف واحد) قبل تمريره للمكتبة.
-function qrSafeText(str){
-  try{ return unescape(encodeURIComponent(str)); }
-  catch(e){ return str; }
-}
-function showQR(data, title, barcodeValue){
+function showQR(data, title){
   openModal(`${mhd('📱 QR Code — '+esc(title))}
   <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:10px">
     <div id="qr-box" style="background:#fff;padding:16px;border-radius:12px"></div>
     <div style="font-size:12px;color:var(--mt);text-align:center;max-width:220px;word-break:break-all">${esc(data)}</div>
-    ${canExport()?`<button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل QR</button>`:''}
-    ${barcodeValue?`<div style="width:100%;border-top:1px solid var(--br);margin-top:6px;padding-top:16px;text-align:center">
-      <div style="font-size:12px;color:var(--mt);margin-bottom:8px">🏷️ باركود خطي (Code128) — للمسح بأجهزة القراءة اليدوية</div>
-      <div style="background:#fff;padding:10px;border-radius:8px;display:inline-block"><svg id="bc-box"></svg></div>
-      ${canExport()?`<div><button class="btn btn-bl" style="margin-top:10px" onclick="downloadBarcode('${esc(title)}')">⬇️ تحميل الباركود</button></div>`:''}
-    </div>`:''}
+    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="downloadQR('${esc(title)}')">⬇️ تحميل</button>`:''}
   </div>`);
   setTimeout(()=>{
     const box = document.getElementById('qr-box');
     if(box && typeof QRCode !== 'undefined'){
       box.innerHTML = '';
-      try{
-        new QRCode(box, {text: qrSafeText(data), width:200, height:200, colorDark:'#000', colorLight:'#fff'});
-      }catch(e){
-        box.innerHTML = '<div style="color:#c00;font-size:12px;padding:20px;max-width:180px">تعذّر توليد QR لهذه البيانات (طويلة جداً)</div>';
-      }
-    }
-    if(barcodeValue && typeof JsBarcode !== 'undefined'){
-      try{
-        JsBarcode('#bc-box', String(barcodeValue), {format:'CODE128', width:2, height:60, displayValue:true, font:'monospace', fontSize:14, margin:6});
-      }catch(e){
-        const bcBox=document.getElementById('bc-box');
-        if(bcBox) bcBox.outerHTML = '<div style="color:#c00;font-size:12px">تعذّر توليد الباركود لهذه القيمة</div>';
-      }
+      new QRCode(box, {text: data, width:200, height:200, colorDark:'#000', colorLight:'#fff'});
     }
   }, 100);
 }
 
 function downloadQR(title){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const canvas = document.querySelector('#qr-box canvas');
   if(!canvas){ toast('QR غير جاهز','err'); return; }
   const a = document.createElement('a');
@@ -7443,29 +6348,6 @@ function downloadQR(title){
   a.href = canvas.toDataURL();
   a.click();
   toast('تم تحميل QR Code');
-}
-function downloadBarcode(title){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
-  const svg = document.getElementById('bc-box');
-  if(!svg){ toast('الباركود غير جاهز','err'); return; }
-  const svgData = new XMLSerializer().serializeToString(svg);
-  const canvas = document.createElement('canvas');
-  const img = new Image();
-  const svgBlob = new Blob([svgData], {type:'image/svg+xml;charset=utf-8'});
-  const url = URL.createObjectURL(svgBlob);
-  img.onload = function(){
-    canvas.width = img.width||300; canvas.height = img.height||120;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.drawImage(img,0,0);
-    URL.revokeObjectURL(url);
-    const a = document.createElement('a');
-    a.download = 'باركود_'+title+'.png';
-    a.href = canvas.toDataURL();
-    a.click();
-    toast('تم تحميل الباركود');
-  };
-  img.src = url;
 }
 
 function showCamQR(fsId, camId){
@@ -7481,7 +6363,7 @@ function showCamQR(fsId, camId){
     model: cam.model||'',
     ip: cam.ip||''
   });
-  showQR(data, cam.name, cam.serial||cam.id);
+  showQR(data, cam.name);
 }
 
 function showItemQR(item){
@@ -7493,36 +6375,7 @@ function showItemQR(item){
     type2: item.type||'',
     site: item.currentSite||''
   });
-  showQR(data, item.name, item.serial||item.id);
-}
-
-// ═══════════════════════════════════════════════════════
-//  🗜️ ضغط/تصغير الصور قبل الرفع (base64) — يمنع الصور
-//  الضخمة من كاميرا الجوال (عدة ميجابايت) من إثقال القاعدة
-// ═══════════════════════════════════════════════════════
-function compressImageFile(file, maxDim, quality){
-  maxDim = maxDim||1280; quality = quality||0.72;
-  return new Promise(function(resolve, reject){
-    const reader = new FileReader();
-    reader.onload = function(e){
-      const img = new Image();
-      img.onload = function(){
-        let w = img.width, h = img.height;
-        if(w>maxDim || h>maxDim){
-          if(w>h){ h = Math.round(h*maxDim/w); w = maxDim; }
-          else { w = Math.round(w*maxDim/h); h = maxDim; }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.onerror = reject;
-      img.src = e.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+  showQR(data, item.name);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -7593,7 +6446,7 @@ function pgBarcode(){
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">📦 باركود المخزن</div>
-    ${canExport()?`<button class="btn btn-bl" onclick="printAllBarcodes()">🖨️ طباعة الكل</button>`:''}
+    ${CU.role==='manager'?`<button class="btn btn-bl" onclick="printAllBarcodes()">🖨️ طباعة الكل</button>`:''}
   </div>
   <div style="padding:0 16px">
     <input style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--br);background:var(--sf);color:var(--tx);margin-bottom:16px"
@@ -7627,52 +6480,17 @@ function filterBarcodes(q){
 }
 
 function printAllBarcodes(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
-  const allItems = [];
-  DB.sites.forEach(s=>{ (DB.inv[s]||[]).forEach(it=>allItems.push(it)); });
-  if(!allItems.length){ toast('المخزن فارغ','err'); return; }
-  toast('جارٍ تجهيز ملصقات الباركود...','warn');
-  const labels = allItems.map(it=>{
-    const code = it.serial||it.id||''; // الباركود دائماً على السيريال/المعرّف (ASCII) وليس الاسم العربي، لأن رموز الباركود الخطي لا تدعم العربية أصلاً
-    return `<div class="label">
-      <div class="nm">${esc(it.name||'')}</div>
-      <div class="mt">${esc(it.currentSite||'')}</div>
-      ${code?`<svg class="bc" jsbarcode-value="${esc(String(code))}" jsbarcode-format="CODE128" jsbarcode-height="40" jsbarcode-fontsize="12" jsbarcode-margin="4"></svg>`:'<div class="mt">بدون سيريال — لا يمكن توليد باركود</div>'}
-    </div>`;
-  }).join('');
-  const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8">
-  <title>باركود المخزن — طباعة الكل</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script>
-  <style>
-    body{font-family:Arial,sans-serif;padding:20px;direction:rtl;color:#111}
-    h2{text-align:center;margin-bottom:4px}
-    .sub{text-align:center;color:#666;font-size:12px;margin-bottom:16px}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:10px}
-    .label{border:1px solid #ccc;border-radius:8px;padding:10px;text-align:center;page-break-inside:avoid}
-    .nm{font-weight:700;font-size:13px;margin-bottom:2px;word-break:break-word}
-    .mt{font-size:11px;color:#666}
-    @media print{button{display:none}}
-  </style></head><body>
-  <h2>🏷️ باركود المخزن</h2>
-  <div class="sub">إجمالي المواد: ${allItems.length} — تاريخ الطباعة: ${fmtDateTime(new Date().toISOString())}</div>
-  <button onclick="window.print()" style="display:block;margin:0 auto 14px;padding:8px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ طباعة / حفظ PDF</button>
-  <div class="grid">${labels}</div>
-  <script>
-    window.onload = function(){
-      try{ JsBarcode('.bc').init(); }catch(e){ console.error('barcode init failed', e); }
-    };
-  <\/script>
-  </body></html>`);
-  win.document.close();
-  logAct('طباعة كل الباركودات', allItems.length+' مادة');
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
+  toast('جار التجهيز للطباعة...','warn');
+  // فتح نافذة طباعة
+  setTimeout(()=>window.print(), 500);
 }
 
 // ═══════════════════════════════════════════════════════
 //  🗺️ تصدير خريطة الكاميرات PDF (نص)
 // ═══════════════════════════════════════════════════════
 function exportMapReport(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const lines = [];
   lines.push('تقرير المواقع الميدانية والكاميرات');
   lines.push('تاريخ التقرير: '+fmtDate(new Date().toISOString()));
@@ -7932,13 +6750,7 @@ function pgPerformance(){
   // حساب إحصائيات كل فني
   const stats = {};
   DB.users.filter(u=>u.role==='technician'||u.role==='engineer'||u.role==='field').forEach(u=>{
-    stats[u.name] = { name:u.name, role:u.role, resolved:0, inprog:0, comments:0, avgTime:0, times:[], achvCount:0, uid:u.uid||u.id };
-  });
-
-  // عدد الإنجازات المسجّلة لكل فني (عرض فقط، بدون أي تقييم أو حكم)
-  (DB.achievements||[]).forEach(a=>{
-    const owner = Object.values(stats).find(s=>s.uid===a.uid);
-    if(owner) owner.achvCount++;
+    stats[u.name] = { name:u.name, role:u.role, resolved:0, inprog:0, comments:0, avgTime:0, times:[] };
   });
 
   DB.faults.forEach(f=>{
@@ -8040,7 +6852,7 @@ function renderPerfCard(s, i, medals, showMonth){
         <div style="font-size:11px;color:var(--mt)">هذا الشهر</div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-bottom:${s.mFaults.length?'10':'0'}px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;margin-bottom:${s.mFaults.length?'10':'0'}px">
       <div style="background:var(--bg);border-radius:8px;padding:8px">
         <div style="font-size:17px;font-weight:700;color:var(--gn)">${s.resolved}</div>
         <div style="font-size:10px;color:var(--mt)">إجمالي محلول</div>
@@ -8052,10 +6864,6 @@ function renderPerfCard(s, i, medals, showMonth){
       <div style="background:var(--bg);border-radius:8px;padding:8px">
         <div style="font-size:17px;font-weight:700;color:var(--pu)">${s.avgTime}h</div>
         <div style="font-size:10px;color:var(--mt)">متوسط الحل</div>
-      </div>
-      <div style="background:var(--bg);border-radius:8px;padding:8px">
-        <div style="font-size:17px;font-weight:700;color:#e3b341">${s.achvCount||0}</div>
-        <div style="font-size:10px;color:var(--mt)">📝 إنجاز مسجّل</div>
       </div>
     </div>
     ${s.mFaults.length?`
@@ -8177,7 +6985,7 @@ function pgTechMap(){
   <div class="ph"><div class="pt">🗺️ مواقع الفنيين — مباشر</div>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:12px;color:var(--gn);margin-top:2px">🟢 يتحدث تلقائياً</span>
-      ${canExport()?'<button class="btn btn-gy btn-sm" onclick="exportTechMapExcel()">⬇️ Excel</button>':''}
+      ${CU.role==='manager'?'<button class="btn btn-gy btn-sm" onclick="exportTechMapExcel()">⬇️ Excel</button>':''}
     </div>
   </div>
   <div id="tech-locations" style="padding:0 16px">
@@ -8412,7 +7220,7 @@ function saveHandover(type){
 }
 
 function printHandover(h){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   const isDelivery = h.type==='delivery';
   const win = window.open('','_blank','width=600,height=700');
   win.document.write(`
@@ -8472,7 +7280,7 @@ function pgHandovers(){
           <div style="font-size:12px;color:var(--mt)">${esc(h.person)} — ${esc(h.site)}</div>
           <div style="font-size:11px;color:var(--mt)">${esc(h.by)} | ${esc(h.date)}</div>
         </div>
-        ${canExport()?`<button class="btn btn-sm btn-bl" onclick="printHandover(${JSON.stringify(h).split('"').join('&quot;')})">🖨️</button>`:''}
+        ${CU.role==='manager'?`<button class="btn btn-sm btn-bl" onclick="printHandover(${JSON.stringify(h).split('"').join('&quot;')})">🖨️</button>`:''}
       </div>`).join('')
       :'<div style="text-align:center;padding:40px;color:var(--mt)">لا نماذج بعد</div>'}
     </div>`;
@@ -8591,6 +7399,10 @@ function updateOnlineStatus(online){
 function queueOfflineOp(op, path, data){
   _offlineQueue.push({op, path, data, time: Date.now()});
   localStorage.setItem('cctv_offline_queue', JSON.stringify(_offlineQueue));
+  // حفظ البيانات محلياً فوراً
+  const local = JSON.parse(localStorage.getItem('cctv_local_db')||'{}');
+  local[path] = data;
+  localStorage.setItem('cctv_local_db', JSON.stringify(local));
 }
 
 // مزامنة القائمة عند عودة الاتصال
@@ -8612,71 +7424,51 @@ function syncOfflineQueue(){
 }
 
 // حفظ البيانات محلياً عند المزامنة
-// ══════════════════════════════════════════════════════
-//  🗄️ IndexedDB — تخزين محلي شامل (بدل localStorage المحدود بـ5MB)
-//  مخزن مفتاح/قيمة بسيط، بدون مكتبات خارجية
-// ══════════════════════════════════════════════════════
-const IDB_NAME = 'cctv_offline_db', IDB_STORE = 'kv';
-function idbOpen(){
-  return new Promise(function(resolve, reject){
-    if(!window.indexedDB){ reject(new Error('IndexedDB غير مدعوم')); return; }
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = function(){ req.result.createObjectStore(IDB_STORE); };
-    req.onsuccess = function(){ resolve(req.result); };
-    req.onerror = function(){ reject(req.error); };
-  });
-}
-function idbSet(key, value){
-  return idbOpen().then(function(db){
-    return new Promise(function(resolve, reject){
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(value, key);
-      tx.oncomplete = function(){ resolve(); };
-      tx.onerror = function(){ reject(tx.error); };
-    });
-  });
-}
-function idbGet(key){
-  return idbOpen().then(function(db){
-    return new Promise(function(resolve, reject){
-      const tx = db.transaction(IDB_STORE, 'readonly');
-      const req = tx.objectStore(IDB_STORE).get(key);
-      req.onsuccess = function(){ resolve(req.result); };
-      req.onerror = function(){ reject(req.error); };
-    });
-  });
-}
-
-// تخزين نسخة شاملة من كل بيانات التطبيق تقريباً — تُستدعى بعد كل مزامنة ناجحة.
-// نستثني عمداً: خزنة كلمات المرور (حساسية أمنية)، والتقارير الدورية/الأرشيف
-// (نصوص HTML كبيرة نادراً ما تُحتاج أوفلاين) — الباقي كله محفوظ لأن IndexedDB
-// ما عنده سقف صغير زي localStorage (5MB)، فقادرين نغطي "شامل" فعلاً.
 function cacheLocalDB(data){
   try{
-    const snapshot = {...data};
-    delete snapshot.pwVault;
-    delete snapshot.monthlyReports;
-    delete snapshot.weeklyReports;
-    delete snapshot.archive;
-    delete snapshot.chat;
-    idbSet('snapshot', snapshot).catch(function(e){ console.warn('IndexedDB cache failed:', e.message); });
+    const mini = {
+      faults:     data.faults     ||{},
+      notifs:     data.notifs     ||{},
+      fieldSites: data.fieldSites ||{},
+      maintain:   data.maintain   ||{},
+      users:      data.users      ||{},
+      sites:      data.sites      ||[],
+      inv:        data.inv        ||{},
+      tasks:      data.tasks      ||{},
+    };
+    // تجنب تجاوز حد localStorage (5MB) — نحذف القديم إذا فشل
+    try{
+      localStorage.setItem('cctv_local_db', JSON.stringify(mini));
+    }catch(quota){
+      // إذا كان الحجم كبيراً، احفظ الأساسيات فقط
+      localStorage.setItem('cctv_local_db', JSON.stringify({
+        faults: data.faults||{}, fieldSites: data.fieldSites||{}, maintain: data.maintain||{}
+      }));
+    }
   }catch(e){}
 }
 
-// تحميل البيانات المحلية عند عدم توفر اتصال — نستخدم نفس دالة المعالجة
-// الموحّدة (applyDBSnapshot) المستخدمة بالاتصال الحي، لضمان تطابق تام
+// تحميل البيانات المحلية عند offline
 function loadLocalDB(){
-  idbGet('snapshot').then(function(local){
-    if(!local){ toast('📴 غير متصل ولا توجد بيانات محفوظة بعد','err'); return; }
-    applyDBSnapshot(local);
-    if(!ISITE||!DB.sites.includes(ISITE)) ISITE=DB.sites[0]||'';
-    toast('📴 عرض بيانات محفوظة محلياً — غير متصل حالياً','warn');
-    try{ buildNav(); }catch(e){}
+  try{
+    const local = JSON.parse(localStorage.getItem('cctv_local_db')||'{}');
+    if(local.faults)     DB.faults     = Object.values(local.faults).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.notifs)     DB.notifs     = Object.values(local.notifs).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.fieldSites) DB.fieldSites = Object.values(local.fieldSites).map(fs=>({...fs,cameras:fs.cameras?Object.values(fs.cameras):[]}));
+    if(local.maintain)   DB.maintain   = Object.values(local.maintain);
+    if(local.users)      DB.users      = Object.values(local.users);
+    if(local.sites)      DB.sites      = Array.isArray(local.sites) ? local.sites : Object.values(local.sites);
+    if(local.tasks)      DB.tasks      = Object.values(local.tasks).sort((a,b)=>(b._ts||0)-(a._ts||0));
+    if(local.inv){
+      DB.inv={};
+      Object.entries(local.inv).forEach(([k,items])=>{
+        const siteName=decodeURIComponent(k.replace(/_dot_/g,'.').replace(/_sl_/g,'/'));
+        DB.inv[siteName]=Object.values(items).filter(i=>!i.___init);
+      });
+    }
+    toast('📴 عرض بيانات محفوظة — غير متصل','warn');
     if(PAGE) go(PAGE); else go('dashboard');
-  }).catch(function(e){
-    console.warn('loadLocalDB error:', e.message);
-    toast('📴 غير متصل — تعذّر تحميل البيانات المحفوظة','err');
-  });
+  }catch(e){ console.warn('loadLocalDB error:',e); }
 }
 
 
@@ -8900,7 +7692,7 @@ function pgDocs(){
     <div style="padding:0 16px">
       ${docs.length?`
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
-        ${['الكل','عقد','تقرير','تصريح','صورة','مخطط شبكة','أخرى'].map(t=>
+        ${['الكل','عقد','تقرير','تصريح','صورة','أخرى'].map(t=>
           `<button class="btn btn-sm btn-gy" onclick="filterDocs('${t}',this)">${t}</button>`
         ).join('')}
       </div>
@@ -8915,7 +7707,7 @@ function pgDocs(){
 function renderDocsList(docs, canDownload, canDelete){
   if(canDownload===undefined) canDownload = CU.role==='manager' || CU.perms?.downloadDocs;
   if(canDelete===undefined)   canDelete   = CU.role==='manager';
-  const icons = {عقد:'📄',تقرير:'📊',تصريح:'📋',صورة:'🖼️','مخطط شبكة':'🔌',أخرى:'📎'};
+  const icons = {عقد:'📄',تقرير:'📊',تصريح:'📋',صورة:'🖼️',أخرى:'📎'};
   return docs.map(d=>`
   <div class="panel" style="margin-bottom:8px;display:flex;align-items:center;gap:12px">
     <div style="font-size:28px">${icons[d.category]||'📎'}</div>
@@ -8942,50 +7734,13 @@ function filterDocs(type, btn){
   });
 }
 
-// ══════════════════════════════════════════════════════
-//  🔌 مكتبة مخططات الشبكة — عرض مخصّص فوق نظام المستندات
-//  الموجود أصلاً (نفس التخزين والصلاحيات)، مفلترة على فئة
-//  "مخطط شبكة" فقط، مجمّعة حسب الموقع
-// ══════════════════════════════════════════════════════
-function pgNetworkDiagrams(){
-  if(!p('docs')&&CU.role!=='manager'){
-    $('page').innerHTML='<div class="panel" style="text-align:center;padding:60px"><div style="font-size:40px">⛔</div><div style="margin-top:12px">ليس لديك صلاحية لعرض المخططات</div></div>';
-    return;
-  }
-  const canUpload = CU.role==='manager';
-  const canDownload = CU.role==='manager' || CU.perms?.downloadDocs;
-  const canDelete = CU.role==='manager';
-
-  FBDB.ref('cctv/docs').once('value').then(snap=>{
-    const all = snap.val() ? Object.values(snap.val()) : [];
-    const diagrams = all.filter(d=>d.category==='مخطط شبكة').sort((a,b)=>(b._ts||0)-(a._ts||0));
-    // تجميع حسب الموقع
-    const bySite = {};
-    diagrams.forEach(d=>{
-      const key = d.site||'عام';
-      if(!bySite[key]) bySite[key]=[];
-      bySite[key].push(d);
-    });
-    $('page').innerHTML=`
-    <div class="ph">
-      <div><div class="pt">🔌 مخططات الشبكة (${diagrams.length})</div><div class="ps">مخططات IP الشبكية لكل موقع</div></div>
-      ${canUpload?`<button class="btn btn-bl" onclick="openAddDoc('مخطط شبكة')">+ رفع مخطط</button>`:''}
-    </div>
-    ${diagrams.length===0?`<div style="text-align:center;padding:60px;color:var(--mt)"><div style="font-size:48px">🔌</div><div style="margin-top:12px">لا مخططات مرفوعة بعد</div></div>`:
-      Object.entries(bySite).map(([site,docs])=>`
-      <div style="font-weight:700;color:var(--bl);margin:14px 0 8px;font-size:13px">📍 ${esc(site)}</div>
-      ${renderDocsList(docs, canDownload, canDelete)}
-      `).join('')}`;
-  });
-}
-
-function openAddDoc(presetCat){
+function openAddDoc(){
   openModal(`${mhd('📁 رفع مستند')}
   <div style="display:flex;flex-direction:column;gap:10px">
     <div class="field"><label>اسم المستند *</label><input id="dc-name" placeholder="عقد صيانة 2025"></div>
     <div class="field"><label>النوع</label>
       <select id="dc-cat">
-        ${['عقد','تقرير','تصريح','صورة','مخطط شبكة','أخرى'].map(t=>`<option ${presetCat===t?'selected':''}>${t}</option>`).join('')}
+        ${['عقد','تقرير','تصريح','صورة','أخرى'].map(t=>`<option>${t}</option>`).join('')}
       </select>
     </div>
     <div class="field"><label>الموقع المرتبط</label>
@@ -9033,7 +7788,7 @@ function uploadDoc(){
 }
 
 function delDoc(id){
-  confirmDel('حذف المستند نهائياً؟', `archiveDel('docs/${id}');toast('تم الحذف','err');pgDocs()`);
+  confirmDel('حذف المستند نهائياً؟', `fbDel('docs/${id}');toast('تم الحذف','err');pgDocs()`);
 }
 
 
@@ -9062,10 +7817,6 @@ function openAppMenu(){
     {id:'actlog',    ic:'📋', lb:'سجل النشاط',         perm:'users'},
     {id:'performance',ic:'🏆',lb:'أداء الفنيين',       perm:'users'},
     {id:'chat',      ic:'💬', lb:'الدردشة',            perm:null},
-    {id:'achievements', ic:'📝', lb:'الإنجازات اليومية', perm:null},
-    {id:'surveys', ic:'📋', lb:'المعاينات الميدانية', perm:null},
-    {id:'networkdiagrams', ic:'🔌', lb:'مخططات الشبكة', perm:'docs'},
-    {id:'printhub', ic:'🖨️', lb:'لوحة الطباعة', perm:'exportPrint'},
     {id:'docs',      ic:'📁', lb:'المستندات',          perm:'docs'},
     {id:'handovers', ic:'📝', lb:'تسليم واستلام',      perm:'moves'},
     {id:'backup',    ic:'🔐', lb:'النسخ الاحتياطية',   perm:'users'},
@@ -9238,7 +7989,7 @@ function pgSiteInventory(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openEditFieldSite('${site.id}')">⚙️ ربط مستودع</button>`:''}
         ${CU.role==='manager'||p('addItem')?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
-        ${canExport()?`<button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>`:''}
+        ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>`:''}
         ${CU.role==='manager'?`<button class="btn btn-pu" onclick="openBulkExcelImport('siteinv')">📥 استيراد جماعي</button>`:''}
       </div>
     </div>
@@ -9370,104 +8121,10 @@ function renderSiteItem(item, siteId, ptId, canEdit){
     </div>
     <!-- أزرار -->
     ${canEdit?`<div style="display:flex;gap:4px;flex-shrink:0">
-      <button class="btn btn-sm btn-pu" onclick="openTransferSiteItem('${siteId}','${ptId}','${item.id}')" title="نقل لموقع/نقطة أخرى">🔁</button>
-      ${CU.role==='manager'?`<button class="btn btn-sm" style="background:#f8514922;color:var(--rd);border:1px solid #f8514944" title="إرجاع للمخزن" onclick="returnSiteItemToWarehouse('${siteId}','','${ptId}','${item.id}','${esc(item.name||'')}')">↩️</button>`:''}
       <button class="btn btn-sm btn-gy" onclick="openEditSiteItem('${siteId}','${ptId}','${item.id}')">✏️</button>
       <button class="btn btn-sm btn-rd" onclick="delSiteItem('${siteId}','${ptId}','${item.id}')">🗑️</button>
     </div>`:''}
   </div>`;
-}
-
-// ── مناقلة عنصر جرد ثابت بين النقاط/المواقع الميدانية ──
-function openTransferSiteItem(siteId, ptId, itemId){
-  const item = DB.siteInventory?.[siteId]?.[ptId]?.items?.[itemId];
-  if(!item){ toast('تعذّر إيجاد العنصر','err'); return; }
-  const curSite = getVisibleFieldSites().find(s=>s.id===siteId);
-  const curPt = DB.siteInventory[siteId][ptId];
-  const allSites = getVisibleFieldSites();
-  window._siTrPending = {siteId, ptId, itemId};
-  openModal(`${mhd('🔁 نقل عنصر لموقع/نقطة أخرى')}
-  <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px">
-    <div style="font-weight:700">${AT_ICON(item.itemType)} ${esc(item.name||'—')}</div>
-    <div style="font-size:12px;color:var(--mt);margin-top:3px">من: <b>${esc(curSite?curSite.name:siteId)}</b> — 📌 ${esc(curPt?curPt.name:ptId)}</div>
-  </div>
-  ${(parseInt(item.qty)||1)>1?`<div class="field"><label>الكمية المنقولة <span style="color:var(--rd)">*</span></label>
-    <input id="sitr-qty" type="number" min="1" max="${item.qty}" value="${item.qty}">
-    <div style="font-size:11px;color:var(--mt);margin-top:4px">الكمية الكلية بهذه النقطة: <b>${item.qty}</b> — أدخل عدداً أقل لنقل جزء فقط</div>
-  </div>`:''}
-  <div class="field"><label>الموقع الميداني الوجهة</label>
-    <select id="sitr-site" onchange="refreshSiTrPoints()">
-      ${allSites.map(s=>`<option value="${s.id}" ${s.id===siteId?'selected':''}>📍 ${esc(s.name)}</option>`).join('')}
-    </select>
-  </div>
-  <div class="field"><label>النقطة الوجهة</label>
-    <select id="sitr-point"></select>
-  </div>
-  <div class="field" id="sitr-newpt-wrap" style="display:none"><label>اسم النقطة الجديدة *</label><input id="sitr-newpt" placeholder="مثال: غرفة السيرفر..."></div>
-  <div class="field"><label>سبب النقل</label><textarea id="sitr-note" placeholder="إعادة توزيع، طلب من الفني..."></textarea></div>
-  ${mft('🔁 تأكيد النقل','confirmTransferSiteItem()')}`);
-  refreshSiTrPoints();
-}
-function AT_ICON(t){ return t && allT()[t] ? allT()[t].icon : '📦'; }
-function refreshSiTrPoints(){
-  const destSiteId = val('sitr-site');
-  const pts = DB.siteInventory?.[destSiteId] ? Object.values(DB.siteInventory[destSiteId]).sort((a,b)=>(a.order||0)-(b.order||0)) : [];
-  const sel = document.getElementById('sitr-point');
-  if(!sel) return;
-  sel.innerHTML = pts.map(p=>`<option value="${p.id}">📌 ${esc(p.name)}</option>`).join('') + `<option value="__new__">➕ نقطة جديدة...</option>`;
-  sel.onchange = function(){
-    document.getElementById('sitr-newpt-wrap').style.display = sel.value==='__new__' ? 'block' : 'none';
-  };
-  sel.onchange();
-}
-function confirmTransferSiteItem(){
-  const p = window._siTrPending;
-  if(!p){ closeModal(); return; }
-  const {siteId, ptId, itemId} = p;
-  const originalItem = DB.siteInventory?.[siteId]?.[ptId]?.items?.[itemId];
-  if(!originalItem){ closeModal(); toast('العنصر لم يعد موجوداً','err'); return; }
-  const destSiteId = val('sitr-site');
-  let destPtId = val('sitr-point');
-  const note = val('sitr-note')||'';
-  const destSites = getVisibleFieldSites();
-  const destSiteObj = destSites.find(s=>s.id===destSiteId);
-  const srcSiteObj = destSites.find(s=>s.id===siteId);
-
-  if(destPtId==='__new__'){
-    const newName = val('sitr-newpt');
-    if(!newName){ toast('اكتب اسم النقطة الجديدة','err'); return; }
-    destPtId = gid();
-    fbSet('siteInventory/'+destSiteId+'/'+destPtId, {id:destPtId, name:newName, desc:'', order:Date.now(), _ts:Date.now()});
-  }
-  if(destSiteId===siteId && destPtId===ptId){ toast('اختر موقعاً أو نقطة مختلفة عن الحالية','err'); return; }
-
-  const totalQty = parseInt(originalItem.qty)||1;
-  const qtyInput = document.getElementById('sitr-qty');
-  const movedQty = qtyInput ? Math.min(Math.max(1, parseInt(qtyInput.value)||1), totalQty) : totalQty;
-  const isPartial = movedQty < totalQty;
-
-  let movedItem = originalItem;
-  if(isPartial){
-    fbSet('siteInventory/'+siteId+'/'+ptId+'/items/'+itemId, {...originalItem, qty: totalQty-movedQty});
-    movedItem = {...originalItem, id: gid(), qty: movedQty};
-  } else {
-    fbDel('siteInventory/'+siteId+'/'+ptId+'/items/'+itemId);
-  }
-  fbSet('siteInventory/'+destSiteId+'/'+destPtId+'/items/'+movedItem.id, {
-    ...movedItem, notes:(note?note+' — ':'')+'منقول من '+(srcSiteObj?srcSiteObj.name:siteId), by:CU.name, date:ts(), _ts:Date.now()
-  });
-  fbPush('moves',{
-    name:'🔁 '+AT_ICON(originalItem.itemType)+' '+(originalItem.name||''),
-    qty: movedQty,
-    dir:'site-transfer',
-    from:(srcSiteObj?srcSiteObj.name:siteId), to:(destSiteObj?destSiteObj.name:destSiteId),
-    by:CU.name, date:ts(), notes:note||'مناقلة موجودات ثابتة', _ts:Date.now()
-  });
-  logAct('نقل موجود ثابت', (originalItem.name||'')+' → '+(destSiteObj?destSiteObj.name:destSiteId));
-  window._siTrPending = null;
-  window._invSite = siteId;
-  closeModal(); toast('✅ تم النقل');
-  pgSiteInventory();
 }
 
 // ── إضافة نقطة جرد ──
@@ -9512,7 +8169,7 @@ function openEditSitePoint(siteId, ptId){
 }
 
 function delSitePoint(siteId, ptId){
-  confirmDel('حذف النقطة وجميع عناصرها نهائياً؟', `archiveDel('siteInventory/${siteId}/${ptId}');toast('تم الحذف');pgSiteInventory()`);
+  confirmDel('حذف النقطة وجميع عناصرها نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}');toast('تم الحذف');pgSiteInventory()`);
 }
 
 // ── إضافة عنصر جرد ──
@@ -9618,12 +8275,12 @@ function openEditSiteItem(siteId, ptId, itemId){
 }
 
 function delSiteItem(siteId, ptId, itemId){
-  confirmDel('حذف هذا العنصر نهائياً؟', `archiveDel('siteInventory/${siteId}/${ptId}/items/${itemId}');toast('تم الحذف');pgSiteInventory()`);
+  confirmDel('حذف هذا العنصر نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}/items/${itemId}');toast('تم الحذف');pgSiteInventory()`);
 }
 
 // ── تصدير الجرد ──
 function exportSiteInventory(siteId, siteName){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   FBDB.ref('cctv/siteInventory/'+siteId).once('value').then(snap=>{
     const points = snap.val() ? Object.values(snap.val()) : [];
 
@@ -9981,7 +8638,7 @@ function updTask(taskId, status){
 }
 
 function delTask(taskId){
-  confirmDel('حذف هذه المهمة نهائياً؟', `archiveDel('tasks/${taskId}');setTimeout(pgTasks,300)`);
+  confirmDel('حذف هذه المهمة نهائياً؟', `fbDel('tasks/${taskId}');setTimeout(pgTasks,300)`);
 }
 
 
@@ -10103,52 +8760,20 @@ function loadNetworkLayer(){
 }
 
 // ── إضافة رابط/كابل ──
-// نظام ألوان الشعيرات الضوئية القياسي (TIA/EIA-598) — 12 لون يتكرر كل مجموعة (Binder)
-const FIBER_COLORS = [
-  {n:'أزرق',hex:'#1f5fd4'},{n:'برتقالي',hex:'#ff8c1a'},{n:'أخضر',hex:'#2fa84f'},{n:'بني',hex:'#8b4a1f'},
-  {n:'رصاصي',hex:'#8a8f98'},{n:'أبيض',hex:'#e6e6e6'},{n:'أحمر',hex:'#e13333'},{n:'أسود',hex:'#222222'},
-  {n:'أصفر',hex:'#e8d000'},{n:'بنفسجي',hex:'#8a2fbf'},{n:'وردي',hex:'#ff7fb0'},{n:'فيروزي',hex:'#1fbfbf'}
-];
-function generateFiberStrands(coreCount){
-  const n = parseInt(coreCount)||0;
-  const hasMultipleTubes = n>12; // الكابلات الصغيرة (1،2،4،6،12) بأنبوب واحد فقط — لا داعي لتمييز لون الأنبوب
-  const strands = [];
-  for(let i=1;i<=n;i++){
-    const tubeIdx = Math.floor((i-1)/12); // كل أنبوب (Buffer Tube) يحمل 12 شعيرة
-    const tubeColorIdx = tubeIdx % 12;    // لون الأنبوب نفسه يتبع نفس دورة الـ12 لون
-    const strandColorIdx = (i-1)%12;      // لون الشعيرة داخل الأنبوب
-    strands.push({
-      num:i, // الرقم يبقى محفوظاً دائماً — يُستخدم أساساً عند التصدير (KML)، والتعريف اليومي يكون باللون
-      tubeNum: hasMultipleTubes ? tubeIdx+1 : null,
-      tubeColor: hasMultipleTubes ? FIBER_COLORS[tubeColorIdx].n : '',
-      tubeColorHex: hasMultipleTubes ? FIBER_COLORS[tubeColorIdx].hex : '',
-      color:FIBER_COLORS[strandColorIdx].n, colorHex:FIBER_COLORS[strandColorIdx].hex,
-      from:'', to:'', status:'spare', notes:''
-    });
-  }
-  return strands;
-}
-
-function openAddNetLink(presetName){
+function openAddNetLink(){
   if(!canEditNetwork()){ toast('لا صلاحية','err'); return; }
   openModal(mhd('🔵 إضافة كابل / رابط شبكة')
     +'<div class="fg">'
-    +'<div class="s2 field"><label>الاسم *</label><input id="nl-name" value="'+esc(presetName||'')+'" placeholder="كابل الحسينية-الرجيبة"></div>'
+    +'<div class="s2 field"><label>الاسم *</label><input id="nl-name" placeholder="كابل الحسينية-الرجيبة"></div>'
     +'<div class="field"><label>النوع *</label>'
     +'<select id="nl-type" onchange="onNetTypeChange()">'
     +'<option value="fiber">🔵 كابل ضوئي (Fiber)</option>'
-    +'<option value="p2p">📡 رابط P2P / P2MP لاسلكي</option>'
+    +'<option value="p2p">📡 رابط P2P لاسلكي</option>'
     +'<option value="utp">🟢 كابل شبكي (UTP)</option>'
     +'<option value="coax">🟡 كابل محوري (Coax)</option>'
     +'</select></div>'
     +'<div class="field" id="nl-device-row"><label>اسم الجهاز</label>'
     +'<input id="nl-device" placeholder="Mimosa C5C, Mikrotik SXTsq..."></div>'
-    +'<div class="field" id="nl-cores-row" style="display:none"><label>عدد الأنوية (Core)</label>'
-    +'<select id="nl-cores"><option value="1">1</option><option value="2">2</option><option value="4">4</option>'
-    +'<option value="6">6</option><option value="12" selected>12</option><option value="24">24</option>'
-    +'<option value="48">48</option><option value="96">96</option><option value="144">144</option></select></div>'
-    +'<div class="field" id="nl-pa-row" style="display:none"><label>نقطة A</label><input id="nl-pa" placeholder="مثال: غرفة السيرفر"></div>'
-    +'<div class="field" id="nl-pb-row" style="display:none"><label>نقطة B (أو أكثر لـP2MP، افصل بفاصلة)</label><input id="nl-pb" placeholder="مثال: البرج 1, البرج 2"></div>'
     +'<div class="s2 field"><label>الطول التقريبي (متر)</label><input id="nl-length" type="number" placeholder="500"></div>'
     +'<div class="s2 field"><label>ملاحظات</label><textarea id="nl-notes" rows="2"></textarea></div>'
     +'</div>'
@@ -10156,33 +8781,22 @@ function openAddNetLink(presetName){
     +'📍 بعد الحفظ: اضغط على الخريطة لرسم مسار الكابل نقطة بنقطة، ثم اضغط <b>إنهاء الرسم</b>'
     +'</div>'
     +mft('▶️ التالي — ارسم المسار','startNetDraw()'));
-  setTimeout(onNetTypeChange, 50);
 }
 
 function onNetTypeChange(){
   const t = val('nl-type');
-  const devRow = document.getElementById('nl-device-row');
-  const coresRow = document.getElementById('nl-cores-row');
-  const paRow = document.getElementById('nl-pa-row');
-  const pbRow = document.getElementById('nl-pb-row');
-  if(devRow) devRow.style.display = (t==='p2p') ? 'block' : 'none';
-  if(coresRow) coresRow.style.display = (t==='fiber') ? 'block' : 'none';
-  if(paRow) paRow.style.display = (t==='p2p') ? 'block' : 'none';
-  if(pbRow) pbRow.style.display = (t==='p2p') ? 'block' : 'none';
+  const row = document.getElementById('nl-device-row');
+  if(row) row.style.display = (t==='p2p') ? 'block' : 'none';
 }
 
 function startNetDraw(){
   const name = val('nl-name');
   if(!name){ toast('الاسم مطلوب','err'); return; }
-  const type = val('nl-type');
   window._pendingNetLink = {
-    id: gid(), name, type,
+    id: gid(), name, type: val('nl-type'),
     device: val('nl-device')||'',
     length: val('nl-length')||'',
-    notes: val('nl-notes')||'',
-    coreCount: type==='fiber' ? (parseInt(val('nl-cores'))||0) : 0,
-    pointA: type==='p2p' ? (val('nl-pa')||'') : '',
-    pointB: type==='p2p' ? (val('nl-pb')||'') : ''
+    notes: val('nl-notes')||''
   };
   closeModal();
   _drawingNet = true;
@@ -10226,226 +8840,11 @@ function finishNetDraw(){
   const link = window._pendingNetLink;
   link.points = _netDrawPoints;
   link.typeName = {fiber:'كابل ضوئي',p2p:'رابط P2P',utp:'كابل شبكي',coax:'كابل محوري'}[link.type]||link.type;
-  if(link.type==='fiber' && link.coreCount>0){
-    link.strands = generateFiberStrands(link.coreCount);
-  }
   fbSet('network/links/'+link.id, link);
   logAct('شبكة — إضافة رابط', link.name);
   clearNetDraw();
   toast('✅ تم حفظ '+link.name);
   loadNetworkLayer();
-  if(link.type==='fiber' && link.coreCount>0){
-    setTimeout(function(){ openManageStrands(link.id); }, 400);
-  }
-}
-
-// ══════════════════════════════════════════════════════
-//  🧵 إدارة شعيرات الكابل الضوئي — كل شعيرة بلونها القياسي،
-//  من/إلى (نقطة ومنفذ)، وحالتها (مستخدمة/احتياط/تالفة)
-// ══════════════════════════════════════════════════════
-function openManageStrands(linkId){
-  FBDB.ref('cctv/network/links/'+linkId).once('value').then(function(snap){
-    const link = snap.val();
-    if(!link){ toast('الرابط غير موجود','err'); return; }
-    const strands = link.strands || generateFiberStrands(link.coreCount||12);
-    window._editStrandsLinkId = linkId;
-    openModal(`${mhd('🧵 إدارة شعيرات: '+esc(link.name))}
-    <div style="font-size:12px;color:var(--mt);margin-bottom:8px">${strands.length} شعيرة — حدد نقطة الوصل وحالة كل شعيرة</div>
-    <div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:var(--tx)">
-      💡 كل شعيرة مستقلة تماماً — لو الكيبل يمر بعدة نقاط ويتفرّع منها شعائر مختلفة قبل ما توصل كلها لنقطة تجميع رئيسية وحدة، اكتب لكل شعيرة نقطة تفرّعها الفعلية بـ"نقطة الوصل" (مو بالضرورة بداية الكيبل)، ووجهتها النهائية بـ"الوجهة".
-    </div>
-    <div style="max-height:400px;overflow-y:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="position:sticky;top:0;background:var(--bg)">
-        <th style="padding:6px;text-align:right;color:var(--mt);font-weight:400">#</th>
-        ${strands[0]&&strands[0].tubeColorHex?'<th style="padding:6px;text-align:right">الأنبوب</th>':''}
-        <th style="padding:6px;text-align:right">لون الشعيرة</th>
-        <th style="padding:6px;text-align:right">نقطة الوصل</th><th style="padding:6px;text-align:right">الوجهة</th>
-        <th style="padding:6px;text-align:right">الحالة</th><th></th>
-      </tr></thead>
-      <tbody id="strands-tbody">
-        ${strands.map(function(s,i){
-          return `<tr style="border-bottom:1px solid var(--br)">
-            <td style="padding:5px;color:var(--mt)">${s.num}</td>
-            ${s.tubeColorHex?`<td style="padding:5px;white-space:nowrap"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${s.tubeColorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.tubeColor||'')}</td>`:''}
-            <td style="padding:5px;white-space:nowrap"><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${s.colorHex};border:1px solid #0003;vertical-align:middle"></span> ${esc(s.color)}</td>
-            <td style="padding:5px"><input data-i="${i}" data-f="from" value="${esc(s.from||'')}" placeholder="مثال: نقطة 2 على المسار" style="width:90px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
-            <td style="padding:5px"><input data-i="${i}" data-f="to" value="${esc(s.to||'')}" placeholder="مثال: النقطة المجمّعة" style="width:90px;padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px"></td>
-            <td style="padding:5px"><select data-i="${i}" data-f="status" style="padding:4px;border-radius:6px;border:1px solid var(--br);background:var(--sf);color:var(--tx);font-size:11px">
-              <option value="used" ${s.status==='used'?'selected':''}>✅ مستخدمة</option>
-              <option value="spare" ${s.status==='spare'?'selected':''}>⚪ احتياط</option>
-              <option value="damaged" ${s.status==='damaged'?'selected':''}>❌ تالفة</option>
-            </select></td>
-            <td style="padding:5px"><button type="button" class="btn btn-sm btn-pu" title="تتبّع المسار الكامل عبر اللحامات" onclick="showStrandFullPath('${linkId}',${s.num})">🔗</button></td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-    </div>
-    <button class="btn btn-gy btn-fw" style="margin-top:10px" onclick="closeModal();openManageSplices()">🔗 إدارة اللحامات (كل الشبكة)</button>
-    ${mft('💾 حفظ الشعيرات','saveStrands()')}`);
-  });
-}
-function saveStrands(){
-  const linkId = window._editStrandsLinkId;
-  if(!linkId) return;
-  FBDB.ref('cctv/network/links/'+linkId).once('value').then(function(snap){
-    const link = snap.val();
-    if(!link) return;
-    const strands = link.strands || generateFiberStrands(link.coreCount||12);
-    document.querySelectorAll('#strands-tbody input, #strands-tbody select').forEach(function(el){
-      const i = parseInt(el.dataset.i);
-      const f = el.dataset.f;
-      if(strands[i]) strands[i][f] = el.value;
-    });
-    fbUpdate('network/links/'+linkId, {strands});
-    closeModal();
-    toast('✅ تم حفظ خريطة الشعيرات');
-  });
-}
-
-// ══════════════════════════════════════════════════════
-//  🔗 نظام اللحامات (Splices) — يربط شعيرة من كيبل بشعيرة من
-//  كيبل ثاني عند نقطة لحام فعلية، بحيث يقدر النظام يتتبّع
-//  المسار الكامل من طرف لطرف عبر عدة مقاطع كيبل متتالية —
-//  يحل بالضبط حالة: عدة مقاطع كيبل منفصلة تلتقي بنقاط لحام
-//  وتكمل سوا لنفس الوجهة النهائية (المركزية).
-// ══════════════════════════════════════════════════════
-function openManageSplices(){
-  if(!canEditNetwork()){ toast('لا صلاحية','err'); return; }
-  Promise.all([
-    FBDB.ref('cctv/network/links').once('value'),
-    FBDB.ref('cctv/network/splices').once('value')
-  ]).then(function(results){
-    const links = results[0].val()||{};
-    const splices = results[1].val()||{};
-    const fiberLinks = Object.values(links).filter(function(l){return l.type==='fiber';});
-    const spliceList = Object.values(splices);
-
-    $('page').innerHTML=`
-    <div class="ph"><div><div class="pt">🔗 لحامات الشعيرات (${spliceList.length})</div>
-      <div class="ps">ربط شعيرة من كيبل بشعيرة من كيبل آخر عند نقطة لحام</div></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-gy" onclick="go('fieldmap')">🔙 رجوع للخريطة</button>
-        <button class="btn btn-bl" onclick="openAddSplice()">➕ لحام جديد</button>
-      </div>
-    </div>
-    ${fiberLinks.length<1?`<div class="panel" style="text-align:center;padding:30px;color:var(--mt)">تحتاج كيبل ضوئي واحد على الأقل بالشبكة قبل إضافة لحامات</div>`:''}
-    ${spliceList.length===0?`<div class="panel" style="text-align:center;padding:40px;color:var(--mt)">لا لحامات مسجّلة بعد</div>`:
-      spliceList.map(function(sp){
-        const c1=sp.connections[0], c2=sp.connections[1];
-        return `<div class="panel" style="margin-bottom:10px">
-          <div style="font-weight:700;margin-bottom:4px">${esc(sp.locationLabel||'لحام')}</div>
-          <div style="font-size:12px;color:var(--mt)">
-            🔵 ${esc(c1?c1.linkName:'')} — شعيرة #${c1?c1.strandNum:''} (${esc(c1?c1.color:'')})
-            &nbsp;↔️&nbsp;
-            🔵 ${esc(c2?c2.linkName:'')} — شعيرة #${c2?c2.strandNum:''} (${esc(c2?c2.color:'')})
-          </div>
-          <button class="btn btn-sm btn-rd" style="margin-top:8px" onclick="delSplice('${sp.id}')">🗑️ حذف اللحام</button>
-        </div>`;
-      }).join('')}`;
-  });
-}
-
-function openAddSplice(){
-  FBDB.ref('cctv/network/links').once('value').then(function(snap){
-    const links = snap.val()||{};
-    const fiberLinks = Object.values(links).filter(function(l){return l.type==='fiber' && l.strands && l.strands.length;});
-    if(fiberLinks.length<1){ toast('تحتاج كيبل ضوئي فيه شعيرات أولاً','err'); return; }
-    window._spliceLinksCache = links;
-    openModal(`${mhd('🔗 لحام جديد')}
-    <div class="field"><label>اسم/وصف نقطة اللحام</label><input id="sp-loc" placeholder="مثال: علبة اللحام — نقطة 2"></div>
-    <div style="font-weight:700;margin:14px 0 6px;color:var(--bl)">الطرف الأول</div>
-    <div class="field"><label>الكيبل</label><select id="sp-link1" onchange="refreshSpliceStrands(1)">${fiberLinks.map(function(l){return `<option value="${l.id}">${esc(l.name)}</option>`;}).join('')}</select></div>
-    <div class="field"><label>الشعيرة</label><select id="sp-strand1"></select></div>
-    <div style="font-weight:700;margin:14px 0 6px;color:var(--pu)">الطرف الثاني</div>
-    <div class="field"><label>الكيبل</label><select id="sp-link2" onchange="refreshSpliceStrands(2)">${fiberLinks.map(function(l){return `<option value="${l.id}">${esc(l.name)}</option>`;}).join('')}</select></div>
-    <div class="field"><label>الشعيرة</label><select id="sp-strand2"></select></div>
-    ${mft('💾 حفظ اللحام','saveSplice()')}`);
-    refreshSpliceStrands(1); refreshSpliceStrands(2);
-  });
-}
-function refreshSpliceStrands(n){
-  const links = window._spliceLinksCache||{};
-  const linkId = val('sp-link'+n);
-  const link = links[linkId];
-  const sel = document.getElementById('sp-strand'+n);
-  if(!link||!sel) return;
-  sel.innerHTML = (link.strands||[]).map(function(s){
-    return `<option value="${s.num}">#${s.num} — ${esc(s.color)}${s.tubeColor?' (أنبوب '+esc(s.tubeColor)+')':''}${s.status==='used'?' — مستخدمة أصلاً':''}</option>`;
-  }).join('');
-}
-function saveSplice(){
-  const links = window._spliceLinksCache||{};
-  const link1Id = val('sp-link1'), strand1 = parseInt(val('sp-strand1'));
-  const link2Id = val('sp-link2'), strand2 = parseInt(val('sp-strand2'));
-  if(link1Id===link2Id && strand1===strand2){ toast('اختر طرفين مختلفين','err'); return; }
-  const link1 = links[link1Id], link2 = links[link2Id];
-  const s1 = link1 && (link1.strands||[]).find(function(s){return s.num===strand1;});
-  const s2 = link2 && (link2.strands||[]).find(function(s){return s.num===strand2;});
-  const id = gid();
-  fbSet('network/splices/'+id, {
-    id, locationLabel: val('sp-loc')||'',
-    connections: [
-      {linkId:link1Id, linkName:link1?link1.name:'', strandNum:strand1, color:s1?s1.color:''},
-      {linkId:link2Id, linkName:link2?link2.name:'', strandNum:strand2, color:s2?s2.color:''}
-    ],
-    by: CU.name, date: ts(), _ts: Date.now()
-  });
-  logAct('لحام شعيرتين', (link1?link1.name:'')+' ↔ '+(link2?link2.name:''));
-  closeModal(); toast('✅ تم حفظ اللحام'); openManageSplices();
-}
-function delSplice(id){
-  confirmDel('حذف هذا اللحام نهائياً؟', `archiveDel('network/splices/${id}');toast('تم الحذف','err');openManageSplices()`);
-}
-
-// ── تتبّع المسار الكامل لشعيرة عبر كل اللحامات المتتالية ──
-function traceStrandPath(startLinkId, startStrandNum, links, splices, visited){
-  visited = visited || {};
-  const key = startLinkId+'#'+startStrandNum;
-  if(visited[key]) return [];
-  visited[key] = true;
-
-  const link = links[startLinkId];
-  const strand = link && (link.strands||[]).find(function(s){return s.num===startStrandNum;});
-  const hop = {
-    linkId:startLinkId, linkName: link?link.name:startLinkId,
-    strandNum:startStrandNum, color: strand?strand.color:'',
-    tubeColor: strand?strand.tubeColor:'', from: strand?strand.from:'', to: strand?strand.to:''
-  };
-
-  const splice = splices.find(function(sp){
-    return sp.connections.some(function(c){return c.linkId===startLinkId && c.strandNum===startStrandNum;});
-  });
-  if(!splice) return [hop];
-  const otherEnd = splice.connections.find(function(c){return !(c.linkId===startLinkId && c.strandNum===startStrandNum);});
-  if(!otherEnd) return [hop];
-  return [hop].concat(traceStrandPath(otherEnd.linkId, otherEnd.strandNum, links, splices, visited));
-}
-function showStrandFullPath(linkId, strandNum){
-  Promise.all([
-    FBDB.ref('cctv/network/links').once('value'),
-    FBDB.ref('cctv/network/splices').once('value')
-  ]).then(function(results){
-    const links = results[0].val()||{};
-    const splices = Object.values(results[1].val()||{});
-    const path = traceStrandPath(linkId, strandNum, links, splices);
-    openModal(`${mhd('🔗 المسار الكامل — شعيرة #'+strandNum)}
-    <div style="display:flex;flex-direction:column;gap:0">
-      ${path.map(function(hop,i){
-        return `<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--sf);border-radius:8px;margin-bottom:${i<path.length-1?'0':'8'}px">
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:13px">${esc(hop.linkName)}</div>
-            <div style="font-size:11px;color:var(--mt)">شعيرة #${hop.strandNum} — ${esc(hop.color)}${hop.tubeColor?' (أنبوب '+esc(hop.tubeColor)+')':''}</div>
-            ${hop.from||hop.to?`<div style="font-size:11px;color:var(--mt)">${esc(hop.from||'؟')} ← ${esc(hop.to||'؟')}</div>`:''}
-          </div>
-        </div>
-        ${i<path.length-1?'<div style="text-align:center;color:var(--bl);font-size:16px;padding:2px 0">🔗 لحام</div>':''}`;
-      }).join('')}
-    </div>
-    <div style="font-size:11px;color:var(--mt);margin-top:10px">إجمالي المقاطع بالمسار: ${path.length}</div>
-    <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
-  });
 }
 
 function clearNetDraw(){
@@ -10508,8 +8907,8 @@ function startNetDevicePlace(){
 }
 
 // ── حذف ──
-function delNetLink(id){ confirmDel('حذف هذا الرابط نهائياً؟', `archiveDel('network/links/${id}');toast('تم الحذف');loadNetworkLayer()`); }
-function delNetDevice(id){ confirmDel('حذف هذا الجهاز نهائياً؟', `archiveDel('network/devices/${id}');toast('تم الحذف');loadNetworkLayer()`); }
+function delNetLink(id){ confirmDel('حذف هذا الرابط نهائياً؟', `fbDel('network/links/${id}');toast('تم الحذف');loadNetworkLayer()`); }
+function delNetDevice(id){ confirmDel('حذف هذا الجهاز نهائياً؟', `fbDel('network/devices/${id}');toast('تم الحذف');loadNetworkLayer()`); }
 
 // ── تعديل رابط ──
 function editNetLink(id){
@@ -10518,22 +8917,16 @@ function editNetLink(id){
     openModal(mhd('✏️ تعديل الرابط')
       +'<div class="fg">'
       +'<div class="s2 field"><label>الاسم</label><input id="nl-name" value="'+esc(link.name||'')+'"></div>'
-      +'<div class="field"><label>النوع</label><select id="nl-type" onchange="onNetTypeChange()">'
+      +'<div class="field"><label>النوع</label><select id="nl-type">'
       +'<option value="fiber" '+(link.type==='fiber'?'selected':'')+'>🔵 كابل ضوئي</option>'
       +'<option value="p2p" '+(link.type==='p2p'?'selected':'')+'>📡 رابط P2P</option>'
       +'<option value="utp" '+(link.type==='utp'?'selected':'')+'>🟢 كابل شبكي</option>'
       +'<option value="coax" '+(link.type==='coax'?'selected':'')+'>🟡 كابل محوري</option>'
       +'</select></div>'
-      +'<div class="field" id="nl-device-row" style="display:'+(link.type==='p2p'?'block':'none')+'"><label>الجهاز</label><input id="nl-device" value="'+esc(link.device||'')+'"></div>'
-      +'<div class="field" id="nl-cores-row" style="display:'+(link.type==='fiber'?'block':'none')+'"><label>عدد الأنوية (Core)</label>'
-      +'<select id="nl-cores">'+[1,2,4,6,12,24,48,96,144].map(function(c){return '<option value="'+c+'" '+(link.coreCount==c?'selected':'')+'>'+c+'</option>';}).join('')+'</select>'
-      +'<div style="font-size:11px;color:var(--mt);margin-top:4px">⚠️ تغيير العدد يعيد توليد جدول الشعيرات — استخدمه بحذر لو عندك بيانات مربوطة أصلاً</div></div>'
-      +'<div class="field" id="nl-pa-row" style="display:'+(link.type==='p2p'?'block':'none')+'"><label>نقطة A</label><input id="nl-pa" value="'+esc(link.pointA||'')+'"></div>'
-      +'<div class="field" id="nl-pb-row" style="display:'+(link.type==='p2p'?'block':'none')+'"><label>نقطة B (أو أكثر لـP2MP)</label><input id="nl-pb" value="'+esc(link.pointB||'')+'"></div>'
+      +'<div class="field"><label>الجهاز</label><input id="nl-device" value="'+esc(link.device||'')+'"></div>'
       +'<div class="s2 field"><label>الطول (م)</label><input id="nl-length" type="number" value="'+esc(link.length||'')+'"></div>'
       +'<div class="s2 field"><label>ملاحظات</label><textarea id="nl-notes" rows="2">'+esc(link.notes||'')+'</textarea></div>'
       +'</div>'
-      +(link.type==='fiber'?'<button class="btn btn-pu btn-fw" style="margin-bottom:10px" onclick="closeModal();openManageStrands(\''+id+'\')">🧵 إدارة الشعيرات ('+(link.strands?link.strands.length:link.coreCount||0)+')</button>':'')
       +mft('💾 حفظ','saveNetLinkEdit()'));
     window._editNetLinkId = id;
   });
@@ -10542,24 +8935,11 @@ function editNetLink(id){
 function saveNetLinkEdit(){
   const id = window._editNetLinkId;
   if(!id) return;
-  const type = val('nl-type');
-  FBDB.ref('cctv/network/links/'+id).once('value').then(function(snap){
-    const link = snap.val()||{};
-    const newCoreCount = type==='fiber' ? (parseInt(val('nl-cores'))||0) : 0;
-    const upd = {
-      name:val('nl-name'), type,
-      device:val('nl-device')||'', length:val('nl-length'), notes:val('nl-notes'),
-      coreCount:newCoreCount,
-      pointA: type==='p2p' ? (val('nl-pa')||'') : '',
-      pointB: type==='p2p' ? (val('nl-pb')||'') : ''
-    };
-    // لو تغيّر عدد الأنوية عن قبل، أعد توليد جدول الشعيرات
-    if(type==='fiber' && newCoreCount>0 && newCoreCount!==(link.coreCount||0)){
-      upd.strands = generateFiberStrands(newCoreCount);
-    }
-    fbUpdate('network/links/'+id, upd);
-    closeModal(); toast('✅ تم التعديل'); loadNetworkLayer();
+  fbUpdate('network/links/'+id,{
+    name:val('nl-name'), type:val('nl-type'),
+    device:val('nl-device'), length:val('nl-length'), notes:val('nl-notes')
   });
+  closeModal(); toast('✅ تم التعديل'); loadNetworkLayer();
 }
 
 // ── تعديل جهاز ──
@@ -10917,7 +9297,7 @@ function quickSearch(q){
 //  🖨️ طباعة التقرير الكامل PDF
 // ============================================
 function printFullReport(totalFaults,openF,resolvedF,highF,avgSLA,totalItems,deployedItems,totalCams){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   const now = new Date().toLocaleString('ar-IQ');
   const topFaults = [...(DB.faults||[])].sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1)).slice(0,20);
   const rows = topFaults.map(f=>`
@@ -11830,7 +10210,7 @@ function buildMonthlyReportHTML(monthLabel, periodFrom, periodTo){
 }
 
 function printMonthlyReportNow(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){ toast('التقرير الشهري للمدير فقط','err'); return; }
   const now = new Date();
   const periodFrom = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const periodTo = Date.now();
@@ -11845,88 +10225,18 @@ function printMonthlyReportNow(){
 // ── الجدولة التلقائية أول كل شهر (بنفس فلسفة النسخ الاحتياطي) ──
 function monthlyReportAutoCheck(){
   if(!CU || CU.role!=='manager') return;
-  FBDB.ref('cctv/reportSchedule/monthly').once('value').then(function(snap){
-    if(snap.val()===false) return; // المدير عطّل الجدولة الشهرية
-    setTimeout(function(){
-      try{
-        FBDB.ref('cctv/monthlyReports/_meta/lastGenerated').once('value').then(function(snap2){
-          const last = snap2.val();
-          const now = new Date();
-          const currentMonthKey = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
-          if(last !== currentMonthKey){
-            generateAutoMonthlyReport(currentMonthKey);
-          }
-        }).catch(function(err){ console.warn('Monthly report check failed:', err.message); });
-      }catch(e){ console.warn('Monthly report check exception:', e.message); }
-    }, 3000);
-  });
-}
-
-// ── نفس فكرة الجدولة الشهرية، لكن أسبوعياً (رقم أسبوع ISO) ──
-function isoWeekKey(d){
-  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = dt.getUTCDay()||7;
-  dt.setUTCDate(dt.getUTCDate()+4-dayNum);
-  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(),0,1));
-  const weekNo = Math.ceil((((dt-yearStart)/86400000)+1)/7);
-  return dt.getUTCFullYear()+'-W'+String(weekNo).padStart(2,'0');
-}
-function weeklyReportAutoCheck(){
-  if(!CU || CU.role!=='manager') return;
-  FBDB.ref('cctv/reportSchedule/weekly').once('value').then(function(snap){
-    if(snap.val()!==true) return; // الجدولة الأسبوعية معطّلة افتراضياً — تحتاج تفعيل صريح من المدير
-    setTimeout(function(){
-      try{
-        FBDB.ref('cctv/weeklyReports/_meta/lastGenerated').once('value').then(function(snap2){
-          const last = snap2.val();
-          const now = new Date();
-          const currentWeekKey = isoWeekKey(now);
-          if(last !== currentWeekKey){
-            generateAutoWeeklyReport(currentWeekKey);
-          }
-        }).catch(function(err){ console.warn('Weekly report check failed:', err.message); });
-      }catch(e){ console.warn('Weekly report check exception:', e.message); }
-    }, 3500);
-  });
-}
-function generateAutoWeeklyReport(weekKey){
-  try{
-    const now = new Date();
-    // آخر 7 أيام كاملة
-    const periodTo = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const periodFrom = periodTo - 7*24*60*60*1000;
-    const weekLabel = 'الأسبوع '+weekKey+' ('+new Date(periodFrom).toLocaleDateString('en-GB')+' - '+new Date(periodTo).toLocaleDateString('en-GB')+')';
-    const htmlContent = buildMonthlyReportHTML(weekLabel, periodFrom, periodTo);
-    if(htmlContent.length > 8*1024*1024){
-      fbSet('weeklyReports/_meta/lastGenerated', weekKey).catch(function(){});
-      return;
-    }
-    fbSet('weeklyReports/'+weekKey, {generatedAt: ts(), weekLabel: weekLabel, html: htmlContent}).then(function(){
-      fbSet('weeklyReports/_meta/lastGenerated', weekKey);
-      logAct('تقرير أسبوعي تلقائي', weekLabel);
-    }).catch(function(err){ console.warn('Weekly report save failed:', err.message); });
-  }catch(e){ console.warn('Weekly report generation exception:', e.message); }
-}
-function listWeeklyReports(){
-  return FBDB.ref('cctv/weeklyReports').once('value').then(function(snap){
-    const data = snap.val()||{};
-    return Object.keys(data).filter(function(k){return k!=='_meta';})
-      .map(function(k){return {key:k, weekLabel:data[k].weekLabel, generatedAt:data[k].generatedAt};})
-      .sort(function(a,b){return b.key.localeCompare(a.key);});
-  });
-}
-function openWeeklyReport(weekKey){
-  FBDB.ref('cctv/weeklyReports/'+weekKey).once('value').then(function(snap){
-    const report = snap.val();
-    if(!report){ toast('التقرير غير موجود','err'); return; }
-    const win = window.open('','_blank');
-    win.document.write(report.html);
-    win.document.close();
-  });
-}
-function toggleReportSchedule(freq, checked){
-  fbSet('reportSchedule/'+freq, checked);
-  toast(checked?'✅ تم التفعيل':'تم الإيقاف');
+  setTimeout(function(){
+    try{
+      FBDB.ref('cctv/monthlyReports/_meta/lastGenerated').once('value').then(function(snap){
+        const last = snap.val();
+        const now = new Date();
+        const currentMonthKey = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+        if(last !== currentMonthKey){
+          generateAutoMonthlyReport(currentMonthKey);
+        }
+      }).catch(function(err){ console.warn('Monthly report check failed:', err.message); });
+    }catch(e){ console.warn('Monthly report check exception:', e.message); }
+  }, 3000); // بعد النسخة الاحتياطية بثانية إضافية لتفادي التزاحم
 }
 
 function generateAutoMonthlyReport(monthKey){
@@ -11977,36 +10287,13 @@ function openMonthlyReport(monthKey){
 
 function openMonthlyReportsArchive(){
   if(CU.role!=='manager'){ toast('للمدير فقط','err'); return; }
-  openModal(`${mhd('📅 التقارير الدورية')}
+  openModal(`${mhd('📅 التقارير الشهرية')}
   <div style="display:flex;flex-direction:column;gap:10px">
     <button class="btn btn-bl btn-fw" onclick="printMonthlyReportNow();">🖨️ إنشاء تقرير الشهر الحالي الآن</button>
-
-    <div style="background:var(--bg);border-radius:10px;padding:12px;margin-top:6px">
-      <div style="font-weight:700;margin-bottom:8px;font-size:13px">⚙️ جدولة تلقائية</div>
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
-        <input type="checkbox" id="sched-monthly" checked onchange="toggleReportSchedule('monthly', this.checked)">
-        <span style="font-size:13px">تقرير شهري تلقائي (مفعّل افتراضياً)</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="sched-weekly" onchange="toggleReportSchedule('weekly', this.checked)">
-        <span style="font-size:13px">تقرير أسبوعي تلقائي</span>
-      </label>
-      <div style="font-size:11px;color:var(--mt);margin-top:8px">⚠️ يُنشأ التقرير فقط عند فتح المدير للتطبيق بعد بداية الفترة الجديدة — وليس بالضبط بلحظة انتهائها (يحتاج خادم مستقل للجدولة الدقيقة، اسأل المساعد إذا تحتاجه)</div>
-    </div>
-
-    <div style="font-weight:700;margin-top:6px">🗓️ الأرشيف الشهري</div>
+    <div style="font-weight:700;margin-top:10px">🗓️ الأرشيف الشهري التلقائي</div>
     <div id="monthly-reports-list" style="font-size:13px;color:var(--mt)">⏳ جاري التحميل...</div>
-
-    <div style="font-weight:700;margin-top:6px">📆 الأرشيف الأسبوعي</div>
-    <div id="weekly-reports-list" style="font-size:13px;color:var(--mt)">⏳ جاري التحميل...</div>
   </div>
   <div class="mft"><button class="btn btn-gy" onclick="closeModal()">إغلاق</button></div>`);
-
-  FBDB.ref('cctv/reportSchedule').once('value').then(function(snap){
-    const s = snap.val()||{};
-    const mEl = document.getElementById('sched-monthly'); if(mEl) mEl.checked = s.monthly!==false;
-    const wEl = document.getElementById('sched-weekly'); if(wEl) wEl.checked = s.weekly===true;
-  });
 
   listMonthlyReports().then(function(reports){
     const el = document.getElementById('monthly-reports-list');
@@ -12019,20 +10306,6 @@ function openMonthlyReportsArchive(){
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--br)">'+
         '<span>'+esc(r.monthLabel)+'</span>'+
         '<button class="btn btn-sm btn-bl" onclick="openMonthlyReport(\''+r.key+'\')">👁️ عرض</button></div>';
-    }).join('');
-  });
-
-  listWeeklyReports().then(function(reports){
-    const el = document.getElementById('weekly-reports-list');
-    if(!el) return;
-    if(!reports.length){
-      el.innerHTML = 'لا توجد تقارير أسبوعية بعد — فعّل الجدولة الأسبوعية أعلاه أولاً';
-      return;
-    }
-    el.innerHTML = reports.map(function(r){
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--br)">'+
-        '<span>'+esc(r.weekLabel)+'</span>'+
-        '<button class="btn btn-sm btn-bl" onclick="openWeeklyReport(\''+r.key+'\')">👁️ عرض</button></div>';
     }).join('');
   });
 }
@@ -12231,10 +10504,6 @@ function handleSerialScanResult(rawData){
     if(obj && (obj.serial || obj.sn)) serialValue = obj.serial || obj.sn;
   }catch(e){}
   const targetId = window._serialScanTarget;
-  if(targetId==='__ISSUE__'){
-    resolveScannedItemForIssue(rawData, serialValue.trim());
-    return;
-  }
   const inputEl = targetId ? document.getElementById(targetId) : null;
   if(inputEl){
     inputEl.value = serialValue.trim();
@@ -12242,50 +10511,6 @@ function handleSerialScanResult(rawData){
   } else {
     toast('تم المسح لكن الحقل غير متاح حالياً','warn');
   }
-}
-
-// ══════════════════════════════════════════════════════
-//  📷 ربط الماسح بعملية الصرف مباشرة — امسح الباركود/QR
-//  فيفتح نموذج صرف/إرجاع تلك المادة مباشرة بدون بحث يدوي
-// ══════════════════════════════════════════════════════
-function openScanToIssue(){
-  if(!p('moves')){ toast('لا صلاحية لديك لصرف المواد','err'); return; }
-  openSerialScanner('__ISSUE__');
-}
-function resolveScannedItemForIssue(rawData, serialValue){
-  // نحاول أولاً قراءة معرّف المادة (id) لو كان الممسوح كود QR ولّدناه نحن بالتطبيق (JSON فيه id/serial)
-  let scannedId = null;
-  try{
-    const obj = JSON.parse(rawData);
-    if(obj && obj.type && obj.type.indexOf('CCTV_')===0) scannedId = obj.id || null;
-  }catch(e){}
-
-  const matches = [];
-  DB.sites.forEach(site=>{
-    (DB.inv[site]||[]).forEach((it,idx)=>{
-      const idHit = scannedId && it.id===scannedId;
-      const serialHit = serialValue && it.serial && it.serial.trim().toLowerCase()===serialValue.toLowerCase();
-      if(idHit||serialHit) matches.push({site, idx, item:it});
-    });
-  });
-
-  if(matches.length===0){
-    toast('❌ لم يتم إيجاد مادة بهذا الباركود/الرمز بالمخزن','err');
-    return;
-  }
-  if(matches.length===1){
-    openMoveItem(matches[0].idx, matches[0].site);
-    return;
-  }
-  // أكثر من مطابقة (نادر — سيريال مكرر بمستودعات مختلفة): نعرض قائمة اختيار سريعة
-  openModal(`${mhd('📷 وُجد أكثر من مطابقة — اختر المادة')}
-  ${matches.map(m=>`<div class="panel" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer" onclick="closeModal();openMoveItem(${m.idx},'${esc(m.site)}')">
-    <div style="flex:1">
-      <div style="font-weight:700">${esc(m.item.name||'—')}</div>
-      <div style="font-size:12px;color:var(--mt)">${esc(m.item.serial||'')} — 📍 ${esc(m.site)}</div>
-    </div>
-    <div style="color:var(--bl)">◀</div>
-  </div>`).join('')}`);
 }
 
 function serialScanBtn(inputId){
@@ -12488,7 +10713,7 @@ function pgRadio(){
   html+='</div></div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
   if(canEdit) html+='<button class="btn btn-bl" onclick="openAddRadio()">+ إضافة</button>';
-  if(canExport()) html+='<button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ Excel</button>';
+  if(CU.role==='manager') html+='<button class="btn btn-gy" onclick="exportRadioExcel()">⬇️ Excel</button>';
   html+='</div></div><div style="padding:0 16px">';
   if(!devs.length){
     html+='<div class="panel" style="text-align:center;padding:40px;color:var(--mt)"><div style="font-size:40px">📻</div><div style="margin-top:10px">لا أجهزة مناداة بعد</div></div>';
@@ -12580,7 +10805,7 @@ function delRadio(id){
   var d=null;
   var devs=DB.radioDevices||[];
   for(var i=0;i<devs.length;i++){if(devs[i].id===id){d=devs[i];break;}}
-  confirmDel('حذف: '+(d?d.name||d.serial:id)+'؟',"archiveDel('radioDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgRadio,400)");
+  confirmDel('حذف: '+(d?d.name||d.serial:id)+'؟',"fbDel('radioDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgRadio,400)");
 }
 
 
@@ -12646,7 +10871,7 @@ function pgUAV(){
   html+='</div></div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
   if(canEdit) html+='<button class="btn btn-bl" onclick="openAddUAV()">+ إضافة طائرة</button>';
-  html+=(canExport())?'<button class="btn btn-gy" onclick="exportUAVExcel()">⬇️ Excel</button>':'';
+  html+=(CU.role==='manager')?'<button class="btn btn-gy" onclick="exportUAVExcel()">⬇️ Excel</button>':'';
   html+='</div></div>';
 
   // فلاتر
@@ -12818,12 +11043,12 @@ function delUAV(id){
   var d=null;
   var devs=DB.uavDevices||[];
   for(var i=0;i<devs.length;i++){if(devs[i].id===id){d=devs[i];break;}}
-  confirmDel('حذف الطائرة: '+(d?d.name||d.model:id)+'؟',"archiveDel('uavDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgUAV,400)");
+  confirmDel('حذف الطائرة: '+(d?d.name||d.model:id)+'؟',"fbDel('uavDevices/"+id+"');toast('تم الحذف','err');setTimeout(pgUAV,400)");
 }
 
 
 function exportFieldSiteExcel(siteId){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('تصدير الميدانية للمدير فقط','err');return;}
   var site=DB.fieldSites.find(function(s){return s.id===siteId;});
   if(!site){toast('الموقع غير موجود','err');return;}
   var AT=allT();
@@ -12891,7 +11116,7 @@ function exportFieldSiteExcel(siteId){
 
 
 function exportTechPerformance(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير محصور بالمدير فقط','err');return;}
   var filterUser=window._actFilterUser||'';
   var filterFrom=window._actFilterFrom||'';
   var filterTo=window._actFilterTo||'';
@@ -12945,7 +11170,7 @@ function exportTechPerformance(){
 }
 
 function exportActLogExcel(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('تصدير السجل للمدير فقط','err');return;}
   var userName=val('actlog-filter-user')||'';
   var dateFrom=val('actlog-filter-from')||'';
   var dateTo=val('actlog-filter-to')||'';
@@ -12971,7 +11196,7 @@ function exportActLogExcel(){
 }
 
 function exportTechMapExcel(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('التصدير للمدير فقط','err');return;}
   var locs=DB.techLocations||{};
   var users=DB.users||[];
   function toDMS(deg){
@@ -13007,7 +11232,7 @@ function exportTechMapExcel(){
 
 
 function exportRadioExcel(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('تصدير أجهزة المناداة للمدير فقط','err');return;}
   var devs=DB.radioDevices||[];
   if(!devs.length){toast('لا أجهزة للتصدير','warn');return;}
   var h=['الاسم','الموديل','التردد','رقم ID الجهاز','الرقم التسلسلي','الحالة','بحوزة','الموقع','ملاحظات'];
@@ -13028,7 +11253,7 @@ function exportRadioExcel(){
 }
 
 function exportUAVExcel(){
-  if(!canExport()){toast('صلاحية الطباعة والتصدير غير مفعّلة لحسابك — راجع المدير','err');return;}
+  if(CU.role!=='manager'){toast('تصدير الطائرات للمدير فقط','err');return;}
   var devs=DB.uavDevices||[];
   if(!devs.length){toast('لا طائرات للتصدير','warn');return;}
   var h=['الاسم','الشركة','الموديل','النوع','الكاميرا','السيريال','زمن الطيران','المدى','الحالة','الحالة التقنية','بحوزة','الموقع','الملحقات','ملاحظات','التاريخ'];
