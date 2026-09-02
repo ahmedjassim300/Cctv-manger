@@ -2198,12 +2198,21 @@ function confirmMove(i,src,isOut){
       // ⚠️ نستخدم اسم النقطة الذي اختاره/كتبه المستخدم (installPoint) بدل نقطة
       // ثابتة دائماً — لو لم يحدد شيئاً، نستخدم "📦 من المخزن" كافتراضي
       const chosenPointName = (installPoint && installPoint.trim()) ? installPoint.trim() : '📦 من المخزن';
-      const ptId = 'pt_'+chosenPointName.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_');
       const itemId = gid();
       const AT = allT();
       const typeLbl = AT[item.type]?AT[item.type].label:(item.type||'');
-      FBDB.ref('cctv/siteInventory/'+fsId+'/'+ptId).once('value').then(function(snap){
-        const existing = snap.val();
+      // ⚠️ نبحث أولاً عن نقطة موجودة فعلياً بنفس الاسم (وليس بمفتاح مولَّد
+      // من الاسم) — لأن النقاط المُنشأة يدوياً لها مفاتيح عشوائية (gid())
+      // غير مرتبطة بالاسم، فتوليد مفتاح من الاسم كان يُنشئ نقطة مكررة
+      // بدل إضافة العنصر للنقطة الأصلية الموجودة فعلاً بنفس الاسم
+      FBDB.ref('cctv/siteInventory/'+fsId).once('value').then(function(allSnap){
+        const allPoints = allSnap.val()||{};
+        let ptId = null;
+        Object.keys(allPoints).forEach(function(k){
+          if(allPoints[k] && allPoints[k].name === chosenPointName){ ptId = k; }
+        });
+        if(!ptId){ ptId = 'pt_'+chosenPointName.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_'); }
+        const existing = allPoints[ptId];
         const items = (existing&&existing.items) ? existing.items : {};
         items[itemId] = {
           id:itemId, name:(typeLbl?typeLbl+' — ':'')+(item.name||item.serial||''),
