@@ -2014,14 +2014,24 @@ function openMoveItem(i,site){
     </select>
   </div>
   <div class="field"><label>${isOut?'الموقع الوجهة / اسم النقطة المنصوب بها':'المستودع الوجهة'}</label>
-    <select id="mds" onchange="updateMoveDestPoints()">
+    ${isOut?`<select id="mds" onchange="updateMoveDestPoints()">
       ${fieldDests.length?`<optgroup label="📍 مواقع ميدانية (تنصيب فعلي)">
         ${fieldDests.map(fs=>`<option value="field:${fs.id}:${esc(fs.name)}">📍 ${esc(fs.name)}</option>`).join('')}
       </optgroup>`:''}
       <optgroup label="🏭 مستودعات (نقل مخزني)">
         ${dests.map(d=>`<option value="${esc(d)}">${isMainSite(d)?'🏭 ':'🏪 '}${esc(d)}</option>`).join('')}
       </optgroup>
-    </select></div>
+    </select>`:
+    // ⚠️ عند "الإيداع / إعادة للمخزن" المادة تعود دائماً لنفس المستودع الذي كانت
+    // مسجّلة فيه أصلاً — لا يوجد اختيار وجهة هنا لأن هذه ليست عملية نقل بين
+    // مستودعين، بل مجرد تغيير حالة المادة بنفس المستودع. سابقاً كان يظهر قائمة
+    // منسدلة لمستودعات أخرى (تستثني المستودع الحالي نفسه من الخيارات) رغم أن قيمتها
+    // لا تُستخدم فعلياً بتحديد مكان تخزين المادة — فقط تُسجَّل خطأً بسجل الحركات،
+    // ما يجعل السجل يُظهر وجهة مغلوطة. الآن نعرض تأكيداً واضحاً بدل القائمة المُضلِّلة.
+    `<div style="background:var(--bg);border-radius:8px;padding:10px 12px;font-size:13px">
+      🏭 سيُعاد المخزون إلى: <b>${esc(s)}</b>
+    </div>`}
+    </div>
   ${isOut?`<div class="field"><label>النقطة المنصوب بها ضمن الموقع (اختياري)</label>
     <select id="mv-point-select" onchange="document.getElementById('mv-point').value=this.value==='__new__'?'':this.value" style="margin-bottom:6px">
       <option value="">— اختر نقطة موجودة أو اكتب اسماً جديداً بالأسفل —</option>
@@ -2125,7 +2135,10 @@ function doReturn(siteId,warehouse,ptId,itemId,it,reason,notes,fbPath){
 }
 
 function confirmMove(i,src,isOut){
-  const originalItem=DB.inv[src][i], destRaw=val('mds'), notes=val('mnt');
+  const originalItem=DB.inv[src][i], notes=val('mnt');
+  // عند "الإيداع/الإعادة للمخزن" لا يوجد عنصر #mds بالنموذج (أُزيل لأنه كان يعرض
+  // قائمة وجهات مضلِّلة قيمتها لا تُستخدم فعلياً) — الوجهة دائماً هي src نفسه
+  const destRaw = isOut ? val('mds') : src;
   const newStatus = val('mv-status') || (isOut?'deployed':'warehouse');
   const installPoint = val('mv-point')||'';
   const receiver = isOut?(val('mv-receiver')||''):'';
