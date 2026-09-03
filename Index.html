@@ -716,6 +716,11 @@ let fieldSearchResult = null;
 //  HELPERS
 // ============================================
 const gid  = () => Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+// تطبيع أسماء نقاط جرد الموجودات الثابتة: حذف مسافات الطرفين + ضغط المسافات
+// المتكررة بالمنتصف لمسافة واحدة — يُستخدم عند الحفظ اليدوي للنقطة (saveSitePoint)
+// وعند مطابقتها لاحقاً أثناء الصرف (confirmMove) حتى لا تُنشأ نقطة مكررة بنفس
+// الاسم الظاهري بسبب فرق طفيف بالمسافات فقط.
+const normName = (s) => String(s||'').trim().replace(/\s+/g,' ');
 const ts   = () => new Date().toLocaleString('ar-IQ', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 const esc  = v  => String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const $    = id => document.getElementById(id);
@@ -2207,9 +2212,15 @@ function confirmMove(i,src,isOut){
       // بدل إضافة العنصر للنقطة الأصلية الموجودة فعلاً بنفس الاسم
       FBDB.ref('cctv/siteInventory/'+fsId).once('value').then(function(allSnap){
         const allPoints = allSnap.val()||{};
+        // مطابقة مُطبَّعة (Normalized) وليست حرفية 100%: نحذف المسافات الزائدة من
+        // الطرفين ونضغط المسافات المتكررة بالمنتصف لمسافة واحدة — لأن أي فرق طفيف
+        // بالمسافات بين الاسم المخزَّن سابقاً (مثلاً عبر زر "+ نقطة") والاسم القادم
+        // من نموذج الصرف كان يجعل المطابقة الحرفية تفشل فتُنشئ نقطة مكررة بنفس الاسم
+        // ظاهرياً (هذا هو سبب تكرار "مكتب الاتصالات" الذي واجهه المستخدم)
+        const targetNorm = normName(chosenPointName);
         let ptId = null;
         Object.keys(allPoints).forEach(function(k){
-          if(allPoints[k] && allPoints[k].name === chosenPointName){ ptId = k; }
+          if(allPoints[k] && normName(allPoints[k].name) === targetNorm){ ptId = k; }
         });
         if(!ptId){ ptId = 'pt_'+chosenPointName.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g,'_'); }
         const existing = allPoints[ptId];
@@ -8000,6 +8011,7 @@ function pgSiteInventory(){
         ${CU.role==='manager'||p('addItem')?`<button class="btn btn-bl" onclick="openAddSitePoint('${site.id}')">+ نقطة</button>`:''}
         ${CU.role==='manager'?`<button class="btn btn-gy" onclick="exportSiteInventory('${site.id}','${esc(site.name)}')">⬇️ تصدير</button>`:''}
         ${CU.role==='manager'?`<button class="btn btn-pu" onclick="openBulkExcelImport('siteinv')">📥 استيراد جماعي</button>`:''}
+        ${CU.role==='manager'?`<button class="btn btn-gy" onclick="mergeDupSitePoints('${site.id}','${esc(site.name)}')">🔗 دمج النقاط المكررة</button>`:''}
       </div>
     </div>
 
@@ -8150,7 +8162,9 @@ function openAddSitePoint(siteId){
 }
 
 function saveSitePoint(siteId, ptId){
-  const name = val('sp-name');
+  // نطبّع الاسم (نحذف المسافات الزائدة بالطرفين ونضغط المسافات المتكررة بالمنتصف)
+  // حتى لا تختلف نقطة أُنشئت هنا يدوياً عن نفس النقطة عند مطابقتها لاحقاً أثناء الصرف
+  const name = normName(val('sp-name'));
   if(!name){ toast('اسم النقطة مطلوب','err'); return; }
   const id = ptId || gid();
   const data = { id, name, desc: val('sp-desc')||'', order: Date.now(), _ts: Date.now() };
@@ -8179,6 +8193,75 @@ function openEditSitePoint(siteId, ptId){
 
 function delSitePoint(siteId, ptId){
   confirmDel('حذف النقطة وجميع عناصرها نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}');toast('تم الحذف');pgSiteInventory()`);
+}
+
+// ── دمج النقاط المكررة (نفس الاسم بعد التطبيع) ضمن موقع واحد ──
+// يعالج حالات مثل تكرار نقطة بنفس الاسم الظاهري (مثلاً بسبب مسافة زائدة قديمة
+// قبل تفعيل التطبيع بالحفظ/المطابقة) — يجمع كل عناصر النقاط المكررة داخل النقطة
+// الأكبر (الأكثر عناصراً) ثم يحذف البقية. يعرض معاينة قبل التنفيذ ولا يحذف شيئاً
+// بدون تأكيد صريح من المستخدم.
+function mergeDupSitePoints(siteId, siteName){
+  FBDB.ref('cctv/siteInventory/'+siteId).once('value').then(function(snap){
+    const pts = snap.val()||{};
+    const groups = {};
+    Object.keys(pts).forEach(function(k){
+      const n = normName(pts[k].name);
+      (groups[n] = groups[n]||[]).push(k);
+    });
+    const dupGroups = Object.keys(groups).filter(function(n){ return groups[n].length>1; });
+    if(!dupGroups.length){
+      toast('لا توجد نقاط مكررة بموقع '+siteName+' 👍');
+      return;
+    }
+    const preview = dupGroups.map(function(n){
+      const ids = groups[n];
+      const counts = ids.map(function(id){ return (pts[id].items?Object.keys(pts[id].items).length:0); });
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--br)">
+        <div style="font-weight:700">📍 ${esc(n)}</div>
+        <div style="font-size:12px;color:var(--mt)">${ids.length} نسخ — بها ${counts.join(' + ')} عنصر (ستُدمج كلها بالنسخة الأكبر)</div>
+      </div>`;
+    }).join('');
+    openModal(`${mhd('🔗 دمج النقاط المكررة — '+siteName)}
+      <div style="font-size:13px;color:var(--mt);margin-bottom:10px">وُجدت ${dupGroups.length} مجموعة نقاط بنفس الاسم. سيتم نقل كل عناصر كل مجموعة إلى النقطة الأكبر بها ثم حذف بقية النسخ نهائياً.</div>
+      <div style="max-height:300px;overflow-y:auto">${preview}</div>
+      <div class="mft" style="margin-top:14px">
+        <button class="btn btn-gy" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-bl" onclick="doMergeDupSitePoints('${siteId}')">✅ دمج الآن</button>
+      </div>`);
+  });
+}
+
+function doMergeDupSitePoints(siteId){
+  FBDB.ref('cctv/siteInventory/'+siteId).once('value').then(async function(snap){
+    const pts = snap.val()||{};
+    const groups = {};
+    Object.keys(pts).forEach(function(k){
+      const n = normName(pts[k].name);
+      (groups[n] = groups[n]||[]).push(k);
+    });
+    let mergedCount = 0;
+    for(const n in groups){
+      const ids = groups[n];
+      if(ids.length<2) continue;
+      ids.sort(function(a,b){
+        return (pts[b].items?Object.keys(pts[b].items).length:0) - (pts[a].items?Object.keys(pts[a].items).length:0);
+      });
+      const keepId = ids[0];
+      const mergedItems = Object.assign({}, pts[keepId].items||{});
+      for(let i=1;i<ids.length;i++){ Object.assign(mergedItems, pts[ids[i]].items||{}); }
+      await FBDB.ref('cctv/siteInventory/'+siteId+'/'+keepId+'/items').set(mergedItems);
+      // نتأكد أن اسم النقطة المُبقاة مُطبَّع أيضاً حتى لا يتكرر نفس الخلل مستقبلاً
+      await FBDB.ref('cctv/siteInventory/'+siteId+'/'+keepId+'/name').set(n);
+      for(let i=1;i<ids.length;i++){
+        await FBDB.ref('cctv/siteInventory/'+siteId+'/'+ids[i]).remove();
+      }
+      mergedCount++;
+    }
+    logAct('دمج نقاط مكررة', mergedCount+' مجموعة بموقع '+siteId);
+    closeModal();
+    toast('✅ تم دمج '+mergedCount+' مجموعة نقاط مكررة');
+    pgSiteInventory();
+  });
 }
 
 // ── إضافة عنصر جرد ──
