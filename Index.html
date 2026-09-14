@@ -1132,6 +1132,10 @@ FBAUTH.onAuthStateChanged(function(fbUser){
       return;
     }
     CU={...userData, uid:fbUser.uid, email:fbUser.email};
+    // 🔐 كلمة المرور المؤقتة أدّت غرضها بمجرد نجاح الدخول — تُحذف فوراً ولا تبقى نصاً صريحاً بالقاعدة
+    if(userData.tempPw){
+      fbUpdate('users/'+fbUser.uid, {tempPw:null, tempPwSetAt:null, tempPwSetTs:null, tempPwSetBy:null}).catch(function(e){ console.warn('tempPw cleanup failed', e); });
+    }
     const splash=$('splash'); if(splash) splash.style.display='none';
     $('lload').style.display='none';
     $('lerr').style.display='none';
@@ -2915,6 +2919,14 @@ function sendN(){
 //  USERS + PERMISSIONS
 // ============================================
 function pgUsers(){
+  // 🔐 شبكة أمان: كلمة مرور مؤقتة لم يُطالب بها المستخدم خلال 24 ساعة تُحذف تلقائياً هنا (best-effort)
+  const TEMP_PW_MAX_AGE_MS = 24*60*60*1000;
+  (DB.users||[]).forEach(function(u){
+    if(u.tempPw && typeof u.tempPwSetTs==='number' && (Date.now()-u.tempPwSetTs) > TEMP_PW_MAX_AGE_MS){
+      u.tempPw = null; // إخفاء فوري من هذا العرض
+      fbUpdate('users/'+(u.uid||u.id), {tempPw:null, tempPwSetAt:null, tempPwSetTs:null, tempPwSetBy:null}).catch(function(){});
+    }
+  });
   $('page').innerHTML=`
   <div class="ph">
     <div class="pt">👥 إدارة المستخدمين (${DB.users.length})</div>
@@ -3103,10 +3115,11 @@ async function doResetPassword(i){
       });
     }
 
-    // في كلتا الحالتين — نحفظ كلمة المرور الجديدة في DB ليراها المستخدم
+    // في كلتا الحالتين — نحفظ كلمة المرور الجديدة في DB ليراها المستخدم (تُحذف تلقائياً عند أول دخول ناجح، أو بعد 24 ساعة كحد أقصى)
     await fbUpdate('users/'+(u.uid||u.id),{
       tempPw: newPw,
       tempPwSetAt: ts(),
+      tempPwSetTs: Date.now(),
       tempPwSetBy: CU.name
     });
 
