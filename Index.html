@@ -1734,7 +1734,7 @@ function pgInv(){
     }).join('')}
   </div>
 
-  ${isMain?`<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:9px;padding:10px 14px;margin-bottom:14px;font-size:17px;color:var(--bl)">
+  ${isMain?`<div style="background:rgba(var(--gl),.07);border:1px solid rgba(var(--gl),.2);border-radius:9px;padding:10px 14px;margin-bottom:14px;font-size:17px;color:var(--bl)">
     🏭 المستودع الرئيسي يعرض <b>جميع المواد في كل المستودعات</b>. يمكن الترحيل بين المستودعات من تبويب أي مستودع فرعي.
   </div>`:''}
 
@@ -2656,7 +2656,7 @@ function pgFaults(){
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;min-width:160px">
             <button class="btn btn-sm" style="background:#bc8cff22;color:var(--pu);border:1px solid #bc8cff44" onclick="openFaultComments('${f.id}')">💬 تعليقات ${f.comments?.length?'('+f.comments.length+')':''}</button>
-            <button class="btn btn-sm" style="background:#58a6ff22;color:var(--bl);border:1px solid #58a6ff44" onclick="openFaultPhotos('${f.id}')">📸 صور ${f.photos?.length?'('+f.photos.length+')':''}</button>
+            <button class="btn btn-sm" style="background:rgba(var(--gl),.13);color:var(--bl);border:1px solid rgba(var(--gl),.27)" onclick="openFaultPhotos('${f.id}')">📸 صور ${f.photos?.length?'('+f.photos.length+')':''}</button>
             ${st.k!=='resolved'&&p('updFault')&&canAccessFault(f)?`
             <div style="font-size:11px;color:var(--mt);margin-bottom:2px;text-align:center">تحديث الحالة:</div>
             ${FAULT_ST.filter(x=>x.k!==f.status&&x.k!=='open').map(x=>`
@@ -3012,7 +3012,7 @@ function showUserForm(u,idx){
       <option value="viewer"    ${f.role==='viewer'    ?'selected':''}>👑 السيد</option>
     </select>
   </div>
-  ${idx<0?`<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:7px;padding:9px 12px;font-size:12px;color:var(--bl);margin-bottom:12px">
+  ${idx<0?`<div style="background:rgba(var(--gl),.07);border:1px solid rgba(var(--gl),.2);border-radius:7px;padding:9px 12px;font-size:12px;color:var(--bl);margin-bottom:12px">
     ℹ️ سيتم إنشاء الحساب في Firebase Authentication تلقائياً
   </div>`:''}
   ${mft('💾 حفظ',`saveUser(${idx})`)}`);
@@ -3854,7 +3854,7 @@ function pgFieldMap(){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--sf);border-radius:10px;border:1px solid var(--br);align-items:center">
       <span style="font-size:13px;font-weight:700;color:var(--mt);margin-left:6px">الطبقات:</span>
       <button id="lyr-cameras" onclick="toggleMapLayer('cameras',this)"
-        style="padding:6px 14px;border-radius:20px;border:2px solid #0969da;background:#0969da22;color:#0969da;font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        style="padding:6px 14px;border-radius:20px;border:2px solid var(--bl);background:rgba(var(--gl),.13);color:var(--bl);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         📷 كاميرات
       </button>
       <button id="lyr-towers" onclick="toggleMapLayer('towers',this)"
@@ -4441,7 +4441,7 @@ function initFieldMap(){
       ${c.serial?`<div style="font-size:12px;margin-bottom:3px"><b>السيريال:</b> ${esc(c.serial)}</div>`:''}
       <div style="font-size:12px;margin-bottom:6px"><b>الحالة:</b> ${c.status==='active'?'🟢 تعمل':c.status==='maintenance'?'🟡 صيانة':'⚪ مجهول'}</div>
       <div style="font-size:10px;color:#555;direction:ltr;margin-bottom:8px">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
-      ${p('fieldmap')?`<button onclick="openEditFieldCam('${c._fsId}',${c._ci});_map&&_map.closePopup()" style="background:#58a6ff22;border:1px solid #58a6ff44;color:#58a6ff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;width:100%">✏️ تعديل</button>`:''}
+      ${p('fieldmap')?`<button onclick="openEditFieldCam('${c._fsId}',${c._ci});_map&&_map.closePopup()" style="background:rgba(var(--gl),.13);border:1px solid rgba(var(--gl),.27);color:var(--bl);padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;width:100%">✏️ تعديل</button>`:''}
     </div>`;
     marker.bindPopup(L.popup({maxWidth:300}).setContent(popup));
     _markers.push({id:mid,marker,cam:c,_layerType:'cameras'});
@@ -5893,7 +5893,7 @@ function pgReports(){
   </div>
 
   <!-- SLA بارز -->
-  <div style="margin:0 16px 16px;background:linear-gradient(135deg,#1f2d3d,#162032);border:1px solid #58a6ff44;border-radius:14px;padding:20px;text-align:center">
+  <div style="margin:0 16px 16px;background:linear-gradient(135deg,#1f2d3d,#162032);border:1px solid rgba(var(--gl),.27);border-radius:14px;padding:20px;text-align:center">
     <div style="font-size:17px;color:var(--mt);margin-bottom:6px">⏱️ متوسط وقت حل الأعطال (SLA)</div>
     <div style="font-size:36px;font-weight:700;color:${avgSLA>24?'var(--rd)':avgSLA>8?'var(--yl)':'var(--gn)'}">${avgSLA} <span style="font-size:18px;color:var(--mt)">ساعة</span></div>
     <div style="font-size:12px;color:var(--mt);margin-top:4px">بناءً على ${resolvedWithTime.length} عطل محلول</div>
@@ -7915,7 +7915,7 @@ function openAppMenu(){
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
     ${NAV_ALL.map(x=>`
-    <button onclick="closeModal();go('${x.id}')" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${PAGE===x.id?'rgba(88,166,255,.15)':'var(--bg)'};border:1.5px solid ${PAGE===x.id?'var(--bl)':'var(--br)'};border-radius:12px;cursor:pointer;color:${PAGE===x.id?'var(--bl)':'var(--tx)'};font-size:15px;font-weight:${PAGE===x.id?'700':'500'};text-align:right;font-family:inherit">
+    <button onclick="closeModal();go('${x.id}')" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${PAGE===x.id?'rgba(var(--gl),.15)':'var(--bg)'};border:1.5px solid ${PAGE===x.id?'var(--bl)':'var(--br)'};border-radius:12px;cursor:pointer;color:${PAGE===x.id?'var(--bl)':'var(--tx)'};font-size:15px;font-weight:${PAGE===x.id?'700':'500'};text-align:right;font-family:inherit">
       <span style="font-size:20px">${x.ic}</span>${x.lb}
     </button>`).join('')}
   </div>`);
@@ -8826,9 +8826,9 @@ function toggleNetworkLayer(){
   _netLayer = !_netLayer;
   const btn = document.getElementById('btn-network');
   if(btn){
-    btn.style.background    = _netLayer ? '#58a6ff22' : 'var(--sf)';
-    btn.style.color         = _netLayer ? '#58a6ff'   : 'var(--tx)';
-    btn.style.borderColor   = _netLayer ? '#58a6ff44' : 'var(--br)';
+    btn.style.background    = _netLayer ? 'rgba(var(--gl),.13)' : 'var(--sf)';
+    btn.style.color         = _netLayer ? 'var(--bl)'   : 'var(--tx)';
+    btn.style.borderColor   = _netLayer ? 'rgba(var(--gl),.27)' : 'var(--br)';
   }
   if(_netLayer) loadNetworkLayer();
   else clearNetworkLayer();
@@ -8874,7 +8874,7 @@ function loadNetworkLayer(){
           ${link.length?`<div style="font-size:13px;color:#666;margin-bottom:4px">الطول: <b>${esc(link.length)} م</b></div>`:''}
           ${link.notes?`<div style="font-size:12px;color:#888;margin-top:4px">${esc(link.notes)}</div>`:''}
           ${canEditNetwork()?`<div style="display:flex;gap:6px;margin-top:8px">
-            <button onclick="editNetLink('${link.id}')" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
+            <button onclick="editNetLink('${link.id}')" style="background:rgba(var(--gl),.13);color:var(--bl);border:1px solid rgba(var(--gl),.27);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
             <button onclick="delNetLink('${link.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
           </div>`:''}
         </div>`);
@@ -8892,7 +8892,7 @@ function loadNetworkLayer(){
         };
         const ico = devIcons[dev.devType]||'⚙️';
         const icon = L.divIcon({
-          html:`<div style="background:#1a2332;border:2px solid #58a6ff;border-radius:8px;
+          html:`<div style="background:#1a2332;border:2px solid #22d3ee;border-radius:8px;
             padding:4px 7px;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.5);
             white-space:nowrap;color:#fff;font-family:Arial">${ico}</div>`,
           className:'', iconAnchor:[16,16]
@@ -8904,7 +8904,7 @@ function loadNetworkLayer(){
           ${dev.ip?`<div style="font-size:13px;color:#666">IP: <b style="direction:ltr">${esc(dev.ip)}</b></div>`:''}
           ${dev.notes?`<div style="font-size:12px;color:#888;margin-top:4px">${esc(dev.notes)}</div>`:''}
           ${canEditNetwork()?`<div style="display:flex;gap:6px;margin-top:8px">
-            <button onclick="editNetDevice('${dev.id}')" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
+            <button onclick="editNetDevice('${dev.id}')" style="background:rgba(var(--gl),.13);color:var(--bl);border:1px solid rgba(var(--gl),.27);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
             <button onclick="delNetDevice('${dev.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
           </div>`:''}
         </div>`);
@@ -8932,7 +8932,7 @@ function openAddNetLink(){
     +'<div class="s2 field"><label>الطول التقريبي (متر)</label><input id="nl-length" type="number" placeholder="500"></div>'
     +'<div class="s2 field"><label>ملاحظات</label><textarea id="nl-notes" rows="2"></textarea></div>'
     +'</div>'
-    +'<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:10px;padding:12px;margin:10px 0;font-size:14px">'
+    +'<div style="background:rgba(var(--gl),.07);border:1px solid rgba(var(--gl),.2);border-radius:10px;padding:12px;margin:10px 0;font-size:14px">'
     +'📍 بعد الحفظ: اضغط على الخريطة لرسم مسار الكابل نقطة بنقطة، ثم اضغط <b>إنهاء الرسم</b>'
     +'</div>'
     +mft('▶️ التالي — ارسم المسار','startNetDraw()'));
@@ -8975,11 +8975,11 @@ function startNetDraw(){
     _map._netDrawHandler = (e)=>{
       if(!_drawingNet) return;
       _netDrawPoints.push([e.latlng.lat, e.latlng.lng]);
-      const dot = L.circleMarker(e.latlng,{radius:5,color:'#58a6ff',fillColor:'#58a6ff',fillOpacity:1}).addTo(_map);
+      const dot = L.circleMarker(e.latlng,{radius:5,color:'#22d3ee',fillColor:'#22d3ee',fillOpacity:1}).addTo(_map);
       _netDrawMarkers.push(dot);
       if(_netDrawLine){ _netDrawLine.remove(); }
       if(_netDrawPoints.length>1){
-        _netDrawLine = L.polyline(_netDrawPoints,{color:'#58a6ff',weight:2,dashArray:'6,4'}).addTo(_map);
+        _netDrawLine = L.polyline(_netDrawPoints,{color:'#22d3ee',weight:2,dashArray:'6,4'}).addTo(_map);
       }
     };
     _map.on('click', _map._netDrawHandler);
@@ -9030,7 +9030,7 @@ function openAddNetDevice(){
     +'<div class="s2 field"><label>عنوان IP</label><input id="nd-ip" placeholder="192.168.1.1" style="direction:ltr"></div>'
     +'<div class="s2 field"><label>ملاحظات</label><textarea id="nd-notes" rows="2"></textarea></div>'
     +'</div>'
-    +'<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:10px;padding:10px;margin:10px 0;font-size:14px">'
+    +'<div style="background:rgba(var(--gl),.07);border:1px solid rgba(var(--gl),.2);border-radius:10px;padding:10px;margin:10px 0;font-size:14px">'
     +'📍 بعد الحفظ: انقر على الخريطة لتحديد موقع الجهاز'
     +'</div>'
     +mft('▶️ التالي — حدد الموقع','startNetDevicePlace()'));
@@ -9258,7 +9258,7 @@ function showGPSBlockedDialog(){
     +'4️⃣ ارجع للمتصفح ← الإعدادات ← أذونات الموقع ← السماح<br>'
     +'5️⃣ افتح التطبيق من جديد'
     +'</div></div>'
-    +'<div style="background:#58a6ff11;border:1px solid #58a6ff33;border-radius:10px;padding:10px;margin-bottom:14px;font-size:13px;color:var(--bl)">'
+    +'<div style="background:rgba(var(--gl),.07);border:1px solid rgba(var(--gl),.2);border-radius:10px;padding:10px;margin-bottom:14px;font-size:13px;color:var(--bl)">'
     +'💡 إذا ظهر سؤال "السماح للموقع بالوصول لموقعك؟" في المتصفح — اضغط <b>السماح دائماً</b>'
     +'</div>'
     +'<button class="btn btn-gy" style="padding:12px;font-size:15px;width:100%" onclick="closeModal()">حسناً</button>'
