@@ -113,7 +113,7 @@ body { overflow-x: hidden; font-size: 17px; }
   position: absolute;
   top: -4px;
   right: -4px;
-  background: #f85149;
+  background: #dc2626;
   color: #fff;
   border-radius: 10px;
   font-size: 11px;
@@ -336,13 +336,13 @@ body { overflow-x: hidden; font-size: 17px; }
 .btn{border:none;border-radius:12px;padding:11px 20px;font-size:18px;font-weight:600;cursor:pointer;font-family:inherit;transition:filter .15s cubic-bezier(.4,0,.2,1), transform .15s cubic-bezier(.4,0,.2,1), box-shadow .15s cubic-bezier(.4,0,.2,1);}
 .btn:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,.12);}.btn:active{filter:brightness(.92);transform:translateY(0);box-shadow:none;}
 .btn-bl{background:var(--bl);color:#000;}.btn-gn{background:var(--gn);color:#000;}
-.btn-rd{background:#f8514922;border:1px solid #f8514944;color:var(--rd);}
+.btn-rd{background:#dc262622;border:1px solid #dc262644;color:var(--rd);}
 .btn-gy{background:var(--br);color:var(--tx);}
-.btn-yl{background:#d2992222;border:1px solid #d2992244;color:var(--yl);}
-.btn-pu{background:#bc8cff22;border:1px solid #bc8cff44;color:var(--pu);}
-.btn-or{background:#ff7b0022;border:1px solid #ff7b0044;color:#ff7b00;}
+.btn-yl{background:#ca8a0422;border:1px solid #ca8a0444;color:var(--yl);}
+.btn-pu{background:#9575f022;border:1px solid #9575f044;color:var(--pu);}
+.btn-or{background:#ea580c22;border:1px solid #ea580c44;color:#ea580c;}
 .btn-sm{padding:9px 16px;font-size:16px;}.btn-fw{width:100%;padding:11px;font-size:17px;}
-.ebox{background:#f8514918;border:1px solid #f8514944;border-radius:7px;padding:9px 12px;color:var(--rd);font-size:17px;text-align:center;margin-bottom:10px;}
+.ebox{background:#dc262618;border:1px solid #dc262644;border-radius:7px;padding:9px 12px;color:var(--rd);font-size:17px;text-align:center;margin-bottom:10px;}
 .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;padding:0 4px;}
 .pt{font-size:26px;font-weight:700;}.ps{font-size:18px;color:var(--mt);margin-top:3px;}
 .cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px;}
@@ -416,8 +416,8 @@ tr:hover td{background:rgba(255,255,255,.025);}
     margin: 2px;
 }
 .perms-badge.allowed {
-    background: #3fb95022;
-    border-color: #3fb95044;
+    background: #16a34a22;
+    border-color: #16a34a44;
     color: var(--gn);
 }
 .user-selector {
@@ -628,7 +628,7 @@ window.onerror = function(msg, src, line, col, err) {
 //  CONSTANTS
 // ============================================
 const ROLES = {manager:'مدير', admin:'إداري', engineer:'مهندس', technician:'فني', field:'صاعود', viewer:'السيد', signals:'مخابر'};
-const RC    = {manager:'#f85149', admin:'#ff7b00', engineer:'#58a6ff', technician:'#3fb950', field:'#d29922', viewer:'#bc8cff', signals:'#06b6d4'};
+const RC    = {manager:'#dc2626', admin:'#ea580c', engineer:'#0891b2', technician:'#16a34a', field:'#ca8a04', viewer:'#9575f0', signals:'#06b6d4'};
 
 const PERM_DEF = {
   inv      : 'عرض المخزن',
@@ -661,11 +661,11 @@ const DEF_PERMS = {
 };
 
 const FAULT_ST = [
-  {k:'open',       l:'معلق — قيد الانتظار', c:'#f85149', ico:'🔴'},
-  {k:'in_progress',l:'جار إصلاح العطل',      c:'#58a6ff', ico:'🔵'},
-  {k:'preparing',  l:'طور تجهيز المواد',     c:'#d29922', ico:'🟡'},
-  {k:'shortage',   l:'نقص مواد',             c:'#ff7b00', ico:'🟠'},
-  {k:'resolved',   l:'تم إصلاح العطل',       c:'#3fb950', ico:'🟢'},
+  {k:'open',       l:'معلق — قيد الانتظار', c:'#dc2626', ico:'🔴'},
+  {k:'in_progress',l:'جار إصلاح العطل',      c:'#0891b2', ico:'🔵'},
+  {k:'preparing',  l:'طور تجهيز المواد',     c:'#ca8a04', ico:'🟡'},
+  {k:'shortage',   l:'نقص مواد',             c:'#ea580c', ico:'🟠'},
+  {k:'resolved',   l:'تم إصلاح العطل',       c:'#16a34a', ico:'🟢'},
 ];
 
 const BUILTIN = {
@@ -796,7 +796,7 @@ let _tt;
 function toast(msg,type='ok'){
   const el=$('toast');
   el.textContent=msg;
-  el.style.background=type==='err'?'#f85149':type==='warn'?'#d29922':'#3fb950';
+  el.style.background=type==='err'?'#dc2626':type==='warn'?'#ca8a04':'#16a34a';
   el.style.display='block';
   clearTimeout(_tt);
   _tt=setTimeout(()=>el.style.display='none',3000);
@@ -895,11 +895,11 @@ function badge(s){
   const fs=FAULT_ST.find(x=>x.k===s);
   if(fs) return `<span class="badge" style="background:${fs.c}22;color:${fs.c}">${fs.ico} ${fs.l}</span>`;
   const M={
-    warehouse  :{l:'في المخزن',   c:'#0969da'},
-    deployed   :{l:'منصوب',       c:'#1a7f37'},
-    maintenance:{l:'صيانة',       c:'#9a6700'},
-    consumed   :{l:'مصروف',       c:'#656d76'},
-    returned   :{l:'راجع للمخزن', c:'#8250df'},
+    warehouse  :{l:'في المخزن',   c:'#0891b2'},
+    deployed   :{l:'منصوب',       c:'#15803d'},
+    maintenance:{l:'صيانة',       c:'#92400e'},
+    consumed   :{l:'مصروف',       c:'#5b6472'},
+    returned   :{l:'راجع للمخزن', c:'#8b5cf6'},
   };
   const x=M[s]||{l:s,c:'#7d8590'};
   return `<span class="badge" style="background:${x.c}22;color:${x.c}">${x.l}</span>`;
@@ -1121,7 +1121,7 @@ FBAUTH.onAuthStateChanged(function(fbUser){
             $('ls').style.display='none';
             $('app').style.display='flex';
             const av=$('sav');
-            av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#f85149';
+            av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#dc2626';
             $('snm').textContent=CU.name;
             $('srl').textContent=ROLES[CU.role]; $('srl').style.color=RC[CU.role];
             fbInitDB();
@@ -1162,9 +1162,9 @@ FBAUTH.onAuthStateChanged(function(fbUser){
     $('ls').style.display='none';
     $('app').style.display='flex';
     const av=$('sav');
-    av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#58a6ff';
+    av.textContent=CU.name[0]; av.style.background=RC[CU.role]||'#0891b2';
     $('snm').textContent=CU.name;
-    $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#58a6ff';
+    $('srl').textContent=ROLES[CU.role]||CU.role; $('srl').style.color=RC[CU.role]||'#0891b2';
     // تهيئة قاعدة البيانات إذا كانت فارغة (أول دخول)
     fbInitDB();
     // بدء المزامنة الفورية
@@ -1516,18 +1516,18 @@ function pgDash(){
   if(p('inv')){
     statsH+=`
     <div class="sc" onclick="go('inventory')" style="cursor:pointer" title="فتح المخزن">
-      <div class="si" style="background:#0969da22">🏪</div>
+      <div class="si" style="background:#0891b222">🏪</div>
       <div><div class="sn" style="color:var(--bl)">${ai.length}</div><div class="sl">إجمالي المخزن</div></div></div>
     <div class="sc" onclick="ISTS='deployed';go('inventory')" style="cursor:pointer" title="عرض المنصوبات">
-      <div class="si" style="background:#1a7f3722">📡</div>
+      <div class="si" style="background:#15803d22">📡</div>
       <div><div class="sn" style="color:var(--gn)">${ai.filter(i=>i.status==='deployed').length}</div><div class="sl">منصوبة</div></div></div>`;
   }
   statsH+=`
     <div class="sc" onclick="go('faults')" style="cursor:pointer" title="فتح الأعطال">
-      <div class="si" style="background:#d1242f22">⚠️</div>
+      <div class="si" style="background:#dc262622">⚠️</div>
       <div><div class="sn" style="color:var(--rd)">${af.length}</div><div class="sl">أعطال نشطة</div></div></div>
     <div class="sc" onclick="go('notifs')" style="cursor:pointer" title="فتح الإشعارات">
-      <div class="si" style="background:#9a670022">🔔</div>
+      <div class="si" style="background:#92400e22">🔔</div>
       <div><div class="sn" style="color:var(--yl)">${unread}</div><div class="sl">إشعارات</div></div></div>`;
 
   let myTasksH='';
@@ -1593,20 +1593,20 @@ function pgDash(){
     ${healthCardH}
     ${myTasksH}
     ${(DB.maintain||[]).filter(t=>!t.done&&new Date(t.dueDate)<new Date()).length?`
-  <div style="margin:0 16px 16px;background:#d2992211;border:1px solid #d2992244;border-radius:12px;padding:14px">
+  <div style="margin:0 16px 16px;background:#ca8a0411;border:1px solid #ca8a0444;border-radius:12px;padding:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span style="color:var(--yl);font-weight:700">🗓️ صيانة متأخرة (${(DB.maintain||[]).filter(t=>!t.done&&new Date(t.dueDate)<new Date()).length})</span>
-      <button class="btn btn-sm" style="background:#d2992222;color:var(--yl)" onclick="go('maintain')">عرض</button>
+      <button class="btn btn-sm" style="background:#ca8a0422;color:var(--yl)" onclick="go('maintain')">عرض</button>
     </div>
   </div>`:''}
   ${DB.faults.filter(f=>f.status==='open'&&f.priority==='high').length&&p('faults')?`
-    <div style="margin:0 16px 16px;background:#f8514911;border:1px solid #f8514944;border-radius:12px;padding:14px">
+    <div style="margin:0 16px 16px;background:#dc262611;border:1px solid #dc262644;border-radius:12px;padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span style="color:var(--rd);font-weight:700">⚡ أعطال عاجلة (${DB.faults.filter(f=>f.status==='open'&&f.priority==='high').length})</span>
         <button class="btn btn-sm btn-rd" onclick="go('urgent')">عرض الكل</button>
       </div>
       ${DB.faults.filter(f=>f.status==='open'&&f.priority==='high').slice(0,3).map(f=>`
-      <div style="font-size:17px;padding:6px 0;border-bottom:1px solid #f8514922">
+      <div style="font-size:17px;padding:6px 0;border-bottom:1px solid #dc262622">
         📍 ${esc(f.location)} — ${esc(f.pointId)}: ${esc(f.reason)}
       </div>`).join('')}
     </div>`:''}
@@ -1714,8 +1714,8 @@ function pgInv(){
       ${CU.role==='manager'?`<button class="btn btn-gy" onclick="openAddWarehouse()">🏪+ مستودع جديد</button>`:''}
       ${p('moves')&&!isMain?`<button class="btn btn-gy" onclick="openTransfer()">🔁 ترحيل للرئيسي</button>`:''}
       ${CU.role==='manager'&&linkedFieldSites.length?`
-        <button class="btn" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
-        <button class="btn" style="background:#d1242f22;color:var(--rd);border:1px solid #d1242f44" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
+        <button class="btn" style="background:#8b5cf622;color:#8b5cf6;border:1px solid #8b5cf644" onclick="syncFieldItemsToWarehouse('${esc(ISITE)}')">🔄 مزامنة مواد الميدان</button>
+        <button class="btn" style="background:#dc262622;color:var(--rd);border:1px solid #dc262644" onclick="dedupWarehouse('${esc(ISITE)}')">🧹 حذف المكرر</button>
       `:''}
       ${CU.role==='manager'?'<button class="btn btn-gy" onclick="exportWarehouseOnly()">📦 تصدير المخزن</button><button class="btn btn-gy" onclick="exportDeployedOnly()">📷 الكاميرات المنصوبة</button><button class="btn btn-gy" onclick="exportFixedAssetsFromInv()">🏛️ الموجودات الثابتة</button><button class="btn btn-pu" onclick="openBulkExcelImport(&quot;warehouse&quot;)">📥 استيراد جماعي</button>':''}
     </div>
@@ -1833,7 +1833,7 @@ function pgInv(){
                     <td style="padding:5px 8px;font-size:11px;color:var(--mt)">${esc(it.serial||'—')}</td>
                     <td style="padding:5px 8px">
                       <span style="font-size:11px;padding:2px 7px;border-radius:5px;
-                        background:${it.status==='يعمل'?'#1a7f3722':it.status==='معطل'?'#d1242f22':'#9a670022'};
+                        background:${it.status==='يعمل'?'#15803d22':it.status==='معطل'?'#dc262622':'#92400e22'};
                         color:${it.status==='يعمل'?'var(--gn)':it.status==='معطل'?'var(--rd)':'var(--yl)'}">
                         ${esc(it.status||'—')}
                       </span>
@@ -1906,7 +1906,7 @@ function renderInvRows(isMain,allItems,items,AT){
           ${item.status==='warehouse'?'↑ صرف':'↓ إيداع'}</button>`:''}
         ${!isMainV&&item.status==='warehouse'?`<button class="btn btn-sm btn-pu" title="ترحيل" onclick="openTransferItem(${realIdx},'${realSite}')">🔁</button>`:''}
         <button class="btn btn-sm btn-gy" onclick="openEditItemAt(${realIdx},'${realSite}')">✏️</button>
-        ${item.serial?`<button class="btn btn-sm" style="background:#8957e522;color:#8957e5" onclick="openItemTimeline('${esc(item.serial)}')" title="السجل الكامل">📜</button>`:''}
+        ${item.serial?`<button class="btn btn-sm" style="background:#8b5cf622;color:#8b5cf6" onclick="openItemTimeline('${esc(item.serial)}')" title="السجل الكامل">📜</button>`:''}
         ${item.status!=='maintenance'?`<button class="btn btn-sm btn-yl" onclick="setMaintAt(${realIdx},'${realSite}')">🔧</button>`:''}
         <button class="btn btn-sm btn-rd" onclick="delItemAt(${realIdx},'${realSite}')">🗑</button>
       </div></td>`:''}
@@ -1946,7 +1946,7 @@ function renderInvRows(isMain,allItems,items,AT){
               <span style="font-size:12px;color:var(--mt);margin-right:8px">${locItems.length} عنصر</span>
               <span style="font-size:11px;color:var(--mt)">${typeSummary}</span>
             </div>
-            <span style="font-size:11px;background:#1a7f3722;color:var(--gn);padding:2px 8px;border-radius:10px;margin-right:auto">منصوب</span>
+            <span style="font-size:11px;background:#15803d22;color:var(--gn);padding:2px 8px;border-radius:10px;margin-right:auto">منصوب</span>
           </div>
         </td>
       </tr>
@@ -2593,7 +2593,7 @@ function pgMoves(){
       ${DB.moves.length===0?`<tr class="erow"><td colspan="8">لا حركات مسجلة</td></tr>`:
         [...DB.moves].reverse().map(m=>`<tr>
           <td class="tm">${esc(m.name)}</td>
-          <td><span class="badge" style="background:${m.dir==='out'?'#f8514922':'#3fb95022'};color:${m.dir==='out'?'var(--rd)':'var(--gn)'}">
+          <td><span class="badge" style="background:${m.dir==='out'?'#dc262622':'#16a34a22'};color:${m.dir==='out'?'var(--rd)':'var(--gn)'}">
             ${m.dir==='out'?'↑ صرف':'↓ إيداع'}</span></td>
           <td style="color:var(--mt)">${esc(m.from||'—')}</td>
           <td style="color:var(--mt)">${esc(m.to||'—')}</td>
@@ -2655,7 +2655,7 @@ function pgFaults(){
               </div>`:''}
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;min-width:160px">
-            <button class="btn btn-sm" style="background:#bc8cff22;color:var(--pu);border:1px solid #bc8cff44" onclick="openFaultComments('${f.id}')">💬 تعليقات ${f.comments?.length?'('+f.comments.length+')':''}</button>
+            <button class="btn btn-sm" style="background:#9575f022;color:var(--pu);border:1px solid #9575f044" onclick="openFaultComments('${f.id}')">💬 تعليقات ${f.comments?.length?'('+f.comments.length+')':''}</button>
             <button class="btn btn-sm" style="background:rgba(var(--gl),.13);color:var(--bl);border:1px solid rgba(var(--gl),.27)" onclick="openFaultPhotos('${f.id}')">📸 صور ${f.photos?.length?'('+f.photos.length+')':''}</button>
             ${st.k!=='resolved'&&p('updFault')&&canAccessFault(f)?`
             <div style="font-size:11px;color:var(--mt);margin-bottom:2px;text-align:center">تحديث الحالة:</div>
@@ -2965,7 +2965,7 @@ function pgUsers(){
       </div>
       <div style="font-size:12px;color:var(--mt);margin-bottom:6px">📧 ${esc(u.email||u.username||'')}</div>
       ${u.tempPw&&CU.role==='manager'?`
-        <div style="background:#d2992218;border:1px solid #d2992244;border-radius:8px;padding:8px 12px;margin-bottom:8px">
+        <div style="background:#ca8a0418;border:1px solid #ca8a0444;border-radius:8px;padding:8px 12px;margin-bottom:8px">
           <div style="font-size:11px;color:var(--yl);margin-bottom:3px">🔑 كلمة المرور الجديدة (أخبر المستخدم):</div>
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:18px;font-weight:800;color:var(--tx);letter-spacing:2px;direction:ltr">${esc(u.tempPw)}</span>
@@ -2983,7 +2983,7 @@ function pgUsers(){
           <button class="btn btn-sm btn-pu" onclick="openPerms(${i})">🔑 صلاحيات</button>
           ${(CU.uid||CU.id)!==(u.uid||u.id)?`
             <button class="btn btn-sm btn-rd" onclick="toggleUser(${i})">${u.active?'تعطيل':'تفعيل'}</button>
-            <button class="btn btn-sm" style="background:#d2992222;border:1px solid #d2992244;color:var(--yl)" onclick="resetUserPassword(${i})">🔑 إعادة كلمة السر</button>
+            <button class="btn btn-sm" style="background:#ca8a0422;border:1px solid #ca8a0444;color:var(--yl)" onclick="resetUserPassword(${i})">🔑 إعادة كلمة السر</button>
             <button class="btn btn-sm btn-rd" onclick="delUser(${i})">🗑️ حذف</button>
           `:''}
         </div>
@@ -3212,7 +3212,7 @@ function openPerms(i){
 
   openModal(mhd('🔑 صلاحيات: '+esc(u.name)+' ('+ROLES[u.role]+')')
     +(isViewer
-      ?'<div style="background:#bc8cff18;border:1px solid #bc8cff44;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;color:#bc8cff">👑 <b>السيد</b> — يرى كل المواقع والبيانات.</div>'
+      ?'<div style="background:#9575f018;border:1px solid #9575f044;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;color:#9575f0">👑 <b>السيد</b> — يرى كل المواقع والبيانات.</div>'
       :'<div style="font-size:14px;color:var(--mt);margin-bottom:14px">صلاحيات <b style=\"color:var(--tx)\">'+ROLES[u.role]+'</b> — يمكنك تخصيصها.</div>')
     +'<div style="font-size:13px;font-weight:700;color:var(--gn);margin-bottom:6px">👁️ صلاحيات العرض</div>'
     +READ_PERMS.map(k=>permRow(k)).join('')
@@ -3221,7 +3221,7 @@ function openPerms(i){
     +allowedSitesHTML
     +'<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">'
     +'<button class="btn btn-sm btn-gy" onclick="resetPerms('+i+')">↩️ إعادة للافتراضي</button>'
-    +'<button class="btn btn-sm" style="background:#3fb95022;border:1px solid #3fb95044;color:var(--gn)" onclick="grantAll('+i+')">✅ منح الكل</button>'
+    +'<button class="btn btn-sm" style="background:#16a34a22;border:1px solid #16a34a44;color:var(--gn)" onclick="grantAll('+i+')">✅ منح الكل</button>'
     +'<button class="btn btn-sm btn-rd" onclick="revokeAll('+i+')">⛔ سحب الكل</button></div>'
     +mft('💾 حفظ الصلاحيات','savePerms('+i+')', 'btn-gn'));
 }
@@ -3858,11 +3858,11 @@ function pgFieldMap(){
         📷 كاميرات
       </button>
       <button id="lyr-towers" onclick="toggleMapLayer('towers',this)"
-        style="padding:6px 14px;border-radius:20px;border:2px solid #9a6700;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        style="padding:6px 14px;border-radius:20px;border:2px solid #92400e;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         🗼 أبراج
       </button>
       <button id="lyr-p2p" onclick="toggleMapLayer('p2p',this)"
-        style="padding:6px 14px;border-radius:20px;border:2px solid #8250df;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        style="padding:6px 14px;border-radius:20px;border:2px solid #8b5cf6;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         📡 P2P
       </button>
       <button id="lyr-radio" onclick="toggleMapLayer('radio',this)"
@@ -3874,15 +3874,15 @@ function pgFieldMap(){
         💾 NVR
       </button>
       <button id="lyr-faults" onclick="toggleMapLayer('faults',this);if(_activeLayers.faults)showFaultsOnMap();"
-        style="padding:6px 14px;border-radius:20px;border:2px solid #d1242f;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        style="padding:6px 14px;border-radius:20px;border:2px solid #dc2626;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         🔴 أعطال
       </button>
       <button id="lyr-boundaries" onclick="toggleMapLayer('boundaries',this);if(_activeLayers.boundaries)loadBoundaries();"
-        style="padding:6px 14px;border-radius:20px;border:2px solid #1a7f37;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        style="padding:6px 14px;border-radius:20px;border:2px solid #15803d;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         📐 حدود
       </button>
       <button id="lyr-network" onclick="toggleMapLayer('network',this);if(_activeLayers.network&&canViewNetwork())loadNetworkLayer();"
-        style="padding:6px 14px;border-radius:20px;border:2px solid #656d76;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
+        style="padding:6px 14px;border-radius:20px;border:2px solid #5b6472;background:var(--sf);color:var(--mt);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s">
         🌐 شبكة
       </button>
       <button onclick="clearAllMapLayers()"
@@ -3908,8 +3908,8 @@ function toggleMapLayer(layer, btn){
   _activeLayers[layer] = !_activeLayers[layer];
   var active = _activeLayers[layer];
   var colors = {
-    cameras:'#0969da', towers:'#9a6700', p2p:'#8250df',
-    radio:'#06b6d4', nvr:'#6f42c1', faults:'#d1242f', boundaries:'#1a7f37', network:'#656d76'
+    cameras:'#0891b2', towers:'#92400e', p2p:'#8b5cf6',
+    radio:'#06b6d4', nvr:'#6f42c1', faults:'#dc2626', boundaries:'#15803d', network:'#5b6472'
   };
   var col = colors[layer]||'var(--bl)';
   if(btn){
@@ -4150,8 +4150,8 @@ function renderFieldSiteDetail(fs){
       </div>
       ${CU.role==='manager' ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-bl btn-sm" onclick="openAddFieldCam('${fs.id}')">+ 📷 كاميرا</button>
-        <button class="btn btn-sm" style="background:#9a670022;color:#9a6700;border:1px solid #9a670044" onclick="openAddFieldEquip('${fs.id}','tower')">+ 🗼 برج</button>
-        <button class="btn btn-sm" style="background:#8250df22;color:#8250df;border:1px solid #8250df44" onclick="openAddFieldEquip('${fs.id}','p2p')">+ 📡 P2P</button>
+        <button class="btn btn-sm" style="background:#92400e22;color:#92400e;border:1px solid #92400e44" onclick="openAddFieldEquip('${fs.id}','tower')">+ 🗼 برج</button>
+        <button class="btn btn-sm" style="background:#8b5cf622;color:#8b5cf6;border:1px solid #8b5cf644" onclick="openAddFieldEquip('${fs.id}','p2p')">+ 📡 P2P</button>
         <button class="btn btn-sm" style="background:#06b6d422;color:#06b6d4;border:1px solid #06b6d444" onclick="openAddFieldEquip('${fs.id}','radio')">+ 📻 راديو</button>
         <button class="btn btn-sm btn-pu" onclick="openSitePermissions('${fs.id}')">👥 صلاحيات</button>
         <button class="btn btn-sm btn-gy" onclick="openEditFieldSite('${fs.id}')">✏️</button>
@@ -4253,17 +4253,17 @@ function openCamDetail(fsId, ci){
 
     ${c.installDesc?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">📌 موقع التنصيب</div><div>${esc(c.installDesc)}</div></div>`:''}
     ${c.dir?`<div class="panel" style="padding:10px"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🧭 الاتجاه</div><div>${esc(c.dir)}</div></div>`:''}
-    ${c.fromWarehouse?`<div class="panel" style="padding:10px;background:#f8514915;border-color:#f8514940">
+    ${c.fromWarehouse?`<div class="panel" style="padding:10px;background:#dc262615;border-color:#dc262640">
       <div style="font-size:12px;color:var(--rd);font-weight:700">⚠️ تحتاج ضبط الموقع الدقيق</div>
       <div style="font-size:11px;color:var(--mt);margin-top:2px">أُضيفت تلقائياً عند الصرف من المخزن بإحداثيات تقريبية — عدّل موقعها على الخريطة</div>
     </div>`:''}
     ${c.floor?`<div class="panel" style="padding:10px;border-right:3px solid ${floorColor(c.floor)}"><div style="font-size:11px;color:var(--mt);margin-bottom:3px">🏢 الطابق</div><div style="font-weight:700">${floorLabel(c.floor)}</div></div>`:''}
-    ${c.installChecklist?`<div class="panel" style="padding:10px;background:#3fb95015;border-color:#3fb95040">
+    ${c.installChecklist?`<div class="panel" style="padding:10px;background:#16a34a15;border-color:#16a34a40">
       <div style="font-size:11px;color:var(--gn);margin-bottom:4px">✅ قائمة تحقق التنصيب — مكتملة</div>
       <div style="font-size:12px;color:var(--mt)">📌 تثبيت ✓ &nbsp;🔌 توصيل ✓ &nbsp;🖥️ اختبار ✓ &nbsp;📸 توثيق ✓</div>
       <div style="font-size:11px;color:var(--mt);margin-top:4px">أكّدها: ${esc(c.installChecklist.confirmedBy||'')} — ${esc(c.installChecklist.confirmedAt||'')}</div>
     </div>`:''}
-    ${hasGPS?`<div class="panel" style="padding:10px;background:#3fb95015;border-color:#3fb95040">
+    ${hasGPS?`<div class="panel" style="padding:10px;background:#16a34a15;border-color:#16a34a40">
       <div style="font-size:11px;color:var(--gn);margin-bottom:4px">📍 الموقع الجغرافي</div>
       <div style="direction:ltr;font-size:13px">${parseFloat(c.lat).toFixed(6)}, ${parseFloat(c.lng).toFixed(6)}</div>
       <a href="https://maps.google.com/?q=${c.lat},${c.lng}" target="_blank" style="font-size:12px;color:var(--bl)">🗺️ فتح في خرائط جوجل</a>
@@ -4450,13 +4450,13 @@ function initFieldMap(){
   // ── رسم المعدات الأخرى (أبراج/P2P/راديو/NVR) على الخريطة ──
   const EQUIP_ICONS = {tower:'🗼', p2p:'📡', radio:'📻', nvr:'💾'};
   const EQUIP_LAYER_KEY = {tower:'towers', p2p:'p2p', radio:'radio', nvr:'nvr'};
-  const EQUIP_STATUS_COLOR = {active:'#3fb950', maintenance:'#d29922', down:'#8b949e'};
+  const EQUIP_STATUS_COLOR = {active:'#16a34a', maintenance:'#ca8a04', down:'#8b949e'};
   allEquip.forEach(eq=>{
     const eLat=parseFloat(eq.lat), eLng=parseFloat(eq.lng);
     const layerKey = EQUIP_LAYER_KEY[eq.equipType] || 'towers';
     const targetGroup = window._layerGroups[layerKey];
     if(!targetGroup) return;
-    const eColor = EQUIP_STATUS_COLOR[eq.status] || '#3fb950';
+    const eColor = EQUIP_STATUS_COLOR[eq.status] || '#16a34a';
     const eIcon = L.divIcon({
       className:'', html:`<div style="background:${eColor};width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,.4);border:2px solid #fff">${EQUIP_ICONS[eq.equipType]||'📍'}</div>`,
       iconSize:[30,30], iconAnchor:[15,15]
@@ -4489,11 +4489,11 @@ function initFieldMap(){
   _map.on('click', e=>{
     if(!_drawingBoundary) return;
     _boundaryPoints.push([e.latlng.lat, e.latlng.lng]);
-    const dot = L.circleMarker(e.latlng,{radius:5,color:'#f85149',fillColor:'#f85149',fillOpacity:1}).addTo(_map);
+    const dot = L.circleMarker(e.latlng,{radius:5,color:'#dc2626',fillColor:'#dc2626',fillOpacity:1}).addTo(_map);
     _boundaryMarkers.push(dot);
     if(_boundaryLine){ _boundaryLine.remove(); }
     if(_boundaryPoints.length>1){
-      _boundaryLine = L.polyline(_boundaryPoints,{color:'#f85149',weight:2,dashArray:'6,4'}).addTo(_map);
+      _boundaryLine = L.polyline(_boundaryPoints,{color:'#dc2626',weight:2,dashArray:'6,4'}).addTo(_map);
     }
   });
 
@@ -4744,7 +4744,7 @@ function showFieldCamForm(fsId,ci,cam){
         <button type="button" onclick="setBeamAngle(90)"  style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--tx);font-family:inherit">90°</button>
         <button type="button" onclick="setBeamAngle(110)" style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--tx);font-family:inherit">110°</button>
         <button type="button" onclick="setBeamAngle(180)" style="background:var(--sf);border:1px solid var(--br);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--tx);font-family:inherit">180°</button>
-        <button type="button" onclick="setBeamAngle(360)" style="background:#bc8cff22;border:1px solid #bc8cff44;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#bc8cff;font-family:inherit;font-weight:700">360° PTZ 🔄</button>
+        <button type="button" onclick="setBeamAngle(360)" style="background:#9575f022;border:1px solid #9575f044;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#9575f0;font-family:inherit;font-weight:700">360° PTZ 🔄</button>
       </div>
     </div>
     <!-- ══ البوصلة الدائرية ══ -->
@@ -4787,7 +4787,7 @@ function showFieldCamForm(fsId,ci,cam){
     </div>
   </div>
   ${ci<0?`
-  <div class="s2 field" style="background:#d2992211;border:1px solid #d2992244;border-radius:10px;padding:12px;margin-top:6px">
+  <div class="s2 field" style="background:#ca8a0411;border:1px solid #ca8a0444;border-radius:10px;padding:12px;margin-top:6px">
     <label style="color:var(--yl);font-weight:700;margin-bottom:8px;display:block">✅ قائمة تحقق التنصيب (إجبارية)</label>
     <div style="display:flex;flex-direction:column;gap:8px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
@@ -4861,7 +4861,7 @@ function toggleTrafficLayer(){
     if(!_map) return;
     _trafficTileLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
       {attribution:'© Google',maxZoom:22,maxNativeZoom:21,opacity:0.8}).addTo(_map);
-    if(btn){ btn.style.background='#f8514922'; btn.style.color='#f85149'; btn.style.borderColor='#f8514944'; }
+    if(btn){ btn.style.background='#dc262622'; btn.style.color='#dc2626'; btn.style.borderColor='#dc262644'; }
     toast('🚦 طبقة المرور مفعّلة');
   }
 }
@@ -4889,7 +4889,7 @@ function startDrawBoundary(){
   const btn = document.createElement('button');
   btn.id = 'boundary-save-btn';
   btn.innerHTML = '💾 حفظ الحدود';
-  btn.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#3fb950;color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:16px;font-family:inherit;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  btn.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#16a34a;color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:16px;font-family:inherit;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)';
   btn.onclick = saveBoundary;
   document.body.appendChild(btn);
 }
@@ -4909,14 +4909,14 @@ function saveBoundary(){
       `<div onclick="this.parentElement.querySelectorAll('div').forEach(d=>d.style.outline='');this.style.outline='3px solid #fff';document.getElementById('bnd-color').value='${c}'"
         style="width:30px;height:30px;background:${c};border-radius:6px;cursor:pointer;border:2px solid rgba(255,255,255,.3)"></div>`
     ).join('')
-    +'<input type="hidden" id="bnd-color" value="#f85149">'
+    +'<input type="hidden" id="bnd-color" value="#dc2626">'
     +'</div></div>'
     +mft('💾 حفظ','doSaveBoundary()'));
 }
 
 function doSaveBoundary(){
   const name  = val('boundary-name')||'حدود '+fmtDate(new Date().toISOString());
-  const color = document.getElementById('bnd-color')?.value||'#f85149';
+  const color = document.getElementById('bnd-color')?.value||'#dc2626';
   const id    = gid();
   const data  = { id, name, color, points: _boundaryPoints, by: CU.name, date: ts(), _ts: Date.now() };
   fbSet('boundaries/'+id, data);
@@ -4943,13 +4943,13 @@ function loadBoundaries(){
     Object.values(snap.val()).forEach(b=>{
       if(!b.points||b.points.length<3) return;
       const poly = L.polygon(b.points,{
-        color:b.color||'#f85149', fillColor:b.color||'#f85149',
+        color:b.color||'#dc2626', fillColor:b.color||'#dc2626',
         fillOpacity:0.1, weight:2.5
       }).bindPopup(`<div style="font-family:inherit">
           <div style="font-weight:700;margin-bottom:4px">${esc(b.name)}</div>
           <div style="font-size:12px;color:#666">بواسطة: ${esc(b.by||'')} — ${esc(b.date||'')}</div>
           ${CU.role==='manager'?`<div style="display:flex;gap:6px;margin-top:8px">
-            <button onclick="deleteBoundary('${b.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit">🗑️ حذف</button>
+            <button onclick="deleteBoundary('${b.id}')" style="background:#dc262622;color:#dc2626;border:1px solid #dc262644;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit">🗑️ حذف</button>
           </div>`:''}
         </div>`);
       lg.addLayer(poly);
@@ -4982,7 +4982,7 @@ function importKML(input){
           const [lng,lat] = coord.split(',').map(Number);
           if(!isNaN(lat)&&!isNaN(lng)){
             const icon = L.divIcon({
-              html:`<div style="background:#bc8cff;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 2px 4px rgba(0,0,0,.4)"></div>`,
+              html:`<div style="background:#9575f0;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 2px 4px rgba(0,0,0,.4)"></div>`,
               className:'', iconSize:[14,14], iconAnchor:[7,7]
             });
             L.marker([lat,lng],{icon}).addTo(_map)
@@ -4995,7 +4995,7 @@ function importKML(input){
         if(lineCoords){
           const pts = lineCoords.split(/\s+/).map(c=>{ const[lg,lt]=c.split(',').map(Number); return [lt,lg]; }).filter(p=>!isNaN(p[0]));
           if(pts.length>1){
-            L.polyline(pts,{color:'#bc8cff',weight:2.5}).addTo(_map)
+            L.polyline(pts,{color:'#9575f0',weight:2.5}).addTo(_map)
               .bindPopup(`<b>${esc(name)}</b>`);
             added++;
           }
@@ -5006,7 +5006,7 @@ function importKML(input){
         if(polyCoords){
           const pts = polyCoords.split(/\s+/).map(c=>{ const[lg,lt]=c.split(',').map(Number); return [lt,lg]; }).filter(p=>!isNaN(p[0]));
           if(pts.length>2){
-            L.polygon(pts,{color:'#bc8cff',fillColor:'#bc8cff',fillOpacity:0.1,weight:2}).addTo(_map)
+            L.polygon(pts,{color:'#9575f0',fillColor:'#9575f0',fillOpacity:0.1,weight:2}).addTo(_map)
               .bindPopup(`<b>${esc(name)}</b>`);
             added++;
           }
@@ -5168,9 +5168,9 @@ function drawCamerasOnCanvas(canvas){
 function drawLegendOnCanvas(ctx, W, H){
   const rows = [];
   FLOOR_TYPES.forEach(function(f){ rows.push({color:f.color, label:f.label}); });
-  rows.push({color:'#d29922', label:'صيانة'});
+  rows.push({color:'#ca8a04', label:'صيانة'});
   rows.push({color:'#8b949e', label:'معطل/مجهول'});
-  rows.push({color:'#f85149', label:'يحتاج ضبط'});
+  rows.push({color:'#dc2626', label:'يحتاج ضبط'});
 
   const equipRows = [
     {icon:'🗼', label:'برج'}, {icon:'📡', label:'P2P'},
@@ -5338,7 +5338,7 @@ function finishExport(canvas){
   // ── رسم المعدات الأخرى (أبراج/P2P/راديو/NVR) — فقط الطبقات المفعّلة حالياً بالخريطة ──
   const EQUIP_ICONS_EXP = {tower:'🗼', p2p:'📡', radio:'📻', nvr:'💾'};
   const EQUIP_LAYER_KEY_EXP = {tower:'towers', p2p:'p2p', radio:'radio', nvr:'nvr'};
-  const EQUIP_STATUS_COLOR_EXP = {active:'#3fb950', maintenance:'#d29922', down:'#8b949e'};
+  const EQUIP_STATUS_COLOR_EXP = {active:'#16a34a', maintenance:'#ca8a04', down:'#8b949e'};
   let equipToExport = [];
   if(DB.fieldSites){
     DB.fieldSites.forEach(fs=>{
@@ -5354,7 +5354,7 @@ function finishExport(canvas){
   equipToExport.forEach(eq=>{
     const pt = _map.latLngToContainerPoint([parseFloat(eq.lat), parseFloat(eq.lng)]);
     const ex = pt.x * scaleX, ey = pt.y * scaleY;
-    const eColor = EQUIP_STATUS_COLOR_EXP[eq.status] || '#3fb950';
+    const eColor = EQUIP_STATUS_COLOR_EXP[eq.status] || '#16a34a';
     const er = 13 * scaleX;
     ctx.beginPath();
     ctx.arc(ex, ey, er, 0, Math.PI*2);
@@ -5406,9 +5406,9 @@ function toggleFaultsLayer(){
   _faultsLayerOn = !_faultsLayerOn;
   const btn = document.getElementById('btn-faults-layer');
   if(btn){
-    btn.style.background = _faultsLayerOn ? '#f8514922' : 'var(--sf)';
-    btn.style.color = _faultsLayerOn ? '#f85149' : 'var(--tx)';
-    btn.style.borderColor = _faultsLayerOn ? '#f8514944' : 'var(--br)';
+    btn.style.background = _faultsLayerOn ? '#dc262622' : 'var(--sf)';
+    btn.style.color = _faultsLayerOn ? '#dc2626' : 'var(--tx)';
+    btn.style.borderColor = _faultsLayerOn ? '#dc262644' : 'var(--br)';
   }
   if(_faultsLayerOn) showFaultsOnMap();
   else {
@@ -5429,7 +5429,7 @@ function showFaultsOnMap(){
     const lat = cam?.lat ? parseFloat(cam.lat) : null;
     const lng = cam?.lng ? parseFloat(cam.lng) : null;
     if(!lat||!lng||isNaN(lat)||isNaN(lng)) return;
-    const pri = f.priority==='high'?'#f85149':f.priority==='medium'?'#d29922':'#58a6ff';
+    const pri = f.priority==='high'?'#dc2626':f.priority==='medium'?'#ca8a04':'#0891b2';
     const icon = L.divIcon({
       html:`<div onclick="go('faults')" style="width:22px;height:22px;background:${pri};border:3px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:pointer;animation:pulse 1.5s infinite"></div>`,
       className:'', iconSize:[22,22], iconAnchor:[11,11]
@@ -5729,7 +5729,7 @@ function pgUrgent(){
         </div>
         ${canAccessFault(f)&&p('updFault')?`
         <div style="display:flex;gap:5px;flex-wrap:wrap">
-          <button class="btn btn-sm" style="background:#f8514922;color:var(--rd)" onclick="doUpdFault(${DB.faults.indexOf(f)},'inprogress')">🔧 بدء</button>
+          <button class="btn btn-sm" style="background:#dc262622;color:var(--rd)" onclick="doUpdFault(${DB.faults.indexOf(f)},'inprogress')">🔧 بدء</button>
           <button class="btn btn-sm btn-gn" onclick="doUpdFault(${DB.faults.indexOf(f)},'resolved')">✅ حل</button>
         </div>`:''}
       </div>
@@ -6473,7 +6473,7 @@ function openFaultPhotos(faultId){
     ${photos.map((ph,i)=>`
     <div style="position:relative">
       <img src="${ph.url}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--br)" onclick="viewPhoto('${ph.url}')">
-      ${p('updFault')?`<button onclick="delFaultPhoto('${faultId}',${i})" style="position:absolute;top:2px;right:2px;background:#f8514999;border:none;border-radius:50%;width:20px;height:20px;color:#fff;cursor:pointer;font-size:11px">✕</button>`:''}
+      ${p('updFault')?`<button onclick="delFaultPhoto('${faultId}',${i})" style="position:absolute;top:2px;right:2px;background:#dc262699;border:none;border-radius:50%;width:20px;height:20px;color:#fff;cursor:pointer;font-size:11px">✕</button>`:''}
     </div>`).join('')}
     ${!photos.length?'<div style="color:var(--mt);padding:20px;text-align:center;width:100%">لا صور بعد</div>':''}
   </div>
@@ -7109,7 +7109,7 @@ function renderTechLocations(locs){
           <div style="font-weight:700">${esc(loc.name)}</div>
           <div style="font-size:12px;color:${RC[loc.role]||'var(--mt)'}">${ROLES[loc.role]||loc.role}</div>
         </div>
-        <span style="font-size:11px;background:${isRecent?'#1a7f3722':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
+        <span style="font-size:11px;background:${isRecent?'#15803d22':'var(--bg)'};color:${isRecent?'var(--gn)':'var(--mt)'};padding:3px 8px;border-radius:8px">
           ${isRecent?'🟢 نشط':'⚫ منذ '+fmtAgo(loc._ts)}
         </span>
       </div>
@@ -7402,7 +7402,7 @@ function openBrandSettings(){
     <div class="field">
       <label>اللون الرئيسي</label>
       <div style="display:flex;gap:8px;align-items:center">
-        <input id="br-color" type="color" value="${b.color||'#58a6ff'}" style="width:50px;height:40px;border:none;background:none;cursor:pointer">
+        <input id="br-color" type="color" value="${b.color||'#0891b2'}" style="width:50px;height:40px;border:none;background:none;cursor:pointer">
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${['#58a6ff','#3fb950','#f85149','#d29922','#bc8cff','#ff7b72','#39d353','#0969da'].map(c=>
             `<div onclick="document.getElementById('br-color').value='${c}'" 
@@ -7431,7 +7431,7 @@ function saveBranding(){
   const b = {
     name:  val('br-name')||'CCTV Manager',
     logo:  val('br-logo')||'📹',
-    color: document.getElementById('br-color').value||'#58a6ff',
+    color: document.getElementById('br-color').value||'#0891b2',
   };
   localStorage.setItem('cctv_brand', JSON.stringify(b));
   loadBranding();
@@ -8489,9 +8489,9 @@ function faultAge(f){
   const ms = Date.now() - f._ts;
   const h  = Math.floor(ms / 3600000);
   const m  = Math.floor((ms % 3600000) / 60000);
-  if(h >= 72) return { txt: Math.floor(h/24)+'ي', color:'#f85149', urgent:true };
-  if(h >= 24) return { txt: h+'س', color:'#f85149', urgent:true };
-  if(h >= 1)  return { txt: h+'س '+m+'د', color:'#d29922', urgent:false };
+  if(h >= 72) return { txt: Math.floor(h/24)+'ي', color:'#dc2626', urgent:true };
+  if(h >= 24) return { txt: h+'س', color:'#dc2626', urgent:true };
+  if(h >= 1)  return { txt: h+'س '+m+'د', color:'#ca8a04', urgent:false };
   return { txt: m+'د', color:'var(--gn)', urgent:false };
 }
 
@@ -8554,7 +8554,7 @@ function pgMyTasks(){
             </div>
             ${p('updFault')&&canAccessFault(f)?`
             <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
-              ${f.status==='open'?`<button class="btn btn-sm" style="background:#d2992222;color:var(--yl);border:1px solid #d2992244" onclick="doUpdFault(${ri},'inprogress')">🔧 بدء</button>`:''}
+              ${f.status==='open'?`<button class="btn btn-sm" style="background:#ca8a0422;color:var(--yl);border:1px solid #ca8a0444" onclick="doUpdFault(${ri},'inprogress')">🔧 بدء</button>`:''}
               ${f.status==='inprogress'?`<button class="btn btn-sm btn-gn" onclick="doUpdFault(${ri},'resolved')">✅ إنهاء</button>`:''}
             </div>`:''}
           </div>
@@ -8596,14 +8596,14 @@ function renderFaultChart(){
     ${months.map((mo,i)=>`
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
       <div style="font-size:10px;color:var(--mt)">${counts[i]||''}</div>
-      <div style="width:100%;background:#f8514966;border-radius:4px 4px 0 0;height:${Math.round((counts[i]/max)*64)+4}px;min-height:4px"></div>
-      <div style="width:100%;background:#3fb95066;border-radius:4px 4px 0 0;height:${Math.round((resolved[i]/max)*64)+4}px;min-height:4px;margin-top:2px"></div>
+      <div style="width:100%;background:#dc262666;border-radius:4px 4px 0 0;height:${Math.round((counts[i]/max)*64)+4}px;min-height:4px"></div>
+      <div style="width:100%;background:#16a34a66;border-radius:4px 4px 0 0;height:${Math.round((resolved[i]/max)*64)+4}px;min-height:4px;margin-top:2px"></div>
       <div style="font-size:10px;color:var(--mt)">${mo.label}</div>
     </div>`).join('')}
   </div>
   <div style="display:flex;gap:12px;margin-top:8px;font-size:11px">
-    <span><span style="display:inline-block;width:10px;height:10px;background:#f8514966;border-radius:2px;margin-left:4px"></span>مُبلَّغ</span>
-    <span><span style="display:inline-block;width:10px;height:10px;background:#3fb95066;border-radius:2px;margin-left:4px"></span>محلول</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#dc262666;border-radius:2px;margin-left:4px"></span>مُبلَّغ</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#16a34a66;border-radius:2px;margin-left:4px"></span>محلول</span>
   </div>`;
 }
 
@@ -8649,7 +8649,7 @@ function pgTasks(){
   }
 
 function renderTaskCard(t, isManager){
-  const pri   = t.priority==='high'?{c:'#f85149',ic:'🔴'}:t.priority==='medium'?{c:'#d29922',ic:'🟡'}:{c:'#3fb950',ic:'🟢'};
+  const pri   = t.priority==='high'?{c:'#dc2626',ic:'🔴'}:t.priority==='medium'?{c:'#ca8a04',ic:'🟡'}:{c:'#16a34a',ic:'🟢'};
   const stMap = {open:{l:'مفتوحة',c:'var(--mt)'},inprogress:{l:'جاري',c:'var(--yl)'},done:{l:'منجزة',c:'var(--gn)'}};
   const st    = stMap[t.status]||stMap.open;
   const age   = faultAge({_ts:t._ts,status:t.status==='done'?'resolved':'open'});
@@ -8672,7 +8672,7 @@ function renderTaskCard(t, isManager){
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
-        ${t.status==='open'&&!isManager?`<button class="btn btn-sm" style="background:#d2992222;color:var(--yl);border:1px solid #d2992244" onclick="updTask('${t.id}','inprogress')">🔧 بدء</button>`:''}
+        ${t.status==='open'&&!isManager?`<button class="btn btn-sm" style="background:#ca8a0422;color:var(--yl);border:1px solid #ca8a0444" onclick="updTask('${t.id}','inprogress')">🔧 بدء</button>`:''}
         ${t.status==='inprogress'?`<button class="btn btn-sm btn-gn" onclick="updTask('${t.id}','done')">✅ إنجاز</button>`:''}
         ${t.status==='done'?`<button class="btn btn-sm btn-gy" onclick="updTask('${t.id}','open')">↩️ إعادة</button>`:''}
         ${isManager?`
@@ -8854,7 +8854,7 @@ function loadNetworkLayer(){
         if(!link.points||link.points.length<2) return;
         const isP2P   = link.type==='p2p';
         const isFiber = link.type==='fiber';
-        const color   = isFiber?'#ff9500':isP2P?'#58a6ff':'#3fb950';
+        const color   = isFiber?'#ea580c':isP2P?'#0891b2':'#16a34a';
         const dash    = isP2P?'8,5':isFiber?'none':'4,3';
         const weight  = isFiber?3:isP2P?2.5:2;
 
@@ -8875,7 +8875,7 @@ function loadNetworkLayer(){
           ${link.notes?`<div style="font-size:12px;color:#888;margin-top:4px">${esc(link.notes)}</div>`:''}
           ${canEditNetwork()?`<div style="display:flex;gap:6px;margin-top:8px">
             <button onclick="editNetLink('${link.id}')" style="background:rgba(var(--gl),.13);color:var(--bl);border:1px solid rgba(var(--gl),.27);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
-            <button onclick="delNetLink('${link.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
+            <button onclick="delNetLink('${link.id}')" style="background:#dc262622;color:#dc2626;border:1px solid #dc262644;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
           </div>`:''}
         </div>`);
         _netLines.push(line);
@@ -8905,7 +8905,7 @@ function loadNetworkLayer(){
           ${dev.notes?`<div style="font-size:12px;color:#888;margin-top:4px">${esc(dev.notes)}</div>`:''}
           ${canEditNetwork()?`<div style="display:flex;gap:6px;margin-top:8px">
             <button onclick="editNetDevice('${dev.id}')" style="background:rgba(var(--gl),.13);color:var(--bl);border:1px solid rgba(var(--gl),.27);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">✏️ تعديل</button>
-            <button onclick="delNetDevice('${dev.id}')" style="background:#f8514922;color:#f85149;border:1px solid #f8514944;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
+            <button onclick="delNetDevice('${dev.id}')" style="background:#dc262622;color:#dc2626;border:1px solid #dc262644;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:12px">🗑️ حذف</button>
           </div>`:''}
         </div>`);
         _netMarkers.push(marker);
@@ -8966,7 +8966,7 @@ function startNetDraw(){
   const btn = document.createElement('button');
   btn.id='net-draw-finish';
   btn.innerHTML='✅ إنهاء الرسم';
-  btn.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#3fb950;color:#fff;border:none;border-radius:12px;padding:12px 28px;font-size:16px;font-family:inherit;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+  btn.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;background:#16a34a;color:#fff;border:none;border-radius:12px;padding:12px 28px;font-size:16px;font-family:inherit;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)';
   btn.onclick = finishNetDraw;
   document.body.appendChild(btn);
 
@@ -10084,7 +10084,7 @@ function renderItemTimeline(serial, events){
     html += '<div style="position:absolute;right:8px;top:8px;bottom:8px;width:2px;background:var(--br)"></div>';
     events.forEach(function(e, i){
       const dateStr = e.ts ? fmtDateTime(e.ts) : '—';
-      const colorMap = {current:'#0969da', move:'#1a7f37', fault:'#f85149', fault_update:'#d29922', deployed_cam:'#8957e5'};
+      const colorMap = {current:'#0891b2', move:'#15803d', fault:'#dc2626', fault_update:'#ca8a04', deployed_cam:'#8b5cf6'};
       const color = colorMap[e.type]||'#8b949e';
       html += `<div style="position:relative;margin-bottom:18px;padding-right:20px">
         <div style="position:absolute;right:-4px;top:4px;width:14px;height:14px;border-radius:50%;background:${color};border:3px solid var(--bg)"></div>
@@ -10235,10 +10235,10 @@ function calcHealthScore(){
 }
 
 function healthScoreColor(score){
-  if(score>=85) return '#3fb950';
-  if(score>=65) return '#d29922';
-  if(score>=40) return '#ff7b00';
-  return '#f85149';
+  if(score>=85) return '#16a34a';
+  if(score>=65) return '#ca8a04';
+  if(score>=40) return '#ea580c';
+  return '#dc2626';
 }
 
 function healthScoreLabel(score){
@@ -10506,7 +10506,7 @@ function buildMonthlyReportHTML(monthLabel, periodFrom, periodTo){
   html += '<div class="card"><div class="val" style="color:#2563eb">'+periodFaults.length+'</div><div class="lbl">أعطال هذا الشهر</div></div>';
   html += '<div class="card"><div class="val" style="color:#dc2626">'+openF+'</div><div class="lbl">مفتوحة</div></div>';
   html += '<div class="card"><div class="val" style="color:#16a34a">'+resolvedF+'</div><div class="lbl">محلولة</div></div>';
-  html += '<div class="card"><div class="val" style="color:#ff7b00">'+highF+'</div><div class="lbl">عاجلة</div></div>';
+  html += '<div class="card"><div class="val" style="color:#ea580c">'+highF+'</div><div class="lbl">عاجلة</div></div>';
   html += '</div>';
 
   html += '<div class="sec">📦 حالة المخزون</div><div class="grid">';
@@ -10843,11 +10843,11 @@ function serialScanBtn(inputId){
 //  🏢 نظام تمييز الكاميرات حسب الطابق بالألوان
 // ══════════════════════════════════════════════════════
 const FLOOR_TYPES = [
-  {k:'ground', label:'🟢 أرضي',     color:'#3fb950'},
-  {k:'upper',  label:'🟡 علوي',     color:'#d29922'},
-  {k:'roof',   label:'🔵 سطح',      color:'#58a6ff'},
-  {k:'floor3', label:'🟣 طابق ثالث', color:'#8957e5'},
-  {k:'floor4', label:'🟠 طابق رابع', color:'#ff7b00'},
+  {k:'ground', label:'🟢 أرضي',     color:'#16a34a'},
+  {k:'upper',  label:'🟡 علوي',     color:'#ca8a04'},
+  {k:'roof',   label:'🔵 سطح',      color:'#0891b2'},
+  {k:'floor3', label:'🟣 طابق ثالث', color:'#8b5cf6'},
+  {k:'floor4', label:'🟠 طابق رابع', color:'#ea580c'},
 ];
 
 function floorColor(floorKey){
@@ -10865,11 +10865,11 @@ function floorLabel(floorKey){
  * الأولوية: صيانة (أصفر تحذيري) > عطل/مجهول (رمادي) > لون الطابق المُختار > أخضر افتراضي (نشط بدون طابق محدد)
  */
 function getCamDisplayColor(c){
-  if(c.status==='maintenance') return '#d29922';
+  if(c.status==='maintenance') return '#ca8a04';
   if(c.status && c.status!=='active') return '#8b949e';
-  if(c.fromWarehouse) return '#f85149'; // أحمر تنبيهي: أُضيفت تلقائياً من صرف المخزن، تحتاج ضبط إحداثيات دقيقة
+  if(c.fromWarehouse) return '#dc2626'; // أحمر تنبيهي: أُضيفت تلقائياً من صرف المخزن، تحتاج ضبط إحداثيات دقيقة
   const fc = floorColor(c.floor);
-  return fc || '#3fb950';
+  return fc || '#16a34a';
 }
 
 function floorSelectOptions(selected){
@@ -10900,7 +10900,7 @@ function setupLongPressAddMenu(map){
     if(_drawingBoundary || _measuringMode || _drawingNet) return;
     // ومضة بصرية سريعة بمكان الضغط لتأكيد الاستجابة للمستخدم
     const flash = L.circleMarker(e.latlng, {
-      radius: 10, color:'#8957e5', weight:2, fillColor:'#8957e5', fillOpacity:.35
+      radius: 10, color:'#8b5cf6', weight:2, fillColor:'#8b5cf6', fillOpacity:.35
     }).addTo(map);
     setTimeout(function(){ map.removeLayer(flash); }, 400);
     openQuickAddMenu(e.latlng);
@@ -10975,7 +10975,7 @@ function buildMapLegendHTML(){
       <div style="font-size:10px;font-weight:700;color:var(--mt);margin-bottom:3px">📷 الكاميرات — حسب الطابق</div>
       ${floorRows}
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
-        <span style="width:12px;height:12px;border-radius:50%;background:#d29922;flex-shrink:0"></span>
+        <span style="width:12px;height:12px;border-radius:50%;background:#ca8a04;flex-shrink:0"></span>
         <span style="font-size:11px">🔧 صيانة</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
@@ -10983,7 +10983,7 @@ function buildMapLegendHTML(){
         <span style="font-size:11px">⚪ معطل / مجهول</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
-        <span style="width:12px;height:12px;border-radius:50%;background:#f85149;flex-shrink:0"></span>
+        <span style="width:12px;height:12px;border-radius:50%;background:#dc2626;flex-shrink:0"></span>
         <span style="font-size:11px">⚠️ يحتاج ضبط موقع</span>
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--mt);margin:8px 0 3px">🗼 معدات أخرى (اللون = الحالة)</div>
@@ -10992,8 +10992,8 @@ function buildMapLegendHTML(){
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">📻</span><span style="font-size:11px">جهاز راديو</span></div>
       <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">💾</span><span style="font-size:11px">NVR</span></div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:4px;font-size:10px;color:var(--mt)">
-        <span><span style="color:#3fb950">●</span> يعمل</span>
-        <span><span style="color:#d29922">●</span> صيانة</span>
+        <span><span style="color:#16a34a">●</span> يعمل</span>
+        <span><span style="color:#ca8a04">●</span> صيانة</span>
         <span><span style="color:#8b949e">●</span> معطل</span>
       </div>
     </div>
@@ -11168,7 +11168,7 @@ var UAV_TYPES=['Multi-rotor','Fixed Wing','VTOL','Hybrid'];
 var UAV_CAM=['بدون كاميرا','كاميرا RGB','كاميرا حرارية','كاميرا ثنائية (RGB+حرارية)','كاميرا متعددة الأطياف','كاميرا LiDAR'];
 var UAV_STATUS=['في المخزن','في الميدان','صيانة','معطل','مفقود','خارج الخدمة'];
 var UAV_COND=['ممتاز','جيد جداً','جيد','مقبول','يحتاج صيانة','تالف'];
-var UAV_SC={'في المخزن':'#0969da','في الميدان':'#1a7f37','صيانة':'#9a6700','معطل':'#d1242f','مفقود':'#8250df','خارج الخدمة':'#656d76'};
+var UAV_SC={'في المخزن':'#0891b2','في الميدان':'#15803d','صيانة':'#92400e','معطل':'#dc2626','مفقود':'#8b5cf6','خارج الخدمة':'#5b6472'};
 var UAV_ITEM_CATS=['طائرة كاملة','ملحق / معدة'];
 var UAV_ACCESSORY_TYPES=['بطارية','هوائي','كاميرا','حقيبة حمل','وصلة كابل','شاحن','ذاكرة SD','مروحة','ريموت تحكم','شاشة عرض','أخرى'];
 
@@ -11223,7 +11223,7 @@ function pgUAV(){
   } else {
     for(var i=0;i<shown.length;i++){
       var d=shown[i];
-      var col=UAV_SC[d.status]||'#0969da';
+      var col=UAV_SC[d.status]||'#0891b2';
       html+='<div class="panel" style="margin-bottom:10px;border-right:3px solid '+col+'">';
       html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">';
       html+='<div style="flex:1">';
@@ -11231,7 +11231,7 @@ function pgUAV(){
       html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">';
       html+='<span style="font-weight:700;font-size:16px">'+(d.itemCategory==='ملحق / معدة'?'📦 ':'🛩️ ')+esc(d.name||d.model||'عنصر')+'</span>';
       html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:'+col+'22;color:'+col+'">'+esc(d.status||'—')+'</span>';
-      if(d.itemCategory==='ملحق / معدة') html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#8957e522;color:#8957e5">'+esc(d.accessoryType||'ملحق')+'</span>';
+      if(d.itemCategory==='ملحق / معدة') html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#8b5cf622;color:#8b5cf6">'+esc(d.accessoryType||'ملحق')+'</span>';
       if(d.condition) html+='<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg);color:var(--mt)">'+esc(d.condition)+'</span>';
       html+='</div>';
       // التفاصيل
