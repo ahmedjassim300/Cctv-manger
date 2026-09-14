@@ -9468,14 +9468,50 @@ const RADIO_COND=['جيد جداً','جيد','مقبول','عطل','تالف'];
 //  🔐 سجل كلمات المرور — للمدير فقط، بقفل مزدوج (Hash)
 // ══════════════════════════════════════════════════════
 
-// دالة SHA-256 عبر Web Crypto API (متوفرة أصلاً بكل المتصفحات الحديثة، بدون مكتبات خارجية)
+// دالة SHA-256 القديمة — أُبقيت فقط للتحقق من كلمات مرور محفوظة بالنظام القديم أثناء الترقية التلقائية
 async function sha256Hash(text){
   const enc = new TextEncoder().encode(text);
   const buf = await crypto.subtle.digest('SHA-256', enc);
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
+// ── نظام الحماية الجديد (v2): PBKDF2 مع Salt عشوائي + تشفير AES-GCM لكلمات المرور نفسها ──
+function _vaultBufToHex(buf){ return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+function _vaultHexToBuf(hex){ const arr=new Uint8Array(hex.length/2); for(let i=0;i<arr.length;i++) arr[i]=parseInt(hex.substr(i*2,2),16); return arr.buffer; }
+function _vaultRandomSaltHex(){ return _vaultBufToHex(crypto.getRandomValues(new Uint8Array(16))); }
+const VAULT_PBKDF2_ITER = 150000;
+
+async function _vaultPbkdf2Bits(password, saltHex, iterations, bitLen){
+  const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), {name:'PBKDF2'}, false, ['deriveBits','deriveKey']);
+  return crypto.subtle.deriveBits({name:'PBKDF2', salt:_vaultHexToBuf(saltHex), iterations, hash:'SHA-256'}, keyMaterial, bitLen);
+}
+// هاش تحقّق كلمة مرور القسم (لا يُستخدم للتشفير أبداً — منفصل بلاحقة |verify)
+async function vaultVerifierHash(password, saltHex, iterations){
+  return _vaultBufToHex(await _vaultPbkdf2Bits(password+'|verify', saltHex, iterations, 256));
+}
+// مفتاح تشفير كلمات المرور المخزّنة (منفصل عن هاش التحقق بلاحقة |encrypt) — لا يُخزَّن أبداً، يُشتق بالذاكرة فقط
+async function deriveVaultKey(password, saltHex, iterations){
+  const bits = await _vaultPbkdf2Bits(password+'|encrypt', saltHex, iterations, 256);
+  return crypto.subtle.importKey('raw', bits, {name:'AES-GCM'}, false, ['encrypt','decrypt']);
+}
+async function encryptVaultString(key, plaintext){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, new TextEncoder().encode(plaintext));
+  return 'v1:'+_vaultBufToHex(iv)+':'+_vaultBufToHex(ct);
+}
+// فك تشفير — يمرّر القيمة كما هي إن كانت من النظام القديم (نص صريح غير مُشفَّر) للتوافق الخلفي
+async function decryptVaultString(key, combined){
+  if(!combined || typeof combined!=='string' || !combined.startsWith('v1:')) return combined||'';
+  const parts = combined.split(':');
+  const iv = new Uint8Array(_vaultHexToBuf(parts[1]));
+  const ct = _vaultHexToBuf(parts[2]);
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
+  return new TextDecoder().decode(pt);
+}
+
 let _pwVaultUnlocked = false; // يُعاد لـ false في كل مرة يغادر القسم — القفل يُطلب دائماً
+let _vaultKey = null;         // مفتاح AES بالذاكرة فقط — يُمسح عند القفل، لا يُخزَّن أبداً بأي مكان
+let _vaultPlainCache = {};    // {recordId: كلمة المرور المفكوكة} — للعرض والتصدير خلال الجلسة المفتوحة فقط
 
 const PWVAULT_DEVICE_TYPES = ['كاميرات','NVR','P2P','راوتر','سويچ','لابتوب','حاسوب','UPS','طابعة','كاميرا حرارية','أخرى'];
 
@@ -9509,7 +9545,7 @@ function showSetupVaultPassword(){
     <div class="panel" style="padding:20px">
       <div style="text-align:center;font-size:40px;margin-bottom:12px">🔒</div>
       <div style="text-align:center;font-weight:700;margin-bottom:16px">إنشاء كلمة مرور هذا القسم لأول مرة</div>
-      <div class="field"><label>كلمة مرور القسم</label><input type="password" id="vault-setup-pw" placeholder="اختر كلمة مرور قوية"></div>
+      <div class="field"><label>كلمة مرور القسم</label><input type="password" id="vault-setup-pw" placeholder="8 أحرف على الأقل"></div>
       <div class="field"><label>تأكيد كلمة المرور</label><input type="password" id="vault-setup-pw2" placeholder="أعد كتابتها"></div>
       <div id="vault-setup-err" style="color:var(--rd);font-size:13px;margin-bottom:8px;display:none"></div>
       <button class="btn btn-bl" style="width:100%" onclick="setupVaultPassword()">إنشاء وحفظ</button>
@@ -9521,13 +9557,23 @@ async function setupVaultPassword(){
   const pw = val('vault-setup-pw')||'';
   const pw2 = val('vault-setup-pw2')||'';
   const errEl = $('vault-setup-err');
-  if(pw.length<4){ errEl.style.display='block'; errEl.textContent='كلمة المرور قصيرة جداً (4 أحرف على الأقل)'; return; }
+  if(pw.length<8){ errEl.style.display='block'; errEl.textContent='كلمة المرور قصيرة جداً (8 أحرف على الأقل)'; return; }
   if(pw!==pw2){ errEl.style.display='block'; errEl.textContent='كلمتا المرور غير متطابقتين'; return; }
-  const hash = await sha256Hash(pw);
-  await fbSet('settings/vaultPasswordHash', hash);
-  logVaultAccess('تم إنشاء كلمة مرور القسم لأول مرة');
-  _pwVaultUnlocked = true;
-  renderPwVaultList();
+  const btn = document.querySelector('#vault-setup-err')?.parentElement?.querySelector('button');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ جار الإنشاء...'; }
+  try{
+    const salt = _vaultRandomSaltHex();
+    const hash = await vaultVerifierHash(pw, salt, VAULT_PBKDF2_ITER);
+    await fbSet('settings/vaultPasswordHash', {v:2, salt, iterations:VAULT_PBKDF2_ITER, hash});
+    _vaultKey = await deriveVaultKey(pw, salt, VAULT_PBKDF2_ITER);
+    _vaultPlainCache = {};
+    logVaultAccess('تم إنشاء كلمة مرور القسم لأول مرة (نظام حماية مقوّى)');
+    _pwVaultUnlocked = true;
+    renderPwVaultList();
+  }catch(e){
+    errEl.style.display='block'; errEl.textContent='تعذّر الإنشاء، تحقق من الاتصال وحاول مجدداً';
+    if(btn){ btn.disabled=false; btn.textContent='إنشاء وحفظ'; }
+  }
 }
 
 // شاشة القفل — تُعرض كل مرة يفتح القسم
@@ -9549,18 +9595,93 @@ function showVaultLockScreen(){
 async function unlockVault(){
   const pw = val('vault-unlock-pw')||'';
   const errEl = $('vault-unlock-err');
-  const snap = await FBDB.ref('cctv/settings/vaultPasswordHash').once('value');
-  const storedHash = snap.val();
-  const inputHash = await sha256Hash(pw);
-  if(inputHash===storedHash){
+  const btn = document.querySelector('#vault-unlock-err')?.parentElement?.querySelector('button.btn-bl');
+  errEl.style.display='none';
+  try{
+    const snap = await FBDB.ref('cctv/settings/vaultPasswordHash').once('value');
+    const stored = snap.val();
+    let ok = false;
+    let needsMigration = false;
+
+    if(stored && typeof stored==='object' && stored.v===2){
+      // النظام الجديد — تحقق مباشر ثم اشتقاق مفتاح التشفير من نفس كلمة المرور
+      const computed = await vaultVerifierHash(pw, stored.salt, stored.iterations);
+      if(computed===stored.hash){
+        ok = true;
+        _vaultKey = await deriveVaultKey(pw, stored.salt, stored.iterations);
+      }
+    } else if(typeof stored==='string' && stored){
+      // نظام قديم (SHA-256 بلا Salt) — تحقق بالطريقة القديمة، ثم ترقية فورية إذا نجح
+      const legacyHash = await sha256Hash(pw);
+      if(legacyHash===stored){ ok = true; needsMigration = true; }
+    }
+
+    if(!ok){
+      errEl.style.display='block';
+      errEl.textContent='كلمة المرور غير صحيحة';
+      logVaultAccess('⚠️ محاولة فتح فاشلة لقسم كلمات المرور');
+      return;
+    }
+
+    if(needsMigration){
+      if(btn){ btn.disabled=true; btn.textContent='⏳ جار ترقية الحماية...'; }
+      const migrated = await migrateVaultToV2(pw);
+      if(!migrated){
+        errEl.style.display='block';
+        errEl.textContent='تعذّر ترقية الحماية (تحقق من الاتصال)، حاول مرة أخرى';
+        if(btn){ btn.disabled=false; btn.textContent='فتح القسم'; }
+        return; // لا نفتح القسم إلا بعد نجاح الترقية بالكامل — لتفادي مفتاح غير محفوظ
+      }
+    }
+
+    await buildVaultPlainCache();
     _pwVaultUnlocked = true;
-    logVaultAccess('تم فتح قسم كلمات المرور بنجاح');
+    logVaultAccess('تم فتح قسم كلمات المرور بنجاح'+(needsMigration?' (مع ترقية الحماية)':''));
     renderPwVaultList();
-  } else {
+  }catch(e){
+    console.error('unlockVault error', e);
     errEl.style.display='block';
-    errEl.textContent='كلمة المرور غير صحيحة';
-    logVaultAccess('⚠️ محاولة فتح فاشلة لقسم كلمات المرور');
+    errEl.textContent='حدث خطأ غير متوقع، حاول مرة أخرى';
   }
+}
+
+// ترحيل ذري (كل شيء أو لا شيء) من النظام القديم: يشتق ملح وهاش ومفتاح جديد،
+// يعيد تشفير كل كلمات المرور المخزّنة كنص صريح، ويحفظ الكل بتحديث واحد ذري.
+// لا يُعتمد المفتاح الجديد إلا بعد نجاح الحفظ فعلياً في قاعدة البيانات.
+async function migrateVaultToV2(pw){
+  try{
+    const salt = _vaultRandomSaltHex();
+    const hash = await vaultVerifierHash(pw, salt, VAULT_PBKDF2_ITER);
+    const newKey = await deriveVaultKey(pw, salt, VAULT_PBKDF2_ITER);
+
+    const records = DB.pwVault || [];
+    const updates = {};
+    for(const r of records){
+      const plain = r.password||'';
+      if(plain && !String(plain).startsWith('v1:')){
+        updates['pwVault/'+r.id+'/password'] = await encryptVaultString(newKey, plain);
+      }
+    }
+    updates['settings/vaultPasswordHash'] = {v:2, salt, iterations:VAULT_PBKDF2_ITER, hash};
+
+    await fbUpdate('', updates); // تحديث متعدد المسارات — ذري في Firebase (الكل ينجح أو الكل يفشل)
+    _vaultKey = newKey; // لا نعتمده إلا بعد نجاح الحفظ أعلاه
+    return true;
+  }catch(e){
+    console.error('migrateVaultToV2 failed', e);
+    return false;
+  }
+}
+
+// يبني نسخة مفكوكة التشفير بالذاكرة فقط (لعرض/تصدير الجلسة الحالية) — لا تُكتب أبداً لقاعدة البيانات
+async function buildVaultPlainCache(){
+  const records = DB.pwVault || [];
+  const cache = {};
+  for(const r of records){
+    try{ cache[r.id] = await decryptVaultString(_vaultKey, r.password||''); }
+    catch(e){ cache[r.id] = r.password||''; } // فشل فك التشفير لسجل بعينه — نعرضه كما هو بدل كسر الواجهة كاملة
+  }
+  _vaultPlainCache = cache;
 }
 
 function logVaultAccess(action){
@@ -9575,6 +9696,8 @@ function logVaultAccess(action){
 // القفل اليدوي الفوري
 function lockVaultNow(){
   _pwVaultUnlocked = false;
+  _vaultKey = null;
+  _vaultPlainCache = {};
   logVaultAccess('تم قفل قسم كلمات المرور يدوياً');
   pgPwVault();
 }
@@ -9617,7 +9740,7 @@ function renderPwVaultList(){
           </div>
           ${r.username?`<div style="font-size:13px;color:var(--mt)">👤 ${esc(r.username)}</div>`:''}
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-            <span id="${pwId}" style="font-family:monospace;background:var(--bg);padding:4px 10px;border-radius:6px;flex:1" data-pw="${esc(r.password||'')}">••••••••</span>
+            <span id="${pwId}" style="font-family:monospace;background:var(--bg);padding:4px 10px;border-radius:6px;flex:1" data-pw="${esc(_vaultPlainCache[r.id]!==undefined?_vaultPlainCache[r.id]:(r.password||''))}">••••••••</span>
             <button class="btn btn-sm" onclick="togglePwVisibility('${pwId}')">👁️</button>
             <button class="btn btn-sm" onclick="copyPwVault('${pwId}')">📋</button>
           </div>
@@ -9667,33 +9790,39 @@ function openEditPwVault(idx){
     <div class="field"><label>نوع الجهاز</label><select id="pwv-type">${typesOptions}</select></div>
     <div class="field"><label>اسم المادة (اختياري)</label><input id="pwv-name" value="${esc(r.itemName||'')}" placeholder="مثال: لابتوب المكتب، NVR الرئيسي..."></div>
     <div class="field"><label>اسم المستخدم (اختياري)</label><input id="pwv-user" value="${esc(r.username||'')}"></div>
-    <div class="field"><label>كلمة المرور</label><input id="pwv-pass" value="${esc(r.password||'')}"></div>
+    <div class="field"><label>كلمة المرور</label><input id="pwv-pass" value="${esc(_vaultPlainCache[r.id]!==undefined?_vaultPlainCache[r.id]:(r.password||''))}"></div>
     <div class="field"><label>ملاحظات</label><textarea id="pwv-notes">${esc(r.notes||'')}</textarea></div>
     <button class="btn btn-bl" onclick="savePwVault('${r.id}')">💾 حفظ التعديل</button>`);
 }
 
-function savePwVault(existingId){
+async function savePwVault(existingId){
+  if(!_vaultKey){ toast('انتهت جلسة القسم، افتحه من جديد','err'); pgPwVault(); return; }
+  const plainPw = val('pwv-pass')||'';
+  if(!plainPw){ toast('كلمة المرور مطلوبة','err'); return; }
   // ⚠️ نعتمد على id ثابت (وليس index متغيّر بالمصفوفة) لتفادي الإشارة لعنصر خاطئ
   //    لو تغيّر ترتيب DB.pwVault بالخلفية أثناء فتح النموذج (نفس نمط الراديو/UAV الآمن)
   const list = DB.pwVault ? [...DB.pwVault] : [];
   const existing = existingId ? list.find(function(r){return r.id===existingId;}) : null;
   const id = existing ? existing.id : gid();
+  const btn = document.querySelector('.mft button.btn-bl, .mft button:not(.btn-gy)');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ جار الحفظ...'; }
+  let encPw;
+  try{ encPw = await encryptVaultString(_vaultKey, plainPw); }
+  catch(e){ toast('❌ فشل التشفير، أعد فتح القسم','err'); if(btn){ btn.disabled=false; btn.textContent=existing?'💾 حفظ التعديل':'💾 حفظ'; } return; }
   const rec = {
     id: id,
     site: val('pwv-site')||'',
     deviceType: val('pwv-type')||'',
     itemName: val('pwv-name')||'',
     username: val('pwv-user')||'',
-    password: val('pwv-pass')||'',
+    password: encPw,
     notes: val('pwv-notes')||'',
     updatedBy: CU.name,
     updatedAt: ts(),
     _ts: existing ? (existing._ts||Date.now()) : Date.now()
   };
-  if(!rec.password){ toast('كلمة المرور مطلوبة','err'); return; }
-  const btn = document.querySelector('.mft button.btn-bl, .mft button:not(.btn-gy)');
-  if(btn){ btn.disabled = true; btn.textContent = '⏳ جار الحفظ...'; }
   fbSet('pwVault/'+id, rec).then(function(){
+    _vaultPlainCache[id] = plainPw;
     logVaultAccess((existing?'تعديل':'إضافة')+' سجل كلمة مرور — '+rec.site+' / '+rec.deviceType);
     closeModal();
     toast('✅ تم الحفظ');
@@ -9727,7 +9856,8 @@ function exportPwVaultExcel(){
   const h = ['الموقع','نوع الجهاز','اسم المادة','اسم المستخدم','كلمة المرور','ملاحظات','آخر تحديث بواسطة','تاريخ التحديث'];
   let tableRows = '';
   records.forEach(function(r){
-    const row = [r.site||'', r.deviceType||'', r.itemName||'', r.username||'', r.password||'', r.notes||'', r.updatedBy||'', fmtDate(r.updatedAt||'')];
+    const plainPw = _vaultPlainCache[r.id]!==undefined ? _vaultPlainCache[r.id] : (r.password||'');
+    const row = [r.site||'', r.deviceType||'', r.itemName||'', r.username||'', plainPw, r.notes||'', r.updatedBy||'', fmtDate(r.updatedAt||'')];
     tableRows += '<tr>'+row.map(function(v){return '<td>'+String(v||'').replace(/</g,'&lt;')+'</td>';}).join('')+'</tr>';
   });
   const xls = '<html dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{width:100%;border-collapse:collapse}th{background:#8957e5;color:#fff;padding:9px 12px;text-align:right;font-size:18px;font-weight:600}td{border:1px solid #ddd;padding:8px 12px;font-size:16px}tr:nth-child(even) td{background:#f8f5ff}.summary{background:#f3eeff;border:1px solid #8957e5;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:16px}h2{font-size:18px;font-weight:600}</style></head><body>'
@@ -9760,17 +9890,52 @@ async function changeVaultPassword(){
   const nw = val('vault-new-pw')||'';
   const nw2 = val('vault-new-pw2')||'';
   const errEl = $('vault-change-err');
-  const snap = await FBDB.ref('cctv/settings/vaultPasswordHash').once('value');
-  const storedHash = snap.val();
-  const curHash = await sha256Hash(cur);
-  if(curHash!==storedHash){ errEl.style.display='block'; errEl.textContent='كلمة المرور الحالية غير صحيحة'; return; }
-  if(nw.length<4){ errEl.style.display='block'; errEl.textContent='كلمة المرور الجديدة قصيرة جداً'; return; }
+  errEl.style.display='none';
+  if(!_vaultKey){ errEl.style.display='block'; errEl.textContent='انتهت الجلسة، أغلق القسم وافتحه من جديد'; return; }
+  if(nw.length<8){ errEl.style.display='block'; errEl.textContent='كلمة المرور الجديدة قصيرة جداً (8 أحرف على الأقل)'; return; }
   if(nw!==nw2){ errEl.style.display='block'; errEl.textContent='كلمتا المرور الجديدتان غير متطابقتين'; return; }
-  const newHash = await sha256Hash(nw);
-  await fbSet('settings/vaultPasswordHash', newHash);
-  logVaultAccess('تم تغيير كلمة مرور القسم');
-  closeModal();
-  toast('✅ تم تحديث كلمة مرور القسم');
+
+  const btn = document.querySelector('.mft button.btn-bl');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ جار التحديث...'; }
+  try{
+    const snap = await FBDB.ref('cctv/settings/vaultPasswordHash').once('value');
+    const stored = snap.val();
+    let curOk = false;
+    if(stored && typeof stored==='object' && stored.v===2){
+      curOk = (await vaultVerifierHash(cur, stored.salt, stored.iterations)) === stored.hash;
+    } else if(typeof stored==='string' && stored){
+      curOk = (await sha256Hash(cur)) === stored;
+    }
+    if(!curOk){
+      errEl.style.display='block'; errEl.textContent='كلمة المرور الحالية غير صحيحة';
+      if(btn){ btn.disabled=false; btn.textContent='تحديث كلمة المرور'; }
+      return;
+    }
+
+    // نعيد تشفير كل السجلات المفكوكة بالجلسة الحالية (_vaultPlainCache) بمفتاح جديد،
+    // ونحفظ كل شيء (الهاش الجديد + كل كلمات المرور المعاد تشفيرها) بتحديث واحد ذري
+    const newSalt = _vaultRandomSaltHex();
+    const newHash = await vaultVerifierHash(nw, newSalt, VAULT_PBKDF2_ITER);
+    const newKey = await deriveVaultKey(nw, newSalt, VAULT_PBKDF2_ITER);
+
+    const records = DB.pwVault || [];
+    const updates = {};
+    for(const r of records){
+      const plain = _vaultPlainCache[r.id]!==undefined ? _vaultPlainCache[r.id] : (r.password||'');
+      if(plain) updates['pwVault/'+r.id+'/password'] = await encryptVaultString(newKey, plain);
+    }
+    updates['settings/vaultPasswordHash'] = {v:2, salt:newSalt, iterations:VAULT_PBKDF2_ITER, hash:newHash};
+
+    await fbUpdate('', updates); // ذري: إما كل التحديثات تنجح معاً أو لا شيء يتغيّر
+    _vaultKey = newKey; // لا يُعتمد إلا بعد نجاح الحفظ في القاعدة فعلاً
+    logVaultAccess('تم تغيير كلمة مرور القسم وإعادة تشفير '+records.length+' سجل');
+    closeModal();
+    toast('✅ تم تحديث كلمة مرور القسم');
+  }catch(e){
+    console.error('changeVaultPassword failed', e);
+    errEl.style.display='block'; errEl.textContent='فشل التحديث (تحقق من الاتصال)، لم يتغيّر شيء — حاول مرة أخرى';
+    if(btn){ btn.disabled=false; btn.textContent='تحديث كلمة المرور'; }
+  }
 }
 
 
