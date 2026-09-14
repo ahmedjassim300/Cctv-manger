@@ -534,6 +534,7 @@ tr:hover td{background:rgba(255,255,255,.025);}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -563,6 +564,7 @@ FBAUTH.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){
   console.warn('setPersistence error:', e);
 });
 const FBDB   = firebase.database();
+const FBST   = firebase.storage();
 let FBMSG = null;
 
 // ══ تفعيل الوضع الأوفلاين — Firebase يخزن البيانات محلياً ويتزامن عند الاتصال ══
@@ -603,6 +605,14 @@ function fbSet(path, val){ return FBDB.ref('cctv/'+path).set(val); }
 function fbUpdate(path, obj){ return FBDB.ref('cctv/'+path).update(obj); }
 function fbPush(path, obj){ const id=gid(); return FBDB.ref('cctv/'+path+'/'+id).set({...obj,id}).then(()=>id); }
 function fbDel(path){ return FBDB.ref('cctv/'+path).remove(); }
+
+// ── رفع ملف إلى Firebase Storage وإرجاع رابط تنزيله (بدل تضمين الملف كنص Base64 داخل قاعدة البيانات) ──
+// storagePath: مسار داخل الـ bucket، مثال: 'faults/abc123/photo_1699999999.jpg'
+async function fbUploadFile(storagePath, file){
+  const ref = FBST.ref().child(storagePath);
+  await ref.put(file);
+  return ref.getDownloadURL();
+}
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.L=null;console.warn('Leaflet failed to load - map disabled')"></script>
@@ -801,6 +811,16 @@ function toast(msg,type='ok'){
   clearTimeout(_tt);
   _tt=setTimeout(()=>el.style.display='none',3000);
 }
+
+// 🛡️ شبكة أمان عامة: أي عملية غير متزامنة تفشل (الأغلبية الساحقة من عمليات fbSet/fbUpdate
+// بالملف لا تتحقق من نجاح الحفظ إطلاقاً) كانت تفشل بصمت تام — المستخدم يظن أنها انحفظت وهي لم تنحفظ.
+// هذا المستمع يلتقط أي وعد (Promise) فشل ولم يتعامل معه أي كود آخر، ويُظهر تنبيهاً واضحاً بدلاً من الصمت.
+// لا يؤثر على الأماكن التي أصلاً عندها معالجة أخطاء خاصة بها (catch) — المتصفح لا يُطلق هذا الحدث إلا
+// عند عدم وجود أي معالجة للخطأ إطلاقاً.
+window.addEventListener('unhandledrejection', function(event){
+  console.error('عملية فشلت بدون معالجة:', event.reason);
+  toast('❌ لم يتم الحفظ — تحقق من الاتصال بالإنترنت وحاول مرة أخرى', 'err');
+});
 
 // ============================================
 //  MODAL
@@ -6488,26 +6508,40 @@ function openFaultPhotos(faultId){
   </div>`);
 }
 
-function uploadFaultPhoto(faultId, input){
+async function uploadFaultPhoto(faultId, input){
   const file = input.files[0];
   if(!file) return;
   if(file.size > 500*1024){ toast('الصورة كبيرة جداً (الحد 500KB)','err'); return; }
   toast('⏳ جار الرفع...');
-  const reader = new FileReader();
-  reader.onload = e=>{
-    const url = e.target.result;
+  try{
+    const storagePath = 'faults/'+faultId+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const url = await fbUploadFile(storagePath, file);
     const f = DB.faults.find(x=>x.id===faultId);
     const photos = [...(f?.photos||[]), {url, by:CU.name, time:ts()}];
-    fbUpdate('faults/'+faultId, {photos});
+    await fbUpdate('faults/'+faultId, {photos});
     logAct('رفع صورة عطل', f?.location+'/'+f?.pointId);
     closeModal();
     toast('✅ تم رفع الصورة');
-  };
-  reader.readAsDataURL(file);
+  }catch(e){
+    console.error('uploadFaultPhoto failed', e);
+    toast('❌ فشل رفع الصورة: '+(e.message||'تحقق من الاتصال'),'err');
+  }
 }
 
 function delFaultPhoto(faultId, idx){
-  confirmDel('حذف هذه الصورة نهائياً؟', `(()=>{const f=DB.faults.find(x=>x.id==='${faultId}');const photos=(f?.photos||[]).filter((_,i)=>i!==${idx});fbUpdate('faults/${faultId}',{photos});closeModal();toast('تم الحذف','err')})()`);
+  confirmDel('حذف هذه الصورة نهائياً؟', `_doDeleteFaultPhoto('${faultId}',${idx})`);
+}
+async function _doDeleteFaultPhoto(faultId, idx){
+  const f = DB.faults.find(x=>x.id===faultId);
+  const removed = (f?.photos||[])[idx];
+  const photos = (f?.photos||[]).filter((_,i)=>i!==idx);
+  await fbUpdate('faults/'+faultId,{photos});
+  // حذف الملف الفعلي من Storage (best-effort — لا نوقف العملية لو فشل، مثلاً صور قديمة مخزّنة كـ Base64)
+  if(removed?.url && removed.url.startsWith('https://')){
+    try{ await FBST.refFromURL(removed.url).delete(); }catch(e){ console.warn('تعذّر حذف الملف من Storage', e); }
+  }
+  closeModal();
+  toast('تم الحذف','err');
 }
 
 function viewPhoto(url){
@@ -7844,34 +7878,50 @@ function openAddDoc(){
   </div>`);
 }
 
-function uploadDoc(){
+async function uploadDoc(){
   const name = val('dc-name');
   const file = document.getElementById('dc-file')?.files[0];
   if(!name||!file){ toast('الاسم والملف مطلوبان','err'); return; }
   if(file.size > 2*1024*1024){ toast('الملف كبير جداً (الحد 2MB)','err'); return; }
   toast('⏳ جار الرفع...');
-  const reader = new FileReader();
-  reader.onload = e=>{
+  try{
     const id = gid();
+    const storagePath = 'docs/'+id+'/'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const url = await fbUploadFile(storagePath, file);
     const doc = {
-      id, name, url: e.target.result,
+      id, name, url,
       category: val('dc-cat'),
       site: val('dc-site'),
       notes: val('dc-notes'),
       by: CU.name, date: ts(), _ts: Date.now(),
       fileType: file.type, fileSize: Math.round(file.size/1024)+'KB'
     };
-    fbSet('docs/'+id, doc);
+    await fbSet('docs/'+id, doc);
     logAct('رفع مستند', name+' — '+doc.category);
     closeModal();
     toast('✅ تم رفع المستند');
     pgDocs();
-  };
-  reader.readAsDataURL(file);
+  }catch(e){
+    console.error('uploadDoc failed', e);
+    toast('❌ فشل رفع المستند: '+(e.message||'تحقق من الاتصال'),'err');
+  }
 }
 
 function delDoc(id){
-  confirmDel('حذف المستند نهائياً؟', `fbDel('docs/${id}');toast('تم الحذف','err');pgDocs()`);
+  confirmDel('حذف المستند نهائياً؟', `_doDeleteDoc('${id}')`);
+}
+async function _doDeleteDoc(id){
+  try{
+    const snap = await FBDB.ref('cctv/docs/'+id).once('value');
+    const doc = snap.val();
+    await fbDel('docs/'+id);
+    if(doc?.url && doc.url.startsWith('https://')){
+      try{ await FBST.refFromURL(doc.url).delete(); }catch(e){ console.warn('تعذّر حذف الملف من Storage', e); }
+    }
+  }finally{
+    toast('تم الحذف','err');
+    pgDocs();
+  }
 }
 
 
@@ -8361,12 +8411,12 @@ function openAddSiteItem(siteId, ptId, editItem){
   </div>`);
 }
 
-function saveSiteItem(siteId, ptId, itemId){
+async function saveSiteItem(siteId, ptId, itemId){
   const name = val('si-name');
   if(!name){ toast('اسم العنصر مطلوب','err'); return; }
   const file = document.getElementById('si-photo')?.files[0];
 
-  function doSave(photoData){
+  async function doSave(photoUrl){
     const id = itemId || gid();
     const data = {
       id, name,
@@ -8375,23 +8425,31 @@ function saveSiteItem(siteId, ptId, itemId){
       serial: val('si-serial')||'',
       status: val('si-status')||'يعمل',
       notes: val('si-notes')||'',
-      photo: photoData||'',
+      photo: photoUrl||'',
       by: CU.name, date: ts(), _ts: Date.now()
     };
-    fbSet('siteInventory/'+siteId+'/'+ptId+'/items/'+id, data);
+    await fbSet('siteInventory/'+siteId+'/'+ptId+'/items/'+id, data);
     logAct('جرد ثابت', name+' — '+data.status);
     closeModal();
     toast('✅ تم الحفظ');
     pgSiteInventory();
   }
 
-  if(file){
-    if(file.size > 500*1024){ toast('الصورة كبيرة — الحد 500KB','err'); return; }
-    const reader = new FileReader();
-    reader.onload = e => doSave(e.target.result);
-    reader.readAsDataURL(file);
-  } else {
-    doSave('');
+  try{
+    if(file){
+      if(file.size > 500*1024){ toast('الصورة كبيرة — الحد 500KB','err'); return; }
+      toast('⏳ جار الرفع...');
+      const storagePath = 'siteInventory/'+siteId+'/'+ptId+'/'+(itemId||gid())+'_'+Date.now();
+      const url = await fbUploadFile(storagePath, file);
+      await doSave(url);
+    } else {
+      // لم يُختر ملف جديد — نحافظ على الصورة الحالية بدل مسحها (كانت تُمسح سابقاً بالخطأ عند التعديل)
+      const existingPhoto = (itemId && DB.siteInventory?.[siteId]?.[ptId]?.items?.[itemId]?.photo) || '';
+      await doSave(existingPhoto);
+    }
+  }catch(e){
+    console.error('saveSiteItem failed', e);
+    toast('❌ فشل الحفظ: '+(e.message||'تحقق من الاتصال'),'err');
   }
 }
 
@@ -8430,7 +8488,16 @@ function openEditSiteItem(siteId, ptId, itemId){
 }
 
 function delSiteItem(siteId, ptId, itemId){
-  confirmDel('حذف هذا العنصر نهائياً؟', `fbDel('siteInventory/${siteId}/${ptId}/items/${itemId}');toast('تم الحذف');pgSiteInventory()`);
+  confirmDel('حذف هذا العنصر نهائياً؟', `_doDeleteSiteItem('${siteId}','${ptId}','${itemId}')`);
+}
+async function _doDeleteSiteItem(siteId, ptId, itemId){
+  const photoUrl = DB.siteInventory?.[siteId]?.[ptId]?.items?.[itemId]?.photo || '';
+  await fbDel('siteInventory/'+siteId+'/'+ptId+'/items/'+itemId);
+  if(photoUrl && photoUrl.startsWith('https://')){
+    try{ await FBST.refFromURL(photoUrl).delete(); }catch(e){ console.warn('تعذّر حذف الملف من Storage', e); }
+  }
+  toast('تم الحذف');
+  pgSiteInventory();
 }
 
 // ── تصدير الجرد ──
